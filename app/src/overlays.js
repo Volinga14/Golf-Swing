@@ -125,46 +125,98 @@ function drawGrid(ctx, width, height) {
 }
 
 function drawGuides(ctx, width, height, state) {
-  const guide = state.guide || { x: 0.5, y: 0.8, scale: 1 };
+  const guide = state.guide || { x: 0.5, y: 0.8, scale: 1, width: 1, footAngle: 0, rotation: -8 };
   const cx = width * guide.x;
   const groundY = height * guide.y;
-  const scale = guide.scale;
-  const rotation = Number.isFinite(guide.rotation) ? guide.rotation : 0;
+  const scale = guide.scale || 1;
+  const hipWidthScale = guide.width || 1;
+  const footAngle = Number.isFinite(guide.footAngle) ? guide.footAngle : 0;
+  const clubAngle = Number.isFinite(guide.rotation) ? guide.rotation : 0;
+
   const stance = width * 0.18 * scale;
-  const bodyHeight = height * 0.52 * scale;
-  const bodyWidth = width * 0.18 * scale;
+  const footLineLength = width * 0.46 * scale;
+  const headToHipHeight = height * 0.39 * scale;
+  const hipY = groundY - height * 0.23 * scale;
+  const headY = Math.max(8, hipY - headToHipHeight);
+  const bodyWidth = width * 0.17 * scale * hipWidthScale;
+  const bodyX = cx - bodyWidth / 2;
+  const bodyRadius = Math.max(10, width * 0.012);
+  const shoulderY = headY + headToHipHeight * 0.28;
+  const hipLineY = hipY;
+  const ballX = cx + stance * 0.78;
+  const ballY = groundY - height * 0.025 * scale;
 
   ctx.save();
   ctx.lineWidth = Math.max(2, width * 0.003);
-  ctx.strokeStyle = "rgba(215, 181, 109, 0.82)";
-  line(ctx, Math.max(0, cx - stance * 1.6), groundY, Math.min(width, cx + stance * 1.6), groundY);
+  ctx.font = `${Math.max(11, width * 0.012)}px Inter, sans-serif`;
+  ctx.textBaseline = "middle";
 
-  ctx.setLineDash([10, 10]);
-  ctx.strokeStyle = "rgba(247, 242, 220, 0.45)";
-  line(ctx, cx - stance, groundY - bodyHeight * 0.04, cx + stance, groundY - bodyHeight * 0.04);
-  line(ctx, cx, groundY, cx, Math.max(0, groundY - bodyHeight));
-
-  ctx.setLineDash([]);
-  ctx.strokeStyle = "rgba(255, 250, 240, 0.72)";
-  roundRect(ctx, cx - bodyWidth / 2, groundY - bodyHeight, bodyWidth, bodyHeight, 18);
+  // Main body box: user should align top with head and lower edge with hips/seat.
+  ctx.strokeStyle = "rgba(255, 250, 240, 0.86)";
+  ctx.fillStyle = "rgba(255, 250, 240, 0.055)";
+  roundRect(ctx, bodyX, headY, bodyWidth, hipY - headY, bodyRadius);
+  ctx.fill();
   ctx.stroke();
 
-  ctx.strokeStyle = state.viewType === "DTL" ? "rgba(121, 173, 220, 0.78)" : "rgba(131, 197, 190, 0.78)";
-  ctx.setLineDash([8, 9]);
+  ctx.setLineDash([8, 8]);
+  ctx.strokeStyle = "rgba(255, 250, 240, 0.46)";
+  line(ctx, bodyX - bodyWidth * 0.25, headY, bodyX + bodyWidth * 1.25, headY);
+  line(ctx, bodyX - bodyWidth * 0.25, hipLineY, bodyX + bodyWidth * 1.25, hipLineY);
+  line(ctx, cx, headY, cx, groundY);
+  ctx.setLineDash([]);
+
+  ctx.fillStyle = "rgba(255, 250, 240, 0.9)";
+  labelPill(ctx, "cabeza", bodyX + bodyWidth + 8, headY, width);
+  labelPill(ctx, "caderas / culo", bodyX + bodyWidth + 8, hipLineY, width);
+
+  // Feet direction: a simple rotatable baseline for stance/target alignment.
+  ctx.strokeStyle = "rgba(215, 181, 109, 0.92)";
+  ctx.fillStyle = "rgba(215, 181, 109, 0.95)";
+  rotatedLine(ctx, cx, groundY, footLineLength, (footAngle * Math.PI) / 180);
+  labelPill(ctx, `pies ${Math.round(footAngle)}°`, Math.max(8, cx - footLineLength * 0.5), groundY - 18, width);
+
+  // Ball marker.
+  ctx.beginPath();
+  ctx.arc(ballX, ballY, Math.max(4, width * 0.0045), 0, Math.PI * 2);
+  ctx.fillStyle = "rgba(255, 250, 240, 0.92)";
+  ctx.fill();
+
+  // Club/shaft angle guide. In DTL it represents swing plane; in FO it works as approximate shaft lean.
+  ctx.strokeStyle = state.viewType === "DTL" ? "rgba(121, 173, 220, 0.88)" : "rgba(131, 197, 190, 0.88)";
+  ctx.setLineDash([10, 8]);
+  const clubBaseAngle = state.viewType === "FO" ? -78 : -62;
+  const clubLength = Math.max(width, height) * 0.56 * scale;
+  const clubOriginX = ballX - stance * 0.05;
+  const clubOriginY = ballY;
+  rotatedLine(ctx, clubOriginX, clubOriginY, clubLength, ((clubBaseAngle + clubAngle) * Math.PI) / 180);
+  ctx.setLineDash([]);
+  labelPill(ctx, `palo ${Math.round(clubAngle)}°`, Math.min(width - 130, clubOriginX + 10), Math.max(18, clubOriginY - height * 0.24 * scale), width);
+
+  // Light reference lines for shoulders/hips in face-on.
   if (state.viewType === "FO") {
-    line(ctx, cx - stance, groundY, cx - stance, groundY - bodyHeight * 0.75);
-    line(ctx, cx + stance, groundY, cx + stance, groundY - bodyHeight * 0.75);
-  } else {
-    const planeAngle = (-62 + rotation) * (Math.PI / 180);
-    const planeLength = Math.max(width, height) * 0.55 * scale;
-    const planeX = cx + stance * 0.24;
-    const planeY = groundY - bodyHeight * 0.35;
-    rotatedLine(ctx, planeX, planeY, planeLength, planeAngle);
+    ctx.strokeStyle = "rgba(131, 197, 190, 0.42)";
+    line(ctx, bodyX - bodyWidth * 0.35, shoulderY, bodyX + bodyWidth * 1.35, shoulderY);
+    line(ctx, bodyX - bodyWidth * 0.35, hipY, bodyX + bodyWidth * 1.35, hipY);
   }
 
-  ctx.fillStyle = "rgba(255, 250, 240, 0.86)";
-  ctx.font = `${Math.max(11, width * 0.012)}px Inter, sans-serif`;
-  ctx.fillText(`Alinea pies y bola · rot ${Math.round(rotation)}°`, Math.max(8, cx - stance * 1.6), Math.max(18, groundY - bodyHeight - 10));
+  ctx.restore();
+}
+
+function labelPill(ctx, text, x, y, width) {
+  const paddingX = 7;
+  const paddingY = 4;
+  const metrics = ctx.measureText(text);
+  const fontSize = Number((ctx.font.match(/(\d+(?:\.\d+)?)px/) || [0, 12])[1]);
+  const pillWidth = metrics.width + paddingX * 2;
+  const pillHeight = fontSize + paddingY * 2;
+  const safeX = Math.max(6, Math.min(width - pillWidth - 6, x));
+  const safeY = Math.max(pillHeight / 2 + 4, y);
+  ctx.save();
+  ctx.fillStyle = "rgba(6, 20, 18, 0.74)";
+  roundRect(ctx, safeX, safeY - pillHeight / 2, pillWidth, pillHeight, pillHeight / 2);
+  ctx.fill();
+  ctx.fillStyle = "rgba(255, 250, 240, 0.92)";
+  ctx.fillText(text, safeX + paddingX, safeY + 0.5);
   ctx.restore();
 }
 

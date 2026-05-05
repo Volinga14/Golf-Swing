@@ -54,3 +54,14 @@ v0.6 debería integrar detección corporal real con landmarks, mejorar la detecc
 ## v0.5.5 Flow redesign
 
 This build introduces a mobile-first, video-first guided UX: home screen, automatic initial framing, phase-by-phase confirmation, sticky next-step card, and a secondary metrics/report drawer.
+
+## v0.5.5 Phase & guide polish
+
+This iteration refines the redesigned flow for real mobile use:
+
+- Direct phase navigation: tap Address, Top, Impact or Finish to jump to that phase.
+- Contextual phase controls: only the active phase shows its controls.
+- One-tap phase confirmation: “Confirmar frame actual” marks and confirms the selected frame at the same time.
+- In-video drawing controls: select, line, angle, clear, guide, phases and grid controls are now inside the video area so they remain usable in fullscreen.
+- Improved framing guide: body box now represents head-to-hips/seat, with separate feet-direction and club-angle guides.
+- Updated guide example SVG to explain the new alignment logic.

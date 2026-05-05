@@ -50,6 +50,12 @@ const els = {
   flowBackAction: document.querySelector("#flowBackAction"),
   videoScreenTitle: document.querySelector("#videoScreenTitle"),
   phaseReviewPanel: document.querySelector("#phaseReviewPanel"),
+  phaseQuickNav: document.querySelector("#phaseQuickNav"),
+  videoOverlayToolbar: document.querySelector("#videoOverlayToolbar"),
+  fitControlsOverlay: document.querySelector("#fitControlsOverlay"),
+  guideControls: document.querySelectorAll("[data-guide-control]"),
+  overlayToggleButtons: document.querySelectorAll("[data-overlay-toggle]"),
+  clearMarkButtons: document.querySelectorAll("[data-clear-marks]"),
   phaseProgressLabel: document.querySelector("#phaseProgressLabel"),
   phaseCoachTitle: document.querySelector("#phaseCoachTitle"),
   phaseCoachText: document.querySelector("#phaseCoachText"),
@@ -102,6 +108,8 @@ const els = {
     x: document.querySelector("#guideX"),
     y: document.querySelector("#guideY"),
     scale: document.querySelector("#guideScale"),
+    width: document.querySelector("#guideWidth"),
+    footAngle: document.querySelector("#guideFootAngle"),
     rotation: document.querySelector("#guideRotation")
   },
   manualMetricInputs: {
@@ -204,6 +212,8 @@ const state = {
     x: 0.5,
     y: 0.8,
     scale: 1,
+    width: 1,
+    footAngle: 0,
     rotation: -8
   },
   overlay: {
@@ -365,7 +375,8 @@ function resetSession() {
     isMarkingBallLaunch: false,
     videoAnalysis: null,
     isAnalyzing: false,
-    isDetectingBall: false
+    isDetectingBall: false,
+    guide: { x: 0.5, y: 0.8, scale: 1, width: 1, footAngle: 0, rotation: -8 }
   });
   els.videoFileName.textContent = "MP4, MOV o WebM";
   const emptyPreview = els.emptyStage.querySelector("img");
@@ -413,8 +424,8 @@ function bindEvents() {
   els.flowPrimaryAction?.addEventListener("click", () => handleFlowPrimaryAction());
   els.flowSecondaryAction?.addEventListener("click", () => handleFlowSecondaryAction());
   els.flowBackAction?.addEventListener("click", () => moveFlowBack());
-  els.confirmPhaseBtn?.addEventListener("click", () => confirmCurrentPhase(false));
-  els.nextPhaseBtn?.addEventListener("click", () => confirmCurrentPhase(true));
+  els.confirmPhaseBtn?.addEventListener("click", () => confirmPhaseAtCurrentFrame(true));
+  els.nextPhaseBtn?.addEventListener("click", () => acceptCurrentPhaseProposal(true));
   els.changePhaseBtn?.addEventListener("click", () => changeCurrentPhaseToCurrentFrame());
   els.refreshAppBtn?.addEventListener("click", () => {
     if (navigator.serviceWorker?.controller) navigator.serviceWorker.controller.postMessage({ type: "SKIP_WAITING" });
@@ -539,46 +550,65 @@ function bindEvents() {
     });
   });
 
+  document.querySelectorAll("[data-phase-select]").forEach((button) => {
+    button.addEventListener("click", () => selectPhase(button.dataset.phaseSelect));
+  });
+
   els.eventGrid.addEventListener("click", (event) => {
     const jumpButton = event.target.closest("[data-event-jump]");
-    const markButton = event.target.closest("[data-event-mark]");
-    if (jumpButton) jumpToEvent(jumpButton.dataset.eventJump);
-    if (markButton) markEvent(markButton.dataset.eventMark);
+    const acceptButton = event.target.closest("[data-phase-accept]");
+    const confirmButton = event.target.closest("[data-phase-confirm-current]");
+    if (jumpButton) selectPhase(jumpButton.dataset.eventJump);
+    if (acceptButton) {
+      selectPhase(acceptButton.dataset.phaseAccept, { seek: false });
+      acceptCurrentPhaseProposal(true);
+    }
+    if (confirmButton) {
+      selectPhase(confirmButton.dataset.phaseConfirmCurrent, { seek: false });
+      confirmPhaseAtCurrentFrame(true);
+    }
   });
 
   els.toolButtons.forEach((button) => {
-    button.addEventListener("click", () => {
-      els.toolButtons.forEach((item) => item.classList.remove("is-active"));
-      button.classList.add("is-active");
-      overlay.setTool(button.dataset.tool);
-    });
+    button.addEventListener("click", () => setOverlayTool(button.dataset.tool));
   });
 
   els.clearMarksBtn.addEventListener("click", () => overlay.clear());
+  els.clearMarkButtons.forEach((button) => button.addEventListener("click", () => overlay.clear()));
+  els.overlayToggleButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      const key = button.dataset.overlayToggle;
+      if (!(key in state.overlay)) return;
+      state.overlay[key] = !state.overlay[key];
+      syncOverlayButtons();
+      overlay.render();
+    });
+  });
   els.toggleGuide.addEventListener("change", () => {
     state.overlay.guide = els.toggleGuide.checked;
+    syncOverlayButtons();
     overlay.render();
   });
   els.toggleEvents.addEventListener("change", () => {
     state.overlay.events = els.toggleEvents.checked;
+    syncOverlayButtons();
     overlay.render();
   });
   els.toggleGrid.addEventListener("change", () => {
     state.overlay.grid = els.toggleGrid.checked;
+    syncOverlayButtons();
     overlay.render();
   });
 
-  Object.entries(els.guideInputs).forEach(([key, input]) => {
+  els.guideControls.forEach((input) => {
     input.addEventListener("input", () => {
-      if (key === "x") state.guide.x = Number(input.value) / 100;
-      if (key === "y") state.guide.y = Number(input.value) / 100;
-      if (key === "scale") state.guide.scale = Number(input.value) / 100;
-      if (key === "rotation") state.guide.rotation = Number(input.value);
+      updateGuideFromControl(input.dataset.guideControl, input.value);
+      syncGuideInputs(input);
       overlay.render();
     });
   });
   els.centerGuideBtn.addEventListener("click", () => {
-    state.guide = { x: 0.5, y: state.orientation === "vertical" ? 0.83 : 0.8, scale: 1, rotation: state.viewType === "DTL" ? -8 : 0 };
+    state.guide = defaultGuide();
     syncGuideInputs();
     overlay.render();
   });
@@ -689,6 +719,33 @@ function bindEvents() {
   });
 }
 
+function setOverlayTool(tool) {
+  overlay.setTool(tool);
+  els.toolButtons.forEach((item) => item.classList.toggle("is-active", item.dataset.tool === tool));
+}
+
+function syncOverlayButtons() {
+  els.overlayToggleButtons.forEach((button) => {
+    const key = button.dataset.overlayToggle;
+    button.classList.toggle("is-active", Boolean(state.overlay[key]));
+  });
+  if (els.toggleGuide) els.toggleGuide.checked = Boolean(state.overlay.guide);
+  if (els.toggleEvents) els.toggleEvents.checked = Boolean(state.overlay.events);
+  if (els.toggleGrid) els.toggleGrid.checked = Boolean(state.overlay.grid);
+}
+
+function selectPhase(eventName, options = {}) {
+  const index = PHASE_SEQUENCE.indexOf(eventName);
+  if (index < 0) return;
+  state.activePhaseIndex = index;
+  state.flowStep = "events";
+  const frame = state.events[eventName];
+  if (options.seek !== false && Number.isFinite(frame) && state.videoObjectUrl) player.seekFrame(frame);
+  renderEvents();
+  renderPhaseCoach();
+  renderActionStates();
+}
+
 async function runAutoAnalysis() {
   if (!state.videoObjectUrl || !state.duration) return;
   const token = (analysisToken += 1);
@@ -787,9 +844,11 @@ function renderEvents() {
     const strong = card.querySelector("strong");
     const small = card.querySelector("small");
     const meta = state.eventMeta[eventName];
+    const isActive = PHASE_SEQUENCE[state.activePhaseIndex] === eventName;
     card.classList.toggle("is-set", Number.isFinite(frame));
     card.classList.toggle("is-reviewed", Boolean(state.reviewedEvents[eventName]));
-    card.classList.toggle("is-active", PHASE_SEQUENCE[state.activePhaseIndex] === eventName);
+    card.classList.toggle("is-active", isActive);
+    card.querySelector(".phase-local-actions")?.classList.toggle("is-visible", isActive);
     const sourceLabel = {
       manual: "Manual",
       aprendizaje: "Base local",
@@ -799,8 +858,17 @@ function renderEvents() {
     }[meta?.source] || "Auto";
     strong.textContent = Number.isFinite(frame) ? `${frame} · ${formatTime(frame / state.fps)}` : "Sin detectar";
     small.textContent = Number.isFinite(frame)
-      ? `${sourceLabel} · ${meta?.confidence ?? 0}%`
+      ? `${sourceLabel} · ${meta?.confidence ?? 0}%${state.reviewedEvents[eventName] ? " · OK" : ""}`
       : phaseDescription(eventName);
+  });
+  els.phaseQuickNav?.querySelectorAll("[data-phase-select]").forEach((button) => {
+    const eventName = button.dataset.phaseSelect;
+    const frame = state.events[eventName];
+    button.classList.toggle("is-active", PHASE_SEQUENCE[state.activePhaseIndex] === eventName);
+    button.classList.toggle("is-reviewed", Boolean(state.reviewedEvents[eventName]));
+    button.classList.toggle("is-set", Number.isFinite(frame));
+    const strong = button.querySelector("strong");
+    if (strong) strong.textContent = Number.isFinite(frame) ? String(frame) : "—";
   });
 }
 
@@ -899,8 +967,12 @@ function renderActionStates() {
   els.frameSlider.disabled = !hasPlayableVideo;
   els.playbackRate.disabled = !hasPlayableVideo;
   els.saveCorrectionBtn.disabled = !state.metrics.eventsComplete;
-  document.querySelectorAll("[data-event-mark]").forEach((button) => {
+  document.querySelectorAll("[data-phase-confirm-current]").forEach((button) => {
     button.disabled = !hasPlayableVideo;
+  });
+  document.querySelectorAll("[data-phase-accept]").forEach((button) => {
+    const frame = state.events[button.dataset.phaseAccept];
+    button.disabled = !hasPlayableVideo || !Number.isFinite(frame);
   });
   document.querySelectorAll("[data-metric-frame]").forEach((button) => {
     const frame = state.events[button.dataset.metricFrame];
@@ -911,9 +983,10 @@ function renderActionStates() {
     button.disabled = !hasPlayableVideo || !Number.isFinite(frame);
   });
   const currentEvent = PHASE_SEQUENCE[state.activePhaseIndex];
-  if (els.confirmPhaseBtn) els.confirmPhaseBtn.disabled = !hasPlayableVideo || !Number.isFinite(state.events[currentEvent]);
+  if (els.confirmPhaseBtn) els.confirmPhaseBtn.disabled = !hasPlayableVideo;
   if (els.nextPhaseBtn) els.nextPhaseBtn.disabled = !hasPlayableVideo || !Number.isFinite(state.events[currentEvent]);
   if (els.changePhaseBtn) els.changePhaseBtn.disabled = !hasPlayableVideo;
+  syncOverlayButtons();
 }
 
 
@@ -930,6 +1003,7 @@ function syncControls() {
   syncCaptureInputs();
   syncMetricControls();
   syncGuideInputs();
+  syncOverlayButtons();
 }
 
 function syncCaptureInputs() {
@@ -955,11 +1029,39 @@ function syncMetricControls() {
   });
 }
 
-function syncGuideInputs() {
-  els.guideInputs.x.value = Math.round(state.guide.x * 100);
-  els.guideInputs.y.value = Math.round(state.guide.y * 100);
-  els.guideInputs.scale.value = Math.round(state.guide.scale * 100);
-  els.guideInputs.rotation.value = Math.round(state.guide.rotation || 0);
+function syncGuideInputs(sourceInput = null) {
+  els.guideControls.forEach((input) => {
+    if (input === sourceInput) return;
+    const key = input.dataset.guideControl;
+    if (key === "x") input.value = Math.round(state.guide.x * 100);
+    if (key === "y") input.value = Math.round(state.guide.y * 100);
+    if (key === "scale") input.value = Math.round(state.guide.scale * 100);
+    if (key === "width") input.value = Math.round((state.guide.width || 1) * 100);
+    if (key === "footAngle") input.value = Math.round(state.guide.footAngle || 0);
+    if (key === "rotation") input.value = Math.round(state.guide.rotation || 0);
+  });
+}
+
+function updateGuideFromControl(key, rawValue) {
+  const value = Number(rawValue);
+  if (key === "x") state.guide.x = value / 100;
+  if (key === "y") state.guide.y = value / 100;
+  if (key === "scale") state.guide.scale = value / 100;
+  if (key === "width") state.guide.width = value / 100;
+  if (key === "footAngle") state.guide.footAngle = value;
+  if (key === "rotation") state.guide.rotation = value;
+}
+
+function defaultGuide() {
+  const isPortrait = state.orientation === "vertical";
+  return {
+    x: 0.5,
+    y: isPortrait ? 0.84 : 0.8,
+    scale: isPortrait ? 0.96 : 1,
+    width: isPortrait ? 0.94 : 1,
+    footAngle: 0,
+    rotation: state.viewType === "DTL" ? -8 : 0
+  };
 }
 
 function updateOrientationUi() {
@@ -995,7 +1097,7 @@ function renderFlowUi() {
     frame: ["Paso 2", "Encaja el swing", "He aplicado un encaje automático inicial. Ajusta la guía sobre el propio vídeo si cuerpo, bola o plano no quedan bien.", "Encaje correcto", "Recentrar guía"],
     quality: ["Paso 3", "Revisa la calidad", "Marca si el jugador, bola y palo se ven bien. Esto condiciona la confianza de las recomendaciones.", "Calidad revisada", "Ver checks"],
     analyze: ["Paso 4", "Analiza el vídeo", "La app buscará movimiento y sugerirá address, top, impact y finish. Luego podrás confirmar o cambiar cada fase.", "Analizar ahora", "Dibujar primero"],
-    events: ["Paso 5", "Confirma las fases", "Revisa una a una las fases propuestas. Puedes saltar, confirmar o cambiar la fase al frame actual.", "Confirmar fase", "Ver todas"],
+    events: ["Paso 5", "Confirma las fases", "Toca cualquier fase para ir directo. En cada fase activa puedes aceptar la propuesta o confirmar el frame actual en un solo gesto.", "Confirmar frame actual", "Ver fases"],
     report: ["Paso 6", "Revisa vídeo o métricas", "Puedes quedarte dibujando sobre el swing o bajar al panel de métricas y recomendaciones.", "Ver métricas", "Seguir dibujando"],
     save: ["Paso 7", "Guarda o exporta", "Guarda la sesión con miniatura y cuatro frames clave, o exporta JSON, CSV y PNG.", "Guardar sesión", "Exportar JSON"]
   };
@@ -1027,7 +1129,7 @@ function handleFlowPrimaryAction() {
     return;
   }
   if (step === "analyze") return runAutoAnalysis();
-  if (step === "events") return confirmCurrentPhase(true);
+  if (step === "events") return confirmPhaseAtCurrentFrame(true);
   if (step === "report") return document.querySelector(".report-rail")?.scrollIntoView({ behavior: "smooth", block: "start" });
   if (step === "save") return els.saveSessionBtn?.click();
 }
@@ -1041,8 +1143,7 @@ function handleFlowSecondaryAction() {
   }
   if (step === "quality") return els.captureChecks?.scrollIntoView({ behavior: "smooth", block: "center" });
   if (step === "analyze") {
-    overlay.setTool("line");
-    els.toolButtons.forEach((item) => item.classList.toggle("is-active", item.dataset.tool === "line"));
+    setOverlayTool("line");
     els.analysisStatus.textContent = "Herramienta línea activada. Dibuja sobre el vídeo y analiza después.";
     return;
   }
@@ -1063,12 +1164,7 @@ function moveFlowBack() {
 function autoFitGuide(force = false) {
   if (!state.videoObjectUrl && !force) return;
   const isPortrait = state.orientation === "vertical";
-  state.guide = {
-    x: 0.5,
-    y: isPortrait ? 0.84 : 0.8,
-    scale: isPortrait ? 0.96 : 1,
-    rotation: state.viewType === "DTL" ? -8 : 0
-  };
+  state.guide = defaultGuide();
   syncGuideInputs();
   overlay.render();
   els.analysisStatus.textContent = "Encaje automático aplicado. Ajusta los sliders si la guía no coincide con cuerpo, bola o plano.";
@@ -1097,28 +1193,43 @@ function renderPhaseCoach() {
   const frame = state.events[eventName];
   if (els.phaseCoachText) {
     els.phaseCoachText.textContent = Number.isFinite(frame)
-      ? `La app propone el frame ${frame}. Confírmalo si corresponde o busca otro punto en la línea temporal y pulsa “Usar frame actual”.`
-      : `No hay frame para ${label}. Busca el punto correcto en el vídeo y pulsa “Usar frame actual”.`;
+      ? `Propuesta: frame ${frame}. Los controles aparecen solo en la tarjeta activa. Si has buscado otro punto, pulsa “Confirmar frame actual” y queda marcado/confirmado a la vez.`
+      : `Sin propuesta para ${label}. Busca el punto correcto en el vídeo y usa “Confirmar frame actual” en la tarjeta activa.`;
   }
 }
 
-function confirmCurrentPhase(advance) {
+function acceptCurrentPhaseProposal(advance = true) {
   const eventName = currentPhaseName();
   if (!Number.isFinite(state.events[eventName])) return;
   state.reviewedEvents[eventName] = true;
   if (!state.eventMeta[eventName]) state.eventMeta[eventName] = {};
   state.eventMeta[eventName].reviewed = true;
+  state.eventMeta[eventName].accepted = true;
+  els.analysisStatus.textContent = `${EVENT_LABELS[eventName]} confirmado con la propuesta de la app.`;
+  advanceAfterPhase(advance);
+}
+
+function confirmPhaseAtCurrentFrame(advance = true) {
+  const eventName = currentPhaseName();
+  if (!state.videoObjectUrl || !state.metrics.hasVideo) return;
+  state.events[eventName] = state.currentFrame;
+  state.eventMeta[eventName] = { source: "manual", confidence: 96, note: "Frame confirmado por el usuario", reviewed: true, accepted: false };
+  state.reviewedEvents[eventName] = true;
+  els.analysisStatus.textContent = `${EVENT_LABELS[eventName]} marcado y confirmado en el frame ${state.currentFrame}.`;
+  advanceAfterPhase(advance);
+}
+
+function advanceAfterPhase(advance) {
   if (advance) {
     const next = PHASE_SEQUENCE.findIndex((name, index) => index > state.activePhaseIndex && !state.reviewedEvents[name]);
     if (next >= 0) {
       state.activePhaseIndex = next;
+      updateAnalysis();
       focusCurrentPhase();
-    } else {
-      state.flowStep = "report";
-      els.analysisStatus.textContent = "Fases confirmadas. Puedes revisar métricas o seguir dibujando sobre el vídeo.";
+      return;
     }
-  } else {
-    els.analysisStatus.textContent = `${EVENT_LABELS[eventName]} confirmado.`;
+    state.flowStep = "report";
+    els.analysisStatus.textContent = "Fases confirmadas. Puedes revisar métricas o seguir dibujando sobre el vídeo.";
   }
   updateAnalysis();
 }
@@ -1126,7 +1237,7 @@ function confirmCurrentPhase(advance) {
 function changeCurrentPhaseToCurrentFrame() {
   const eventName = currentPhaseName();
   markEvent(eventName);
-  els.analysisStatus.textContent = `${EVENT_LABELS[eventName]} cambiado al frame actual. Confírmalo para continuar.`;
+  els.analysisStatus.textContent = `${EVENT_LABELS[eventName]} preparado en el frame actual. Pulsa confirmar para dejarlo revisado.`;
   renderPhaseCoach();
 }
 

@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#061412" />
-    <title>Swing Lab AI v0.5.5 · Flow redesign</title>
+    <title>Swing Lab AI v0.5.5 · Phase guide polish</title>
     <link rel="manifest" href="./manifest.json" />
     <link rel="stylesheet" href="./styles/main.css" />
   </head>
@@ -113,6 +113,39 @@
             <div class="stage" id="stage">
               <video id="swingVideo" playsinline muted preload="metadata"></video>
               <canvas id="overlayCanvas"></canvas>
+
+              <div class="video-overlay-toolbar" id="videoOverlayToolbar" aria-label="Herramientas dentro del vídeo">
+                <div class="video-tool-group" role="group" aria-label="Dibujo">
+                  <button type="button" class="is-active" data-tool="select" title="Mover/revisar" aria-label="Mover/revisar">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l7.5 18 2.2-7.3L20 11.5 3 3Z" /></svg>
+                  </button>
+                  <button type="button" data-tool="line" title="Dibujar línea" aria-label="Dibujar línea">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19L19 5" /></svg>
+                  </button>
+                  <button type="button" data-tool="angle" title="Medir ángulo" aria-label="Medir ángulo">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19l7-14 7 14" /></svg>
+                  </button>
+                  <button type="button" data-clear-marks title="Borrar dibujos" aria-label="Borrar dibujos">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2M6 6l1 15h10l1-15" /></svg>
+                  </button>
+                </div>
+                <div class="video-toggle-group" role="group" aria-label="Capas visibles">
+                  <button type="button" class="is-active" data-overlay-toggle="guide">Guía</button>
+                  <button type="button" class="is-active" data-overlay-toggle="events">Fases</button>
+                  <button type="button" data-overlay-toggle="grid">Grid</button>
+                </div>
+              </div>
+
+              <div class="fit-controls-overlay" id="fitControlsOverlay" aria-label="Encaje rápido">
+                <strong>Encaje</strong>
+                <span>Cabeza ↔ caderas/culo · pies · palo</span>
+                <label>Centro<input data-guide-control="x" type="range" min="20" max="80" value="50" /></label>
+                <label>Altura<input data-guide-control="scale" type="range" min="70" max="140" value="100" /></label>
+                <label>Ancho<input data-guide-control="width" type="range" min="70" max="145" value="100" /></label>
+                <label>Pies<input data-guide-control="footAngle" type="range" min="-25" max="25" value="0" /></label>
+                <label>Palo<input data-guide-control="rotation" type="range" min="-35" max="20" value="-8" /></label>
+              </div>
+
               <div class="empty-stage" id="emptyStage">
                 <img src="./assets/swing-guide.svg" alt="" />
                 <div>
@@ -120,6 +153,13 @@
                   <h2>Sube un vídeo y sigue la secuencia</h2>
                 </div>
               </div>
+            </div>
+
+            <div class="phase-quick-nav" id="phaseQuickNav" aria-label="Saltar a fases">
+              <button type="button" data-phase-select="address"><span>Address</span><strong>—</strong></button>
+              <button type="button" data-phase-select="top"><span>Top</span><strong>—</strong></button>
+              <button type="button" data-phase-select="impact"><span>Impact</span><strong>—</strong></button>
+              <button type="button" data-phase-select="finish"><span>Finish</span><strong>—</strong></button>
             </div>
 
             <div class="transport mobile-transport">
@@ -167,30 +207,42 @@
               <div>
                 <p class="eyebrow" id="phaseProgressLabel">Fases</p>
                 <h2 id="phaseCoachTitle">Confirma cada fase</h2>
-                <p id="phaseCoachText">La app te lleva a cada frame sugerido. Confírmalo o cambia la fase al frame actual.</p>
+                <p id="phaseCoachText">Toca cualquier fase para saltar a ella. En la fase activa aparecerán sus controles justo debajo.</p>
               </div>
               <div class="phase-actions">
-                <button class="ghost-button" id="changePhaseBtn" type="button">Usar frame actual</button>
-                <button class="primary-button" id="confirmPhaseBtn" type="button">Confirmar fase</button>
-                <button class="ghost-button" id="nextPhaseBtn" type="button">Siguiente</button>
+                <button class="ghost-button" id="changePhaseBtn" type="button">Preparar frame actual</button>
+                <button class="primary-button" id="confirmPhaseBtn" type="button">Confirmar frame actual</button>
+                <button class="ghost-button" id="nextPhaseBtn" type="button">Aceptar propuesta</button>
               </div>
             </div>
             <div class="event-grid" id="eventGrid" aria-label="Fases del swing">
               <article class="event-card" data-event-card="address">
                 <button class="event-jump" type="button" data-event-jump="address"><span>Address</span><strong>Sin detectar</strong><small>Setup inicial</small></button>
-                <button class="event-mark" type="button" data-event-mark="address">Marcar aquí</button>
+                <div class="phase-local-actions" data-phase-actions="address">
+                  <button class="ghost-button" type="button" data-phase-accept="address">Aceptar propuesta</button>
+                  <button class="primary-button" type="button" data-phase-confirm-current="address">Confirmar frame actual</button>
+                </div>
               </article>
               <article class="event-card" data-event-card="top">
                 <button class="event-jump" type="button" data-event-jump="top"><span>Top</span><strong>Sin detectar</strong><small>Punto alto</small></button>
-                <button class="event-mark" type="button" data-event-mark="top">Marcar aquí</button>
+                <div class="phase-local-actions" data-phase-actions="top">
+                  <button class="ghost-button" type="button" data-phase-accept="top">Aceptar propuesta</button>
+                  <button class="primary-button" type="button" data-phase-confirm-current="top">Confirmar frame actual</button>
+                </div>
               </article>
               <article class="event-card" data-event-card="impact">
                 <button class="event-jump" type="button" data-event-jump="impact"><span>Impact</span><strong>Sin detectar</strong><small>Contacto</small></button>
-                <button class="event-mark" type="button" data-event-mark="impact">Marcar aquí</button>
+                <div class="phase-local-actions" data-phase-actions="impact">
+                  <button class="ghost-button" type="button" data-phase-accept="impact">Aceptar propuesta</button>
+                  <button class="primary-button" type="button" data-phase-confirm-current="impact">Confirmar frame actual</button>
+                </div>
               </article>
               <article class="event-card" data-event-card="finish">
                 <button class="event-jump" type="button" data-event-jump="finish"><span>Finish</span><strong>Sin detectar</strong><small>Final</small></button>
-                <button class="event-mark" type="button" data-event-mark="finish">Marcar aquí</button>
+                <div class="phase-local-actions" data-phase-actions="finish">
+                  <button class="ghost-button" type="button" data-phase-accept="finish">Aceptar propuesta</button>
+                  <button class="primary-button" type="button" data-phase-confirm-current="finish">Confirmar frame actual</button>
+                </div>
               </article>
             </div>
           </section>
@@ -245,14 +297,16 @@
             <div class="panel prep-guide">
               <div class="panel-title"><h2>Encaje automático/manual</h2><button class="text-button" id="centerGuideBtn" type="button">Recentrar</button></div>
               <div class="slider-stack compact">
-                <label>Horizontal<input id="guideX" type="range" min="20" max="80" value="50" /></label>
-                <label>Vertical<input id="guideY" type="range" min="55" max="92" value="80" /></label>
-                <label>Tamaño<input id="guideScale" type="range" min="70" max="140" value="100" /></label>
-                <label>Rotación<input id="guideRotation" type="range" min="-25" max="25" value="-8" /></label>
+                <label>Horizontal<input id="guideX" data-guide-control="x" type="range" min="20" max="80" value="50" /></label>
+                <label>Vertical pies<input id="guideY" data-guide-control="y" type="range" min="55" max="92" value="80" /></label>
+                <label>Altura cabeza-cadera<input id="guideScale" data-guide-control="scale" type="range" min="70" max="140" value="100" /></label>
+                <label>Ancho caderas/culo<input id="guideWidth" data-guide-control="width" type="range" min="70" max="145" value="100" /></label>
+                <label>Dirección pies<input id="guideFootAngle" data-guide-control="footAngle" type="range" min="-25" max="25" value="0" /></label>
+                <label>Ángulo palo<input id="guideRotation" data-guide-control="rotation" type="range" min="-35" max="20" value="-8" /></label>
               </div>
-              <details class="guide-help">
+              <details class="guide-help" open>
                 <summary>Cómo colocar la guía</summary>
-                <div><img src="./assets/guide-example.svg" alt="" /><p>Alinea pies, bola y plano aproximado. Esta guía no mide: ayuda a revisar y repetir la captura.</p></div>
+                <div><img src="./assets/guide-example.svg" alt="" /><p>Usa el rectángulo como referencia de extremos: arriba cabeza; abajo caderas/culo; ancho aproximado de caderas. Después alinea la línea de pies y la diagonal del palo. Con eso basta para una revisión clara.</p></div>
               </details>
             </div>
 
