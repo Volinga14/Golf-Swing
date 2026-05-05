@@ -108,14 +108,14 @@
                 </select>
               </label>
             </div>
-            <p class="panel-note" id="analysisStatus">Carga un vídeo para empezar.</p>
+            <p class="panel-note" id="analysisStatus">Carga un vídeo, ajusta encuadre y pulsa Analizar.</p>
             <button class="wide-soft-button" id="autoAnalyzeBtn" type="button">
               <svg viewBox="0 0 24 24" aria-hidden="true">
                 <path d="m12 3 1.6 4.4L18 9l-4.4 1.6L12 15l-1.6-4.4L6 9l4.4-1.6Z" />
                 <path d="M19 14l.8 2.2L22 17l-2.2.8L19 20l-.8-2.2L16 17l2.2-.8Z" />
                 <path d="M5 14l.8 2.2L8 17l-2.2.8L5 20l-.8-2.2L2 17l2.2-.8Z" />
               </svg>
-              Detectar fases y métricas
+              Analizar vídeo
             </button>
           </div>
 
@@ -124,7 +124,7 @@
               <h2>Capture score</h2>
               <strong id="captureScore">0</strong>
             </div>
-            <p class="panel-note" id="captureAutoNote">Automático cuando se carga un vídeo; editable.</p>
+            <p class="panel-note" id="captureAutoNote">Automático al analizar; editable.</p>
             <div class="check-stack" id="captureChecks">
               <label><input type="checkbox" value="frame" /> Jugador entero visible</label>
               <label><input type="checkbox" value="light" /> Buena luz</label>
@@ -201,9 +201,25 @@
               </div>
             </div>
           </div>
+
+          <div class="panel learning-panel">
+            <div class="panel-title">
+              <h2>Aprendizaje local</h2>
+              <span id="learningCount">0 ejemplos</span>
+            </div>
+            <p class="panel-note">Guarda correcciones buenas para que la app compare futuros vídeos parecidos en este navegador.</p>
+            <button class="wide-soft-button" id="saveCorrectionBtn" type="button">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 5v14M5 12h14" />
+              </svg>
+              Guardar corrección
+            </button>
+          </div>
         </section>
 
         <section class="viewer-column" aria-label="Visor de swing">
+          <section class="prep-panel" id="prepPanel" aria-label="Preparación antes del análisis"></section>
+
           <div class="viewer-toolbar">
             <div class="segmented-control" role="group" aria-label="Herramientas de overlay">
               <button type="button" class="is-active" data-tool="select" title="Seleccionar" aria-label="Seleccionar">
@@ -413,7 +429,7 @@
                   <path d="m4 18 6-6 4 4 6-8" />
                   <path d="M14 8h6v6" />
                 </svg>
-                Sugerir camino
+                Detectar bola
               </button>
               <button class="ghost-button" id="clearBallPathBtn" type="button">
                 <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -445,14 +461,15 @@
               <div class="panel-title">
                 <h2>Cómo usarlo</h2>
               </div>
-              <p class="panel-note">Haz clic sobre la bola, la salida, el punto alto o el final. La curva se puede limpiar y volver a marcar. No altera el análisis del swing.</p>
+              <p class="panel-note">Pulsa detectar y reproduce el vídeo. La línea se recorre con el golpe. Si falla, arrastra los puntos o toca para añadir una corrección.</p>
             </div>
             <div class="panel">
               <div class="panel-title">
                 <h2>Resultado</h2>
                 <span id="ballPathLabel">Sin camino</span>
               </div>
-              <p id="ballPathSummary">Sube un vídeo y usa “Sugerir camino” o marca puntos manuales.</p>
+              <p class="panel-note" id="ballPathStatus">La trayectoria aparece después de detectar la bola.</p>
+              <p id="ballPathSummary">Sube un vídeo y usa Detectar bola o marca puntos manuales.</p>
             </div>
           </div>
         </section>

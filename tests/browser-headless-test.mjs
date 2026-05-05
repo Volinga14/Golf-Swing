@@ -10,6 +10,7 @@ const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const appDir = join(root, "app");
 const artifactsDir = join(root, "test-artifacts");
 const screenshotPath = join(artifactsDir, "swing-lab-home.png");
+const mobileScreenshotPath = join(artifactsDir, "swing-lab-mobile.png");
 
 const edgePath = findEdge();
 if (!edgePath) {
@@ -48,7 +49,19 @@ try {
   ]);
   const imageStat = await stat(screenshotPath);
   assert.ok(imageStat.size > 10_000, "Screenshot should be non-empty");
-  console.log(`OK: browser headless test passed (${screenshotPath})`);
+
+  await runEdge([
+    "--headless=new",
+    "--disable-gpu",
+    "--no-first-run",
+    "--disable-extensions",
+    `--screenshot=${mobileScreenshotPath}`,
+    "--window-size=390,844",
+    url
+  ]);
+  const mobileImageStat = await stat(mobileScreenshotPath);
+  assert.ok(mobileImageStat.size > 10_000, "Mobile screenshot should be non-empty");
+  console.log(`OK: browser headless test passed (${screenshotPath}, ${mobileScreenshotPath})`);
 } finally {
   await new Promise((resolveClose) => server.close(resolveClose));
 }

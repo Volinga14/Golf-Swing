@@ -1,21 +1,21 @@
 # Swing Lab AI MVP
 
-https://volinga14.github.io/Golf-Swing/
 MVP local-first para revisar un vídeo de swing de golf desde el navegador.
 
 ## Qué incluye
 
-- Subida de vídeo local.
+- Subida de vídeo local sin análisis automático: primero se ajusta encuadre, guía y capture score; después se pulsa Analizar.
 - Detección de orientación vertical/horizontal y ajuste del visor.
 - Selección de vista DTL / FO, palo y resultado de bola.
 - Reproductor frame-by-frame con teclado, pantalla completa y cámara lenta.
-- Detección automática heurística de address, top, impact y finish, con corrección manual.
+- Detección automática heurística de address, top, impact y finish, con corrección manual y aprendizaje local desde correcciones guardadas.
 - Botones de fase para saltar directamente al frame detectado.
 - Canvas con guía ajustable, fases ocultables, grid, líneas y ángulos manuales.
 - Capture score automático y editable.
 - Métricas automáticas revisables con botones para comprobar los frames relevantes.
-- Recomendación principal, recomendaciones secundarias y explicación de resultados.
-- Vista separada de bola/golpe para marcar o sugerir la trayectoria visual del golpe.
+- Recomendación principal, recomendaciones secundarias, métricas y explicación de resultados en tarjetas expandibles.
+- Vista separada de bola/golpe con detección de bola, trayectoria animada durante la reproducción y puntos editables.
+- Layout móvil Android-friendly con preparación compacta, visor cercano y capturas headless desktop/mobile.
 - Historial local con IndexedDB.
 - Exportación JSON, CSV y PNG del frame actual.
 - Guardrails de confianza: sin vídeo no hay score, y las fases deben estar en orden cronológico.
@@ -40,7 +40,7 @@ node ./tests/smoke-test.mjs
 node ./tests/browser-headless-test.mjs
 ```
 
-La prueba headless usa Microsoft Edge si está instalado y genera `test-artifacts/swing-lab-home.png`.
+La prueba headless usa Microsoft Edge si está instalado y genera `test-artifacts/swing-lab-home.png` y `test-artifacts/swing-lab-mobile.png`.
 
 ## Alcance honesto del MVP
 

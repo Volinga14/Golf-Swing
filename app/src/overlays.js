@@ -201,41 +201,141 @@ function drawDrawing(ctx, width, height, drawing) {
   ctx.restore();
 }
 
-export function drawBallPath(ctx, width, height, points, label = "") {
+export function drawBallPath(ctx, width, height, points, label = "", options = {}) {
   ctx.clearRect(0, 0, width, height);
   if (!points?.length) return;
+  const videoRect = containedRect(width, height, options.videoWidth, options.videoHeight);
+  const visiblePoints = pathUntilTime(points, options.currentTime);
+
   ctx.save();
-  ctx.lineWidth = Math.max(3, width * 0.004);
-  ctx.strokeStyle = "rgba(215, 181, 109, 0.95)";
-  ctx.fillStyle = "rgba(255, 250, 240, 0.96)";
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  if (visiblePoints.length) {
+    ctx.shadowColor = "rgba(215, 181, 109, 0.65)";
+    ctx.shadowBlur = Math.max(9, width * 0.012);
+    ctx.lineWidth = Math.max(7, width * 0.008);
+    ctx.strokeStyle = "rgba(215, 181, 109, 0.28)";
+    drawCurve(ctx, videoRect, visiblePoints);
+    ctx.stroke();
+
+    ctx.shadowBlur = Math.max(4, width * 0.006);
+    ctx.lineWidth = Math.max(3, width * 0.004);
+    ctx.strokeStyle = "rgba(255, 245, 199, 0.96)";
+    drawCurve(ctx, videoRect, visiblePoints);
+    ctx.stroke();
+
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = "rgba(255, 250, 240, 0.96)";
+    const active = visiblePoints[visiblePoints.length - 1];
+    drawBallGlow(ctx, mapBallPoint(active, videoRect), width);
+  }
+
+  points.forEach((point, index) => {
+    const mapped = mapBallPoint(point, videoRect);
+    ctx.beginPath();
+    ctx.arc(mapped.x, mapped.y, index === points.length - 1 ? 7 : 5, 0, Math.PI * 2);
+    ctx.fillStyle = index === 0 ? "rgba(131, 197, 190, 0.96)" : "rgba(255, 250, 240, 0.78)";
+    ctx.fill();
+    if (options.editable) {
+      ctx.strokeStyle = "rgba(15, 23, 22, 0.78)";
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+  });
+
+  if (label) {
+    const lastMapped = mapBallPoint(points[points.length - 1], videoRect);
+    ctx.fillStyle = "rgba(255, 250, 240, 0.92)";
+    ctx.font = `${Math.max(12, width * 0.013)}px Inter, sans-serif`;
+    ctx.fillText(label, Math.min(width - 104, lastMapped.x + 12), Math.max(16, lastMapped.y - 12));
+  }
+  ctx.restore();
+}
+
+function drawCurve(ctx, rect, points) {
   ctx.beginPath();
   const first = points[0];
-  ctx.moveTo(first.x * width, first.y * height);
+  const firstMapped = mapBallPoint(first, rect);
+  ctx.moveTo(firstMapped.x, firstMapped.y);
   if (points.length === 2) {
-    const [a, b] = points;
-    ctx.lineTo(b.x * width, b.y * height);
+    const b = mapBallPoint(points[1], rect);
+    ctx.lineTo(b.x, b.y);
   } else {
     for (let i = 1; i < points.length; i += 1) {
       const point = points[i];
       const prev = points[i - 1];
-      const midX = ((prev.x + point.x) / 2) * width;
-      const midY = ((prev.y + point.y) / 2) * height;
-      ctx.quadraticCurveTo(prev.x * width, prev.y * height, midX, midY);
+      const prevMapped = mapBallPoint(prev, rect);
+      const pointMapped = mapBallPoint(point, rect);
+      const midX = (prevMapped.x + pointMapped.x) / 2;
+      const midY = (prevMapped.y + pointMapped.y) / 2;
+      ctx.quadraticCurveTo(prevMapped.x, prevMapped.y, midX, midY);
     }
     const last = points[points.length - 1];
-    ctx.lineTo(last.x * width, last.y * height);
+    const lastMapped = mapBallPoint(last, rect);
+    ctx.lineTo(lastMapped.x, lastMapped.y);
   }
-  ctx.stroke();
-  points.forEach((point, index) => {
-    ctx.beginPath();
-    ctx.arc(point.x * width, point.y * height, index === points.length - 1 ? 8 : 5, 0, Math.PI * 2);
-    ctx.fill();
-  });
-  if (label) {
-    ctx.font = `${Math.max(13, width * 0.014)}px Inter, sans-serif`;
-    ctx.fillText(label, points[points.length - 1].x * width + 12, points[points.length - 1].y * height - 12);
+}
+
+function pathUntilTime(points, currentTime) {
+  if (!Number.isFinite(currentTime)) return points;
+  const firstTime = points.find((point) => Number.isFinite(point.time))?.time;
+  if (!Number.isFinite(firstTime)) return points;
+  if (currentTime < firstTime) return [];
+
+  const visible = [];
+  for (let index = 0; index < points.length; index += 1) {
+    const point = points[index];
+    if (!Number.isFinite(point.time) || point.time <= currentTime) {
+      visible.push(point);
+      continue;
+    }
+    const prev = visible[visible.length - 1];
+    if (prev && Number.isFinite(prev.time)) {
+      const ratio = Math.max(0, Math.min(1, (currentTime - prev.time) / Math.max(0.001, point.time - prev.time)));
+      visible.push({
+        x: prev.x + (point.x - prev.x) * ratio,
+        y: prev.y + (point.y - prev.y) * ratio,
+        time: currentTime
+      });
+    }
+    break;
   }
-  ctx.restore();
+  return visible;
+}
+
+function drawBallGlow(ctx, point, width) {
+  const radius = Math.max(7, width * 0.008);
+  const gradient = ctx.createRadialGradient(point.x, point.y, 1, point.x, point.y, radius * 2.6);
+  gradient.addColorStop(0, "rgba(255, 255, 255, 1)");
+  gradient.addColorStop(0.32, "rgba(255, 245, 199, 0.92)");
+  gradient.addColorStop(1, "rgba(215, 181, 109, 0)");
+  ctx.fillStyle = gradient;
+  ctx.beginPath();
+  ctx.arc(point.x, point.y, radius * 2.6, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#fffdf4";
+  ctx.beginPath();
+  ctx.arc(point.x, point.y, radius * 0.58, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function mapBallPoint(point, rect) {
+  return {
+    x: rect.x + point.x * rect.width,
+    y: rect.y + point.y * rect.height
+  };
+}
+
+function containedRect(width, height, videoWidth, videoHeight) {
+  if (!videoWidth || !videoHeight) return { x: 0, y: 0, width, height };
+  const videoRatio = videoWidth / videoHeight;
+  const canvasRatio = width / height;
+  if (videoRatio > canvasRatio) {
+    const drawHeight = width / videoRatio;
+    return { x: 0, y: (height - drawHeight) / 2, width, height: drawHeight };
+  }
+  const drawWidth = height * videoRatio;
+  return { x: (width - drawWidth) / 2, y: 0, width: drawWidth, height };
 }
 
 function drawPoint(ctx, width, height, point) {

@@ -202,7 +202,7 @@ function defaultExplanations() {
   return [
     {
       title: "Cómo empieza",
-      body: "Sube un vídeo. La app detecta orientación, sugiere capture score, busca fases y deja todo editable."
+      body: "Sube un vídeo, ajusta encuadre y guía, y pulsa Analizar. La orientación se reconoce al cargar; fases, capture score y métricas se calculan cuando tú lo pides."
     },
     {
       title: "Vista de bola",

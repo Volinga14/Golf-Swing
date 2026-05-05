@@ -13,7 +13,7 @@ from docx.shared import Inches, Pt, RGBColor
 
 
 ROOT = Path(__file__).resolve().parents[1]
-OUT = ROOT / "docs" / "Golf Swing Ai App Documentacion V0 3 MVP.docx"
+OUT = ROOT / "docs" / "Golf Swing Ai App Documentacion V0 4 MVP.docx"
 TABLE_HELPERS = Path(
     r"C:\Users\v.borges\.codex\plugins\cache\openai-primary-runtime\documents\26.430.10722\skills\documents\scripts"
 )
@@ -79,7 +79,7 @@ def setup_document(doc: Document) -> None:
     styles["Heading 2"].paragraph_format.space_after = Pt(5)
 
     header = section.header.paragraphs[0]
-    header.text = "Swing Lab AI MVP v0.3"
+    header.text = "Swing Lab AI MVP v0.4"
     header.style = doc.styles["Normal"]
     header.runs[0].font.size = Pt(8.5)
     header.runs[0].font.color.rgb = RGBColor.from_string(MUTED)
@@ -103,14 +103,14 @@ def build_cover(doc: Document) -> None:
     run.font.size = Pt(26)
     run.font.color.rgb = RGBColor.from_string(ACCENT)
 
-    subtitle = doc.add_paragraph("Documentación técnica y MVP implementado v0.3", style="Subtitle")
+    subtitle = doc.add_paragraph("Documentación técnica y MVP implementado v0.4", style="Subtitle")
     subtitle.paragraph_format.space_after = Pt(18)
 
     meta = [
         ("Fecha", "2026-05-04"),
         ("Entregable", "PWA local-first funcional + documentación actualizada"),
         ("Objetivo", "Convertir un vídeo de swing en revisión visual, métricas simples y coaching accionable."),
-        ("Estado", "MVP Sprint 1 ampliado; preparado para integrar MediaPipe en Sprint 2."),
+        ("Estado", "MVP Sprint 1 ampliado; flujo de calibración previo, bola rehecha y base local de correcciones."),
     ]
     table = doc.add_table(rows=1, cols=2)
     table.style = "Table Grid"
@@ -147,15 +147,17 @@ def build_body(doc: Document) -> None:
 
     add_heading(doc, "2. Qué Se Ha Implementado")
     rows = [
-        ("Subida de vídeo", "Carga local de MP4/MOV/WebM y reproducción en navegador.", "Completo"),
+        ("Subida de vídeo", "Carga local de MP4/MOV/WebM sin análisis automático: primero se ajusta encuadre y guía.", "Completo"),
         ("Vista FO / DTL", "Selección de vista para cambiar guías y reglas de recomendación.", "Completo"),
         ("Orientación", "Reconoce vídeo vertical u horizontal y ajusta el visor.", "Completo"),
         ("Frame-by-frame", "Slider, botones, atajos, cámara lenta y pantalla completa.", "Completo"),
-        ("Fases del swing", "Detección automática por movimiento, salto al frame y corrección manual.", "Completo"),
-        ("Overlays", "Guía ajustable, fases ocultables, grid, líneas y ángulos manuales.", "Completo"),
-        ("Métricas MVP", "Capture score automático, tempo ratio y métricas revisables con evidencia.", "Completo"),
-        ("Recomendaciones", "Motor de reglas con prioridad, recomendaciones extra y explicación de resultados.", "Completo"),
-        ("Bola y golpe", "Vista separada para disfrutar el golpe y dibujar/sugerir trayectoria de bola.", "Completo"),
+        ("Fases del swing", "Detección automática al pulsar Analizar, salto al frame, corrección manual y apoyo de ejemplos locales.", "Completo"),
+        ("Overlays", "Guía ajustable con ayuda expandible, fases ocultables, grid, líneas y ángulos manuales.", "Completo"),
+        ("Métricas MVP", "Capture score automático tras analizar, tempo ratio y métricas revisables con evidencia expandible.", "Completo"),
+        ("Recomendaciones", "Motor de reglas con prioridad, recomendaciones extra y explicación de resultados en tarjetas expandibles.", "Completo"),
+        ("Bola y golpe", "Vista separada con detección heurística de bola, trayectoria animada y puntos editables.", "Completo"),
+        ("Móvil Android", "Banda de preparación compacta y deslizable para acercar vídeo y controles.", "Completo"),
+        ("Aprendizaje local", "Guarda correcciones buenas y usa el ejemplo manual del vídeo de WhatsApp para sugerir fases.", "Base lista"),
         ("Historial local", "Guardado de sesiones en IndexedDB.", "Completo"),
         ("Exportaciones", "JSON, CSV de métricas y PNG del frame actual.", "Completo"),
         ("Guardrails de confianza", "Sin vídeo no hay score; las fases deben estar en orden cronológico.", "Completo"),
@@ -167,12 +169,13 @@ def build_body(doc: Document) -> None:
     add_heading(doc, "3. Flujo De Uso")
     steps = [
         "Subir un vídeo de swing grabado con móvil.",
-        "Elegir vista: down-the-line, face-on o no segura.",
-        "Completar el capture score para indicar calidad de grabación.",
+        "Ajustar vista, palo, FPS, resultado, guía de encuadre y capture score antes de analizar.",
+        "Pulsar Analizar para detectar address, top, impact, finish, capture score y métricas.",
         "Revisar el swing con el slider o los controles frame-by-frame.",
-        "Marcar address, top, impact y finish. El MVP propone una primera posición por porcentaje del vídeo.",
+        "Corregir manualmente address, top, impact y finish si alguna fase no coincide.",
         "Dibujar líneas o ángulos si se quiere comparar plano, postura o posición de manos.",
-        "Leer el reporte: score general, confianza, prioridad, evidencia y drill.",
+        "Abrir recomendaciones, métricas y explicaciones para entender qué revisar.",
+        "En la pestaña Bola, detectar la bola y reproducir la trayectoria animada del golpe.",
         "Guardar la sesión o exportar JSON/CSV/PNG.",
     ]
     for step in steps:
@@ -195,9 +198,11 @@ def build_body(doc: Document) -> None:
         ("app/styles/main.css", "Sistema visual responsive y layout de la app."),
         ("app/src/main.js", "Estado principal, eventos de UI, render de reporte e historial."),
         ("app/src/video-player.js", "Carga de vídeo, seek por frame y controles de transporte."),
-        ("app/src/overlays.js", "Canvas: guías, esqueleto visual, fases, líneas y ángulos."),
+        ("app/src/overlays.js", "Canvas: guías de encuadre, fases, grid, líneas, ángulos y trayectoria de bola."),
         ("app/src/metrics.js", "Cálculo de métricas del MVP."),
         ("app/src/recommendations.js", "Reglas de coaching interpretables."),
+        ("app/src/ball-tracking.js", "Detección heurística y trayectoria animada de la bola."),
+        ("app/src/learning.js", "Base local de ejemplos corregidos para sugerir fases."),
         ("app/src/storage.js", "Persistencia local con IndexedDB."),
         ("app/src/export.js", "Exportación JSON, CSV y PNG."),
         ("app/assets/swing-guide.svg", "Visual inicial para la zona de captura."),

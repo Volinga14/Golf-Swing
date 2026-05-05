@@ -26,6 +26,7 @@ async function testStaticAssets() {
   const indexHtml = await readText("app/index.html");
   const requiredIds = [
     "videoInput",
+    "prepPanel",
     "swingVideo",
     "overlayCanvas",
     "frameSlider",
@@ -41,10 +42,13 @@ async function testStaticAssets() {
     "recommendationList",
     "explanationList",
     "historyList",
+    "saveCorrectionBtn",
+    "learningCount",
     "ballWorkspace",
     "ballVideo",
     "ballCanvas",
     "autoBallPathBtn",
+    "ballPathStatus",
     "exportJsonBtn",
     "exportCsvBtn",
     "exportPngBtn"
@@ -73,6 +77,8 @@ async function testBusinessLogic() {
   const { calculateMetrics } = await import(pathToFileURL(join(appDir, "src/metrics.js")).href);
   const { buildRecommendations } = await import(pathToFileURL(join(appDir, "src/recommendations.js")).href);
   const { buildAnalysis } = await import(pathToFileURL(join(appDir, "src/video-analysis.js")).href);
+  const { buildTrajectoryFromDetections } = await import(pathToFileURL(join(appDir, "src/ball-tracking.js")).href);
+  const { blendAnalysisWithLearning, correctionExampleCount } = await import(pathToFileURL(join(appDir, "src/learning.js")).href);
 
   const state = {
     viewType: "DTL",
@@ -123,6 +129,33 @@ async function testBusinessLogic() {
   assert.ok(analysis.events.impact < analysis.events.finish);
   assert.equal(analysis.captureChecks.frame, true);
   assert.equal(analysis.captureChecks.light, true);
+
+  const learned = blendAnalysisWithLearning(analysis, {
+    videoName: "WhatsApp Video 2026-05-05 at 9.43.22 AM.mp4",
+    fps: 60,
+    duration: 3.5,
+    totalFrames: 210,
+    orientation: "horizontal",
+    viewType: "DTL",
+    club: "7-iron"
+  });
+  assert.equal(correctionExampleCount() >= 1, true);
+  assert.equal(learned.events.address, 80);
+  assert.equal(learned.events.top, 138);
+  assert.equal(learned.events.impact, 155);
+  assert.equal(learned.events.finish, 188);
+
+  const trajectory = buildTrajectoryFromDetections(
+    [
+      { x: 0.55, y: 0.64, time: 2.62, score: 60 },
+      { x: 0.62, y: 0.5, time: 2.82, score: 65 },
+      { x: 0.72, y: 0.37, time: 3.04, score: 70 }
+    ],
+    { launchPoint: { x: 0.52, y: 0.72 }, impactTime: 2.58, result: "straight" }
+  );
+  assert.equal(trajectory.source, "vision");
+  assert.ok(trajectory.points.length >= 4);
+  assert.ok(trajectory.confidence > 50);
 }
 
 async function testHttpServer() {
