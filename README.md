@@ -49,3 +49,8 @@ La prueba browser busca Chromium, Chrome o Edge. Si el navegador headless está 
 ## Siguiente paso natural
 
 v0.6 debería integrar detección corporal real con landmarks, mejorar la detección de fases y convertir las métricas actuales en mediciones visuales verificables.
+
+
+## v0.5.5 Flow redesign
+
+This build introduces a mobile-first, video-first guided UX: home screen, automatic initial framing, phase-by-phase confirmation, sticky next-step card, and a secondary metrics/report drawer.

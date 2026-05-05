@@ -9,6 +9,8 @@ import { detectBallTrajectory } from "./ball-tracking.js";
 import { blendAnalysisWithLearning, correctionExampleCount, demoCorrectionExampleCount, findLearningMatch, isDemoLearningEnabled, saveCorrectionExample, setDemoLearningEnabled, storedCorrectionExampleCount } from "./learning.js";
 
 const APP_VERSION = "0.5.5";
+const FLOW_STEPS = ["upload", "frame", "quality", "analyze", "events", "report", "save"];
+const PHASE_SEQUENCE = ["address", "top", "impact", "finish"];
 
 const APP_STATES = {
   empty: "Sin vídeo cargado",
@@ -36,6 +38,24 @@ const METRIC_LABELS = {
 
 const els = {
   modeButtons: document.querySelectorAll("[data-mode]"),
+  homeScreen: document.querySelector("#homeScreen"),
+  homeLoadHistoryBtn: document.querySelector("#homeLoadHistoryBtn"),
+  homeCompareBtn: document.querySelector("#homeCompareBtn"),
+  homeHint: document.querySelector("#homeHint"),
+  flowStepEyebrow: document.querySelector("#flowStepEyebrow"),
+  flowStepTitle: document.querySelector("#flowStepTitle"),
+  flowStepText: document.querySelector("#flowStepText"),
+  flowPrimaryAction: document.querySelector("#flowPrimaryAction"),
+  flowSecondaryAction: document.querySelector("#flowSecondaryAction"),
+  flowBackAction: document.querySelector("#flowBackAction"),
+  videoScreenTitle: document.querySelector("#videoScreenTitle"),
+  phaseReviewPanel: document.querySelector("#phaseReviewPanel"),
+  phaseProgressLabel: document.querySelector("#phaseProgressLabel"),
+  phaseCoachTitle: document.querySelector("#phaseCoachTitle"),
+  phaseCoachText: document.querySelector("#phaseCoachText"),
+  confirmPhaseBtn: document.querySelector("#confirmPhaseBtn"),
+  changePhaseBtn: document.querySelector("#changePhaseBtn"),
+  nextPhaseBtn: document.querySelector("#nextPhaseBtn"),
   workflowPanel: document.querySelector("#workflowPanel"),
   appStateBadge: document.querySelector("#appStateBadge"),
   appVersionBadge: document.querySelector("#appVersionBadge"),
@@ -143,6 +163,9 @@ const state = {
   createdAt: null,
   videoObjectUrl: "",
   appStatus: "empty",
+  flowStep: "upload",
+  activePhaseIndex: 0,
+  reviewedEvents: {},
   isHistoryOnly: false,
   thumbnail: null,
   frameSnapshots: {},
@@ -249,6 +272,8 @@ function setAppStatus(status, message) {
     els.appStateBadge.dataset.state = status;
   }
   renderWorkflow();
+  renderFlowUi();
+  renderPhaseCoach();
   renderHistoryMediaUi();
 }
 
@@ -259,13 +284,14 @@ function renderWorkflow() {
   const analyzed = Boolean(state.videoAnalysis || eventsComplete || state.appStatus === "complete" || state.appStatus === "saved");
   const saved = Boolean(state.id && state.createdAt) || state.appStatus === "saved";
   const active = workflowActiveStep();
+  const activeIndex = FLOW_STEPS.indexOf(active);
   const completed = {
     upload: hasPlayableVideo || state.isHistoryOnly,
-    frame: hasPlayableVideo || state.isHistoryOnly,
-    quality: state.metrics?.captureScore > 0 || state.isHistoryOnly,
+    frame: hasPlayableVideo && activeIndex > FLOW_STEPS.indexOf("frame") || analyzed || state.isHistoryOnly,
+    quality: hasPlayableVideo && activeIndex > FLOW_STEPS.indexOf("quality") || analyzed || state.isHistoryOnly,
     analyze: analyzed,
-    events: eventsComplete,
-    report: eventsComplete,
+    events: eventsComplete && allEventsReviewed(),
+    report: activeIndex > FLOW_STEPS.indexOf("report") || saved,
     save: saved
   };
   els.workflowPanel.querySelectorAll("[data-step]").forEach((step) => {
@@ -278,11 +304,12 @@ function renderWorkflow() {
 function workflowActiveStep() {
   if (state.appStatus === "analyzing") return "analyze";
   if (state.appStatus === "saved") return "save";
-  if (!state.videoObjectUrl && !state.isHistoryOnly) return "upload";
   if (state.isHistoryOnly) return "save";
-  if (!state.videoAnalysis && !state.metrics?.eventsComplete) return "frame";
-  if (!state.metrics?.eventsComplete) return "events";
-  return "report";
+  if (!state.videoObjectUrl) return "upload";
+  if (!state.videoAnalysis && state.flowStep) return state.flowStep;
+  if (state.videoAnalysis && !allEventsReviewed()) return "events";
+  if (state.videoAnalysis && allEventsReviewed() && state.flowStep !== "save") return "report";
+  return state.flowStep || "frame";
 }
 
 function renderHistoryMediaUi() {
@@ -317,6 +344,9 @@ function resetSession() {
     videoName: "",
     createdAt: null,
     videoObjectUrl: "",
+    flowStep: "upload",
+    activePhaseIndex: 0,
+    reviewedEvents: {},
     isHistoryOnly: false,
     thumbnail: null,
     frameSnapshots: {},
@@ -353,21 +383,7 @@ function resetSession() {
 
 function setupPreparationPanel() {
   if (!els.prepPanel) return;
-  const uploadPanel = els.videoInput?.closest(".panel");
-  const sessionPanel = els.orientationBadge?.closest(".panel");
-  const capturePanel = els.captureChecks?.closest(".panel");
   const guidePanel = els.guideInputs.x?.closest(".panel");
-  [
-    [uploadPanel, "prep-upload"],
-    [sessionPanel, "prep-session"],
-    [capturePanel, "prep-capture"],
-    [guidePanel, "prep-guide"]
-  ].forEach(([panel, className]) => {
-    if (!panel) return;
-    panel.classList.add(className);
-    els.prepPanel.append(panel);
-  });
-
   if (guidePanel && !guidePanel.querySelector(".guide-help")) {
     const details = document.createElement("details");
     details.className = "guide-help";
@@ -388,6 +404,18 @@ function bindEvents() {
   });
 
   els.resetSessionBtn?.addEventListener("click", () => resetSession());
+  els.homeLoadHistoryBtn?.addEventListener("click", () => { els.homeScreen?.classList.add("is-collapsed"); document.querySelector("#historyPanel")?.scrollIntoView({ behavior: "smooth", block: "start" }); });
+  els.homeCompareBtn?.addEventListener("click", () => {
+    if (els.homeHint) els.homeHint.textContent = "Comparativa: selecciona o guarda dos análisis. La vista avanzada se activará en la siguiente iteración; por ahora puedes cargar sesiones del historial.";
+    els.homeScreen?.classList.add("is-collapsed");
+    document.querySelector("#historyPanel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+  els.flowPrimaryAction?.addEventListener("click", () => handleFlowPrimaryAction());
+  els.flowSecondaryAction?.addEventListener("click", () => handleFlowSecondaryAction());
+  els.flowBackAction?.addEventListener("click", () => moveFlowBack());
+  els.confirmPhaseBtn?.addEventListener("click", () => confirmCurrentPhase(false));
+  els.nextPhaseBtn?.addEventListener("click", () => confirmCurrentPhase(true));
+  els.changePhaseBtn?.addEventListener("click", () => changeCurrentPhaseToCurrentFrame());
   els.refreshAppBtn?.addEventListener("click", () => {
     if (navigator.serviceWorker?.controller) navigator.serviceWorker.controller.postMessage({ type: "SKIP_WAITING" });
     window.location.reload();
@@ -405,6 +433,9 @@ function bindEvents() {
     state.videoName = file.name;
     state.id = null;
     state.createdAt = null;
+    state.flowStep = "frame";
+    state.activePhaseIndex = 0;
+    state.reviewedEvents = {};
     state.isHistoryOnly = false;
     state.thumbnail = null;
     state.frameSnapshots = {};
@@ -439,6 +470,7 @@ function bindEvents() {
     els.ballVideo.src = state.videoObjectUrl;
     els.ballVideo.load();
     updateOrientationUi();
+    autoFitGuide();
     clearDetectedEvents();
     updateAnalysis();
     overlay.render();
@@ -687,6 +719,10 @@ async function runAutoAnalysis() {
     syncMetricControls();
     updateAnalysis();
     renderBall();
+    state.flowStep = "events";
+    state.activePhaseIndex = 0;
+    state.reviewedEvents = {};
+    focusCurrentPhase();
     const learning = analysis.summary.learningMatch ? ` Base local: ${analysis.summary.learningMatch}.` : "";
     setAppStatus("complete");
     els.analysisStatus.textContent = `Análisis completado. Señal de movimiento heurística: ${analysis.summary.signal}/100 aprox.${learning}`;
@@ -722,6 +758,7 @@ function suggestEvents() {
 function clearDetectedEvents() {
   state.events = { address: null, top: null, impact: null, finish: null };
   state.eventMeta = {};
+  state.reviewedEvents = {};
   renderEvents();
 }
 
@@ -729,6 +766,7 @@ function markEvent(eventName) {
   if (!state.videoObjectUrl || !state.metrics.hasVideo) return;
   state.events[eventName] = state.currentFrame;
   state.eventMeta[eventName] = { source: "manual", confidence: 95, note: "Marcado por el usuario" };
+  state.reviewedEvents[eventName] = false;
   renderEvents();
   updateAnalysis();
   overlay.render();
@@ -736,7 +774,10 @@ function markEvent(eventName) {
 
 function jumpToEvent(eventName) {
   const frame = state.events[eventName];
+  const index = PHASE_SEQUENCE.indexOf(eventName);
+  if (index >= 0) state.activePhaseIndex = index;
   if (Number.isFinite(frame)) player.seekFrame(frame);
+  renderPhaseCoach();
 }
 
 function renderEvents() {
@@ -747,6 +788,8 @@ function renderEvents() {
     const small = card.querySelector("small");
     const meta = state.eventMeta[eventName];
     card.classList.toggle("is-set", Number.isFinite(frame));
+    card.classList.toggle("is-reviewed", Boolean(state.reviewedEvents[eventName]));
+    card.classList.toggle("is-active", PHASE_SEQUENCE[state.activePhaseIndex] === eventName);
     const sourceLabel = {
       manual: "Manual",
       aprendizaje: "Base local",
@@ -769,6 +812,8 @@ function updateAnalysis() {
   renderReport();
   renderActionStates();
   renderWorkflow();
+  renderFlowUi();
+  renderPhaseCoach();
   syncMetricControls();
   overlay.render();
 }
@@ -865,7 +910,12 @@ function renderActionStates() {
     const frame = state.events[button.dataset.eventJump];
     button.disabled = !hasPlayableVideo || !Number.isFinite(frame);
   });
+  const currentEvent = PHASE_SEQUENCE[state.activePhaseIndex];
+  if (els.confirmPhaseBtn) els.confirmPhaseBtn.disabled = !hasPlayableVideo || !Number.isFinite(state.events[currentEvent]);
+  if (els.nextPhaseBtn) els.nextPhaseBtn.disabled = !hasPlayableVideo || !Number.isFinite(state.events[currentEvent]);
+  if (els.changePhaseBtn) els.changePhaseBtn.disabled = !hasPlayableVideo;
 }
+
 
 function renderLearningCount() {
   if (!els.learningCount) return;
@@ -921,6 +971,7 @@ function updateOrientationUi() {
     state.guide.y = 0.83;
     syncGuideInputs();
   }
+  if (els.videoScreenTitle) els.videoScreenTitle.textContent = state.videoName || "Vídeo cargado";
 }
 
 function setMode(mode) {
@@ -934,6 +985,153 @@ function setMode(mode) {
     resizeBallCanvas();
     renderBall();
   }
+}
+
+
+function renderFlowUi() {
+  const step = workflowActiveStep();
+  const labels = {
+    upload: ["Paso 1", "Sube el vídeo", "Empieza con un clip claro del swing. Después la app intentará encajarlo automáticamente.", "Subir vídeo", "Cargar anterior"],
+    frame: ["Paso 2", "Encaja el swing", "He aplicado un encaje automático inicial. Ajusta la guía sobre el propio vídeo si cuerpo, bola o plano no quedan bien.", "Encaje correcto", "Recentrar guía"],
+    quality: ["Paso 3", "Revisa la calidad", "Marca si el jugador, bola y palo se ven bien. Esto condiciona la confianza de las recomendaciones.", "Calidad revisada", "Ver checks"],
+    analyze: ["Paso 4", "Analiza el vídeo", "La app buscará movimiento y sugerirá address, top, impact y finish. Luego podrás confirmar o cambiar cada fase.", "Analizar ahora", "Dibujar primero"],
+    events: ["Paso 5", "Confirma las fases", "Revisa una a una las fases propuestas. Puedes saltar, confirmar o cambiar la fase al frame actual.", "Confirmar fase", "Ver todas"],
+    report: ["Paso 6", "Revisa vídeo o métricas", "Puedes quedarte dibujando sobre el swing o bajar al panel de métricas y recomendaciones.", "Ver métricas", "Seguir dibujando"],
+    save: ["Paso 7", "Guarda o exporta", "Guarda la sesión con miniatura y cuatro frames clave, o exporta JSON, CSV y PNG.", "Guardar sesión", "Exportar JSON"]
+  };
+  const [eyebrow, title, text, primary, secondary] = labels[step] || labels.upload;
+  if (els.flowStepEyebrow) els.flowStepEyebrow.textContent = eyebrow;
+  if (els.flowStepTitle) els.flowStepTitle.textContent = title;
+  if (els.flowStepText) els.flowStepText.textContent = text;
+  if (els.flowPrimaryAction) els.flowPrimaryAction.textContent = primary;
+  if (els.flowSecondaryAction) els.flowSecondaryAction.textContent = secondary;
+  els.homeScreen?.classList.toggle("is-collapsed", Boolean(state.videoObjectUrl || state.isHistoryOnly));
+  els.swingWorkspace?.classList.toggle("has-video", Boolean(state.videoObjectUrl));
+  document.body.dataset.flowStep = step;
+}
+
+function handleFlowPrimaryAction() {
+  const step = workflowActiveStep();
+  if (step === "upload") return els.videoInput?.click();
+  if (step === "frame") {
+    autoFitGuide();
+    state.flowStep = "quality";
+    els.analysisStatus.textContent = "Encaje confirmado. Revisa ahora la calidad de captura.";
+    updateAnalysis();
+    return;
+  }
+  if (step === "quality") {
+    state.flowStep = "analyze";
+    els.analysisStatus.textContent = "Calidad revisada. Ya puedes analizar el vídeo.";
+    updateAnalysis();
+    return;
+  }
+  if (step === "analyze") return runAutoAnalysis();
+  if (step === "events") return confirmCurrentPhase(true);
+  if (step === "report") return document.querySelector(".report-rail")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  if (step === "save") return els.saveSessionBtn?.click();
+}
+
+function handleFlowSecondaryAction() {
+  const step = workflowActiveStep();
+  if (step === "upload") return document.querySelector("#historyPanel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  if (step === "frame") {
+    autoFitGuide(true);
+    return;
+  }
+  if (step === "quality") return els.captureChecks?.scrollIntoView({ behavior: "smooth", block: "center" });
+  if (step === "analyze") {
+    overlay.setTool("line");
+    els.toolButtons.forEach((item) => item.classList.toggle("is-active", item.dataset.tool === "line"));
+    els.analysisStatus.textContent = "Herramienta línea activada. Dibuja sobre el vídeo y analiza después.";
+    return;
+  }
+  if (step === "events") return els.eventGrid?.scrollIntoView({ behavior: "smooth", block: "center" });
+  if (step === "report") return els.stage?.scrollIntoView({ behavior: "smooth", block: "center" });
+  if (step === "save") return els.exportJsonBtn?.click();
+}
+
+function moveFlowBack() {
+  const step = workflowActiveStep();
+  const index = FLOW_STEPS.indexOf(step);
+  if (index <= 0) return;
+  state.flowStep = FLOW_STEPS[index - 1];
+  if (state.flowStep === "events" && state.videoAnalysis) focusCurrentPhase();
+  updateAnalysis();
+}
+
+function autoFitGuide(force = false) {
+  if (!state.videoObjectUrl && !force) return;
+  const isPortrait = state.orientation === "vertical";
+  state.guide = {
+    x: 0.5,
+    y: isPortrait ? 0.84 : 0.8,
+    scale: isPortrait ? 0.96 : 1,
+    rotation: state.viewType === "DTL" ? -8 : 0
+  };
+  syncGuideInputs();
+  overlay.render();
+  els.analysisStatus.textContent = "Encaje automático aplicado. Ajusta los sliders si la guía no coincide con cuerpo, bola o plano.";
+}
+
+function currentPhaseName() {
+  return PHASE_SEQUENCE[state.activePhaseIndex] || "address";
+}
+
+function focusCurrentPhase() {
+  const eventName = currentPhaseName();
+  const frame = state.events[eventName];
+  if (Number.isFinite(frame) && state.videoObjectUrl) player.seekFrame(frame);
+  renderPhaseCoach();
+}
+
+function renderPhaseCoach() {
+  if (!els.phaseReviewPanel) return;
+  const shouldShow = Boolean(state.videoObjectUrl && (state.videoAnalysis || workflowActiveStep() === "events"));
+  els.phaseReviewPanel.classList.toggle("is-dimmed", !shouldShow);
+  const eventName = currentPhaseName();
+  const label = EVENT_LABELS[eventName] || eventName;
+  const reviewed = Object.values(state.reviewedEvents || {}).filter(Boolean).length;
+  if (els.phaseProgressLabel) els.phaseProgressLabel.textContent = `Fase ${state.activePhaseIndex + 1}/4 · ${reviewed} confirmadas`;
+  if (els.phaseCoachTitle) els.phaseCoachTitle.textContent = `Revisar ${label}`;
+  const frame = state.events[eventName];
+  if (els.phaseCoachText) {
+    els.phaseCoachText.textContent = Number.isFinite(frame)
+      ? `La app propone el frame ${frame}. Confírmalo si corresponde o busca otro punto en la línea temporal y pulsa “Usar frame actual”.`
+      : `No hay frame para ${label}. Busca el punto correcto en el vídeo y pulsa “Usar frame actual”.`;
+  }
+}
+
+function confirmCurrentPhase(advance) {
+  const eventName = currentPhaseName();
+  if (!Number.isFinite(state.events[eventName])) return;
+  state.reviewedEvents[eventName] = true;
+  if (!state.eventMeta[eventName]) state.eventMeta[eventName] = {};
+  state.eventMeta[eventName].reviewed = true;
+  if (advance) {
+    const next = PHASE_SEQUENCE.findIndex((name, index) => index > state.activePhaseIndex && !state.reviewedEvents[name]);
+    if (next >= 0) {
+      state.activePhaseIndex = next;
+      focusCurrentPhase();
+    } else {
+      state.flowStep = "report";
+      els.analysisStatus.textContent = "Fases confirmadas. Puedes revisar métricas o seguir dibujando sobre el vídeo.";
+    }
+  } else {
+    els.analysisStatus.textContent = `${EVENT_LABELS[eventName]} confirmado.`;
+  }
+  updateAnalysis();
+}
+
+function changeCurrentPhaseToCurrentFrame() {
+  const eventName = currentPhaseName();
+  markEvent(eventName);
+  els.analysisStatus.textContent = `${EVENT_LABELS[eventName]} cambiado al frame actual. Confírmalo para continuar.`;
+  renderPhaseCoach();
+}
+
+function allEventsReviewed() {
+  return PHASE_SEQUENCE.every((name) => Number.isFinite(state.events[name]) && state.reviewedEvents[name]);
 }
 
 async function detectBallPath() {
@@ -1266,6 +1464,9 @@ async function loadSession(id) {
   if (!session) return;
   state.id = session.id;
   state.createdAt = session.createdAt;
+  state.flowStep = "save";
+  state.activePhaseIndex = 0;
+  state.reviewedEvents = {};
   state.isHistoryOnly = true;
   state.videoObjectUrl = "";
   state.thumbnail = session.thumbnail || null;

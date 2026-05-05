@@ -2,15 +2,15 @@
 <html lang="es">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#163832" />
-    <title>Swing Lab AI v0.5.5</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#061412" />
+    <title>Swing Lab AI v0.5.5 · Flow redesign</title>
     <link rel="manifest" href="./manifest.json" />
     <link rel="stylesheet" href="./styles/main.css" />
   </head>
   <body>
-    <div class="app-shell">
-      <header class="topbar">
+    <div class="app-shell flow-app">
+      <header class="topbar flow-topbar">
         <div class="brand">
           <div class="brand-mark" aria-hidden="true">
             <svg viewBox="0 0 32 32" role="img">
@@ -36,34 +36,21 @@
             <span class="version-pill" id="appVersionBadge">v0.5.5</span>
           </div>
           <button class="text-button update-button is-hidden" id="refreshAppBtn" type="button">Actualizar app</button>
-          <button class="ghost-button" id="resetSessionBtn" type="button" title="Volver a empezar">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M3 12a9 9 0 1 0 3-6.7" />
-              <path d="M3 4v6h6" />
-            </svg>
-            Nuevo
-          </button>
-          <button class="ghost-button" id="saveSessionBtn" type="button" title="Guardar análisis">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z" />
-              <path d="M17 21v-8H7v8M7 3v5h8" />
-            </svg>
-            Guardar
-          </button>
-          <button class="primary-button" id="exportJsonBtn" type="button" title="Exportar JSON">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <path d="M7 10l5 5 5-5M12 15V3" />
-            </svg>
-            JSON
-          </button>
+          <button class="ghost-button compact-action" id="resetSessionBtn" type="button" title="Volver a empezar">Nuevo</button>
+          <button class="ghost-button compact-action" id="saveSessionBtn" type="button" title="Guardar análisis">Guardar</button>
+          <button class="primary-button compact-action" id="exportJsonBtn" type="button" title="Exportar JSON">JSON</button>
         </div>
       </header>
 
-      <main class="workspace" id="swingWorkspace">
-        <section class="control-rail" aria-label="Entrada y configuración">
-          <div class="panel upload-panel">
-            <label class="upload-drop" for="videoInput">
+      <main class="home-screen" id="homeScreen" aria-label="Inicio">
+        <section class="home-hero">
+          <div class="home-copy">
+            <p class="eyebrow">Video-first swing review</p>
+            <h2>Sube un swing y sigue el análisis paso a paso.</h2>
+            <p>La app te guía como una experiencia móvil: vídeo grande, controles simples, encaje automático, revisión de fases y métricas cuando las necesites.</p>
+          </div>
+          <div class="home-actions-card panel upload-panel">
+            <label class="upload-drop main-upload" for="videoInput">
               <input id="videoInput" type="file" accept="video/*" />
               <svg viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
@@ -72,208 +59,148 @@
               <span>Subir vídeo de swing</span>
               <small id="videoFileName">MP4, MOV o WebM</small>
             </label>
-          </div>
-
-          <div class="panel">
-            <div class="panel-title">
-              <h2>Sesión</h2>
-              <span id="orientationBadge">Sin vídeo</span>
+            <div class="home-secondary-actions">
+              <button class="ghost-button" id="homeLoadHistoryBtn" type="button">Cargar análisis anterior</button>
+              <button class="ghost-button" id="homeCompareBtn" type="button">Comparativa</button>
             </div>
-            <div class="field-grid">
-              <label>
-                Vista
-                <select id="viewType">
-                  <option value="DTL">Down-the-line</option>
-                  <option value="FO">Face-on</option>
-                  <option value="unknown">No segura</option>
-                </select>
-              </label>
-              <label>
-                Palo
-                <select id="club">
-                  <option>Driver</option>
-                  <option>3-wood</option>
-                  <option>Híbrido</option>
-                  <option selected>7-iron</option>
-                  <option>Wedge</option>
-                  <option>Putter</option>
-                </select>
-              </label>
-              <label>
-                FPS
-                <input id="fpsInput" type="number" min="24" max="240" value="60" />
-              </label>
-              <label>
-                Resultado
-                <select id="ballResult">
-                  <option value="unknown">No indicado</option>
-                  <option value="straight">Recta</option>
-                  <option value="draw">Draw</option>
-                  <option value="fade">Fade</option>
-                  <option value="push">Push</option>
-                  <option value="pull">Pull</option>
-                  <option value="slice">Slice</option>
-                  <option value="hook">Hook</option>
-                  <option value="fat">Pesada</option>
-                  <option value="thin">Filada</option>
-                  <option value="top">Topada</option>
-                </select>
-              </label>
-            </div>
-            <p class="panel-note" id="analysisStatus">Carga un vídeo, ajusta encuadre y pulsa Analizar.</p>
-            <button class="wide-soft-button" id="autoAnalyzeBtn" type="button">
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="m12 3 1.6 4.4L18 9l-4.4 1.6L12 15l-1.6-4.4L6 9l4.4-1.6Z" />
-                <path d="M19 14l.8 2.2L22 17l-2.2.8L19 20l-.8-2.2L16 17l2.2-.8Z" />
-                <path d="M5 14l.8 2.2L8 17l-2.2.8L5 20l-.8-2.2L2 17l2.2-.8Z" />
-              </svg>
-              Analizar vídeo
-            </button>
-          </div>
-
-          <div class="panel">
-            <div class="panel-title">
-              <h2>Capture score</h2>
-              <strong id="captureScore">0</strong>
-            </div>
-            <p class="panel-note" id="captureAutoNote">Automático al analizar; editable.</p>
-            <div class="check-stack" id="captureChecks">
-              <label><input type="checkbox" value="frame" /> Jugador entero visible</label>
-              <label><input type="checkbox" value="light" /> Buena luz</label>
-              <label><input type="checkbox" value="stable" /> Cámara fija</label>
-              <label><input type="checkbox" value="ball" /> Bola visible</label>
-              <label><input type="checkbox" value="club" /> Palo visible</label>
-              <label><input type="checkbox" value="fps" /> 60 FPS o más</label>
-            </div>
-          </div>
-
-          <div class="panel">
-            <div class="panel-title">
-              <h2>Guía de encuadre</h2>
-              <button class="text-button" id="centerGuideBtn" type="button">Centrar</button>
-            </div>
-            <div class="slider-stack compact">
-              <label>
-                Horizontal
-                <input id="guideX" type="range" min="20" max="80" value="50" />
-              </label>
-              <label>
-                Vertical
-                <input id="guideY" type="range" min="55" max="92" value="80" />
-              </label>
-              <label>
-                Tamaño
-                <input id="guideScale" type="range" min="70" max="140" value="100" />
-              </label>
-              <label>
-                Rotación
-                <input id="guideRotation" type="range" min="-25" max="25" value="-8" />
-              </label>
-            </div>
-            <p class="panel-note">Úsala para alinear pies, bola y cuerpo. No mide: ayuda a grabar y comparar siempre igual.</p>
-          </div>
-
-          <div class="panel">
-            <div class="panel-title">
-              <h2>Métricas revisables</h2>
-              <span>Auto + manual</span>
-            </div>
-            <div class="slider-stack metric-controls">
-              <div class="metric-control">
-                <label>
-                  <span>Estabilidad cabeza</span>
-                  <output id="headStabilityValue">72</output>
-                  <input id="headStability" type="range" min="0" max="100" value="72" />
-                </label>
-                <button type="button" data-metric-frame="address">Comprobar</button>
-                <small id="headStabilityHint">Compara address con top.</small>
-              </div>
-              <div class="metric-control">
-                <label>
-                  <span>Postura impacto</span>
-                  <output id="postureRetentionValue">68</output>
-                  <input id="postureRetention" type="range" min="0" max="100" value="68" />
-                </label>
-                <button type="button" data-metric-frame="impact">Comprobar</button>
-                <small id="postureRetentionHint">Revisa si conserva espacio en impacto.</small>
-              </div>
-              <div class="metric-control">
-                <label>
-                  <span>Ruta manos</span>
-                  <output id="handPathValue">64</output>
-                  <input id="handPath" type="range" min="0" max="100" value="64" />
-                </label>
-                <button type="button" data-metric-frame="top">Comprobar</button>
-                <small id="handPathHint">Revisa transición desde top.</small>
-              </div>
-              <div class="metric-control">
-                <label>
-                  <span>Equilibrio final</span>
-                  <output id="finishBalanceValue">76</output>
-                  <input id="finishBalance" type="range" min="0" max="100" value="76" />
-                </label>
-                <button type="button" data-metric-frame="finish">Comprobar</button>
-                <small id="finishBalanceHint">Revisa si el finish se sostiene.</small>
-              </div>
-            </div>
-          </div>
-
-          <div class="panel learning-panel">
-            <div class="panel-title">
-              <h2>Aprendizaje local</h2>
-              <span id="learningCount">0 ejemplos</span>
-            </div>
-            <p class="panel-note">Guarda correcciones buenas para que la app compare futuros vídeos parecidos en este navegador. No hay ejemplos de producción precargados.</p>
-            <div class="learning-modes" aria-label="Modos de aprendizaje">
-              <span>Real: correcciones guardadas</span>
-              <label><input id="demoLearningToggle" type="checkbox" /> Modo demo</label>
-            </div>
-            <button class="wide-soft-button" id="saveCorrectionBtn" type="button">
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M12 5v14M5 12h14" />
-              </svg>
-              Guardar corrección
-            </button>
+            <p class="panel-note" id="homeHint">Privado y local: el vídeo se procesa en tu navegador.</p>
           </div>
         </section>
 
-        <section class="viewer-column" aria-label="Visor de swing">
+        <section class="home-quick-grid">
+          <article class="mini-card">
+            <strong>1. Vídeo</strong>
+            <span>Sube el clip y revísalo como en una app de vídeo.</span>
+          </article>
+          <article class="mini-card">
+            <strong>2. Encaje</strong>
+            <span>La guía se ajusta automáticamente y puedes corregirla encima del vídeo.</span>
+          </article>
+          <article class="mini-card">
+            <strong>3. Fases</strong>
+            <span>Confirma address, top, impact y finish una por una.</span>
+          </article>
+          <article class="mini-card">
+            <strong>4. Reporte</strong>
+            <span>Quédate dibujando sobre el vídeo o abre métricas, recomendaciones y exportación.</span>
+          </article>
+        </section>
+      </main>
+
+      <main class="workspace flow-workspace" id="swingWorkspace" aria-label="Flujo de análisis de swing">
+        <section class="viewer-column video-first" aria-label="Visor de swing">
           <section class="workflow-panel" id="workflowPanel" aria-label="Flujo guiado">
             <ol>
-              <li data-step="upload"><span>1</span><strong>Subir vídeo</strong></li>
-              <li data-step="frame"><span>2</span><strong>Ajustar encuadre</strong></li>
+              <li data-step="upload"><span>1</span><strong>Subir</strong></li>
+              <li data-step="frame"><span>2</span><strong>Encajar</strong></li>
               <li data-step="quality"><span>3</span><strong>Calidad</strong></li>
               <li data-step="analyze"><span>4</span><strong>Analizar</strong></li>
-              <li data-step="events"><span>5</span><strong>Corregir fases</strong></li>
-              <li data-step="report"><span>6</span><strong>Métricas</strong></li>
-              <li data-step="save"><span>7</span><strong>Guardar/exportar</strong></li>
+              <li data-step="events"><span>5</span><strong>Fases</strong></li>
+              <li data-step="report"><span>6</span><strong>Reporte</strong></li>
+              <li data-step="save"><span>7</span><strong>Guardar</strong></li>
             </ol>
           </section>
 
-          <section class="prep-panel" id="prepPanel" aria-label="Preparación antes del análisis"></section>
+          <div class="video-card">
+            <div class="video-card-top">
+              <div>
+                <p class="eyebrow">Revisión de vídeo</p>
+                <h2 id="videoScreenTitle">Carga un swing para empezar</h2>
+              </div>
+              <span id="orientationBadge" class="soft-pill">Sin vídeo</span>
+            </div>
 
-          <div class="viewer-toolbar">
+            <div class="stage" id="stage">
+              <video id="swingVideo" playsinline muted preload="metadata"></video>
+              <canvas id="overlayCanvas"></canvas>
+              <div class="empty-stage" id="emptyStage">
+                <img src="./assets/swing-guide.svg" alt="" />
+                <div>
+                  <p class="eyebrow">Listo para analizar</p>
+                  <h2>Sube un vídeo y sigue la secuencia</h2>
+                </div>
+              </div>
+            </div>
+
+            <div class="transport mobile-transport">
+              <button class="icon-button" id="backFrameBtn" type="button" title="Frame anterior" aria-label="Frame anterior">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 18 5 12l6-6M19 18l-6-6 6-6" /></svg>
+              </button>
+              <button class="icon-button play-button" id="playPauseBtn" type="button" title="Reproducir o pausar" aria-label="Reproducir o pausar">
+                <svg id="playIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7Z" /></svg>
+              </button>
+              <button class="icon-button" id="nextFrameBtn" type="button" title="Frame siguiente" aria-label="Frame siguiente">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m13 6 6 6-6 6M5 6l6 6-6 6" /></svg>
+              </button>
+              <select id="playbackRate" class="speed-select" aria-label="Velocidad de reproducción">
+                <option value="0.25">0.25x</option>
+                <option value="0.5" selected>0.5x</option>
+                <option value="0.75">0.75x</option>
+                <option value="1">1x</option>
+              </select>
+              <button class="icon-button" id="fullscreenBtn" type="button" title="Pantalla completa" aria-label="Pantalla completa">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M21 16v5h-5" /></svg>
+              </button>
+              <div class="timeline-control">
+                <input id="frameSlider" type="range" min="0" max="0" value="0" />
+                <div class="time-readout"><span id="frameReadout">Frame 0</span><span id="timeReadout">00:00.00</span></div>
+              </div>
+            </div>
+          </div>
+
+          <section class="flow-step-card" id="flowStepCard" aria-live="polite">
+            <div class="flow-step-copy">
+              <p class="eyebrow" id="flowStepEyebrow">Paso 1</p>
+              <h2 id="flowStepTitle">Sube el vídeo</h2>
+              <p id="flowStepText">Empieza con un clip claro del swing. Después la app intentará encajarlo automáticamente.</p>
+              <p class="panel-note" id="analysisStatus">Carga un vídeo, ajusta encuadre y pulsa Analizar.</p>
+            </div>
+            <div class="flow-actions">
+              <button class="primary-button" id="flowPrimaryAction" type="button">Subir vídeo</button>
+              <button class="ghost-button" id="flowSecondaryAction" type="button">Cargar anterior</button>
+              <button class="text-button" id="flowBackAction" type="button">Paso anterior</button>
+            </div>
+          </section>
+
+          <section class="phase-review-panel" id="phaseReviewPanel" aria-label="Revisión de fases">
+            <div class="phase-coach">
+              <div>
+                <p class="eyebrow" id="phaseProgressLabel">Fases</p>
+                <h2 id="phaseCoachTitle">Confirma cada fase</h2>
+                <p id="phaseCoachText">La app te lleva a cada frame sugerido. Confírmalo o cambia la fase al frame actual.</p>
+              </div>
+              <div class="phase-actions">
+                <button class="ghost-button" id="changePhaseBtn" type="button">Usar frame actual</button>
+                <button class="primary-button" id="confirmPhaseBtn" type="button">Confirmar fase</button>
+                <button class="ghost-button" id="nextPhaseBtn" type="button">Siguiente</button>
+              </div>
+            </div>
+            <div class="event-grid" id="eventGrid" aria-label="Fases del swing">
+              <article class="event-card" data-event-card="address">
+                <button class="event-jump" type="button" data-event-jump="address"><span>Address</span><strong>Sin detectar</strong><small>Setup inicial</small></button>
+                <button class="event-mark" type="button" data-event-mark="address">Marcar aquí</button>
+              </article>
+              <article class="event-card" data-event-card="top">
+                <button class="event-jump" type="button" data-event-jump="top"><span>Top</span><strong>Sin detectar</strong><small>Punto alto</small></button>
+                <button class="event-mark" type="button" data-event-mark="top">Marcar aquí</button>
+              </article>
+              <article class="event-card" data-event-card="impact">
+                <button class="event-jump" type="button" data-event-jump="impact"><span>Impact</span><strong>Sin detectar</strong><small>Contacto</small></button>
+                <button class="event-mark" type="button" data-event-mark="impact">Marcar aquí</button>
+              </article>
+              <article class="event-card" data-event-card="finish">
+                <button class="event-jump" type="button" data-event-jump="finish"><span>Finish</span><strong>Sin detectar</strong><small>Final</small></button>
+                <button class="event-mark" type="button" data-event-mark="finish">Marcar aquí</button>
+              </article>
+            </div>
+          </section>
+
+          <div class="viewer-toolbar compact-toolbar">
             <div class="segmented-control" role="group" aria-label="Herramientas de overlay">
-              <button type="button" class="is-active" data-tool="select" title="Seleccionar" aria-label="Seleccionar">
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M3 3l7.5 18 2.2-7.3L20 11.5 3 3Z" />
-                </svg>
-              </button>
-              <button type="button" data-tool="line" title="Dibujar línea" aria-label="Dibujar línea">
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M5 19L19 5" />
-                </svg>
-              </button>
-              <button type="button" data-tool="angle" title="Dibujar ángulo" aria-label="Dibujar ángulo">
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M5 19l7-14 7 14" />
-                </svg>
-              </button>
-              <button type="button" id="clearMarksBtn" title="Borrar dibujos" aria-label="Borrar dibujos">
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M3 6h18M8 6V4h8v2M6 6l1 15h10l1-15" />
-                </svg>
-              </button>
+              <button type="button" class="is-active" data-tool="select" title="Seleccionar" aria-label="Seleccionar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l7.5 18 2.2-7.3L20 11.5 3 3Z" /></svg></button>
+              <button type="button" data-tool="line" title="Dibujar línea" aria-label="Dibujar línea"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19L19 5" /></svg></button>
+              <button type="button" data-tool="angle" title="Dibujar ángulo" aria-label="Dibujar ángulo"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19l7-14 7 14" /></svg></button>
+              <button type="button" id="clearMarksBtn" title="Borrar dibujos" aria-label="Borrar dibujos"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2M6 6l1 15h10l1-15" /></svg></button>
             </div>
             <div class="overlay-toggles">
               <label><input id="toggleGuide" type="checkbox" checked /> Guía</label>
@@ -282,242 +209,112 @@
             </div>
           </div>
 
-          <div class="stage" id="stage">
-            <video id="swingVideo" playsinline muted preload="metadata"></video>
-            <canvas id="overlayCanvas"></canvas>
-            <div class="empty-stage" id="emptyStage">
-              <img src="./assets/swing-guide.svg" alt="" />
-              <div>
-                <p class="eyebrow">Listo para analizar</p>
-                <h2>Sube un vídeo y deja que la app encuentre las fases</h2>
-              </div>
-            </div>
-          </div>
-
           <div class="session-video-notice is-hidden" id="historyVideoNotice">
             <strong>Sesión histórica cargada sin vídeo.</strong>
             <span>Se muestran datos y frames guardados. Para analizar, reproducir, marcar fases o exportar PNG, vuelve a cargar el vídeo original.</span>
           </div>
-
           <div class="phase-snapshot-strip is-hidden" id="phaseSnapshotStrip" aria-label="Frames principales guardados"></div>
-
-          <div class="transport">
-            <button class="icon-button" id="backFrameBtn" type="button" title="Frame anterior" aria-label="Frame anterior">
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M11 18 5 12l6-6M19 18l-6-6 6-6" />
-              </svg>
-            </button>
-            <button class="icon-button play-button" id="playPauseBtn" type="button" title="Reproducir o pausar" aria-label="Reproducir o pausar">
-              <svg id="playIcon" viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M8 5v14l11-7Z" />
-              </svg>
-            </button>
-            <button class="icon-button" id="nextFrameBtn" type="button" title="Frame siguiente" aria-label="Frame siguiente">
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="m13 6 6 6-6 6M5 6l6 6-6 6" />
-              </svg>
-            </button>
-            <select id="playbackRate" class="speed-select" aria-label="Velocidad de reproducción">
-              <option value="0.25">0.25x</option>
-              <option value="0.5" selected>0.5x</option>
-              <option value="0.75">0.75x</option>
-              <option value="1">1x</option>
-            </select>
-            <button class="icon-button" id="fullscreenBtn" type="button" title="Pantalla completa" aria-label="Pantalla completa">
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M8 3H3v5M16 3h5v5M8 21H3v-5M21 16v5h-5" />
-              </svg>
-            </button>
-            <div class="timeline-control">
-              <input id="frameSlider" type="range" min="0" max="0" value="0" />
-              <div class="time-readout">
-                <span id="frameReadout">Frame 0</span>
-                <span id="timeReadout">00:00.00</span>
-              </div>
-            </div>
-          </div>
-
-          <div class="event-grid" id="eventGrid" aria-label="Fases del swing">
-            <article class="event-card" data-event-card="address">
-              <button class="event-jump" type="button" data-event-jump="address">
-                <span>Address</span>
-                <strong>Sin detectar</strong>
-                <small>Setup inicial</small>
-              </button>
-              <button class="event-mark" type="button" data-event-mark="address">Marcar aquí</button>
-            </article>
-            <article class="event-card" data-event-card="top">
-              <button class="event-jump" type="button" data-event-jump="top">
-                <span>Top</span>
-                <strong>Sin detectar</strong>
-                <small>Punto alto</small>
-              </button>
-              <button class="event-mark" type="button" data-event-mark="top">Marcar aquí</button>
-            </article>
-            <article class="event-card" data-event-card="impact">
-              <button class="event-jump" type="button" data-event-jump="impact">
-                <span>Impact</span>
-                <strong>Sin detectar</strong>
-                <small>Contacto</small>
-              </button>
-              <button class="event-mark" type="button" data-event-mark="impact">Marcar aquí</button>
-            </article>
-            <article class="event-card" data-event-card="finish">
-              <button class="event-jump" type="button" data-event-jump="finish">
-                <span>Finish</span>
-                <strong>Sin detectar</strong>
-                <small>Final</small>
-              </button>
-              <button class="event-mark" type="button" data-event-mark="finish">Marcar aquí</button>
-            </article>
-          </div>
         </section>
 
-        <aside class="insight-rail" aria-label="Reporte">
-          <div class="panel score-panel">
-            <p class="eyebrow">Reporte rápido</p>
-            <div class="score-ring">
-              <svg viewBox="0 0 120 120" aria-hidden="true">
-                <circle cx="60" cy="60" r="48" />
-                <circle id="scoreArc" cx="60" cy="60" r="48" />
-              </svg>
-              <div>
-                <strong id="overallScore">0</strong>
-                <span>score</span>
+        <section class="control-rail assist-rail" aria-label="Ajustes del flujo">
+          <section class="prep-panel" id="prepPanel" aria-label="Paneles de preparación">
+            <div class="panel prep-session">
+              <div class="panel-title"><h2>Datos del swing</h2><span>Editable</span></div>
+              <div class="field-grid">
+                <label>Vista<select id="viewType"><option value="DTL">Down-the-line</option><option value="FO">Face-on</option><option value="unknown">No segura</option></select></label>
+                <label>Palo<select id="club"><option>Driver</option><option>3-wood</option><option>Híbrido</option><option selected>7-iron</option><option>Wedge</option><option>Putter</option></select></label>
+                <label>FPS<input id="fpsInput" type="number" min="24" max="240" value="60" /></label>
+                <label>Resultado<select id="ballResult"><option value="unknown">No indicado</option><option value="straight">Recta</option><option value="draw">Draw</option><option value="fade">Fade</option><option value="push">Push</option><option value="pull">Pull</option><option value="slice">Slice</option><option value="hook">Hook</option><option value="fat">Pesada</option><option value="thin">Filada</option><option value="top">Topada</option></select></label>
+              </div>
+              <button class="wide-soft-button" id="autoAnalyzeBtn" type="button">Analizar vídeo</button>
+            </div>
+
+            <div class="panel prep-capture">
+              <div class="panel-title"><h2>Calidad de captura</h2><strong id="captureScore">0</strong></div>
+              <p class="panel-note" id="captureAutoNote">Automático al analizar; editable.</p>
+              <div class="check-stack" id="captureChecks">
+                <label><input type="checkbox" value="frame" /> Jugador entero visible</label>
+                <label><input type="checkbox" value="light" /> Buena luz</label>
+                <label><input type="checkbox" value="stable" /> Cámara fija</label>
+                <label><input type="checkbox" value="ball" /> Bola visible</label>
+                <label><input type="checkbox" value="club" /> Palo visible</label>
+                <label><input type="checkbox" value="fps" /> 60 FPS o más</label>
               </div>
             </div>
+
+            <div class="panel prep-guide">
+              <div class="panel-title"><h2>Encaje automático/manual</h2><button class="text-button" id="centerGuideBtn" type="button">Recentrar</button></div>
+              <div class="slider-stack compact">
+                <label>Horizontal<input id="guideX" type="range" min="20" max="80" value="50" /></label>
+                <label>Vertical<input id="guideY" type="range" min="55" max="92" value="80" /></label>
+                <label>Tamaño<input id="guideScale" type="range" min="70" max="140" value="100" /></label>
+                <label>Rotación<input id="guideRotation" type="range" min="-25" max="25" value="-8" /></label>
+              </div>
+              <details class="guide-help">
+                <summary>Cómo colocar la guía</summary>
+                <div><img src="./assets/guide-example.svg" alt="" /><p>Alinea pies, bola y plano aproximado. Esta guía no mide: ayuda a revisar y repetir la captura.</p></div>
+              </details>
+            </div>
+
+            <div class="panel prep-metrics">
+              <div class="panel-title"><h2>Métricas revisables</h2><span>Auto + manual</span></div>
+              <div class="slider-stack metric-controls">
+                <div class="metric-control"><label><span>Estabilidad cabeza</span><output id="headStabilityValue">72</output><input id="headStability" type="range" min="0" max="100" value="72" /></label><button type="button" data-metric-frame="address">Comprobar</button><small id="headStabilityHint">Compara address con top.</small></div>
+                <div class="metric-control"><label><span>Postura impacto</span><output id="postureRetentionValue">68</output><input id="postureRetention" type="range" min="0" max="100" value="68" /></label><button type="button" data-metric-frame="impact">Comprobar</button><small id="postureRetentionHint">Revisa si conserva espacio en impacto.</small></div>
+                <div class="metric-control"><label><span>Ruta manos</span><output id="handPathValue">64</output><input id="handPath" type="range" min="0" max="100" value="64" /></label><button type="button" data-metric-frame="top">Comprobar</button><small id="handPathHint">Revisa transición desde top.</small></div>
+                <div class="metric-control"><label><span>Equilibrio final</span><output id="finishBalanceValue">76</output><input id="finishBalance" type="range" min="0" max="100" value="76" /></label><button type="button" data-metric-frame="finish">Comprobar</button><small id="finishBalanceHint">Revisa si el finish se sostiene.</small></div>
+              </div>
+            </div>
+
+            <div class="panel learning-panel">
+              <div class="panel-title"><h2>Aprendizaje local</h2><span id="learningCount">0 ejemplos</span></div>
+              <p class="panel-note">Guarda correcciones buenas para futuros vídeos parecidos en este navegador.</p>
+              <div class="learning-modes" aria-label="Modos de aprendizaje"><span>Real: correcciones guardadas</span><label><input id="demoLearningToggle" type="checkbox" /> Modo demo</label></div>
+              <button class="wide-soft-button" id="saveCorrectionBtn" type="button">Guardar corrección</button>
+            </div>
+          </section>
+        </section>
+
+        <aside class="insight-rail report-rail" aria-label="Reporte">
+          <div class="report-drawer-head"><p class="eyebrow">Panel de análisis</p><h2>Salir del vídeo y ver métricas</h2></div>
+          <div class="panel score-panel">
+            <p class="eyebrow">Reporte rápido</p>
+            <div class="score-ring"><svg viewBox="0 0 120 120" aria-hidden="true"><circle cx="60" cy="60" r="48" /><circle id="scoreArc" cx="60" cy="60" r="48" /></svg><div><strong id="overallScore">0</strong><span>score</span></div></div>
             <p id="reportSummary">Carga un vídeo para crear el primer análisis.</p>
           </div>
-
           <div class="panel">
-            <div class="panel-title">
-              <h2>Prioridad</h2>
-              <span id="confidenceBadge">Sin análisis</span>
-            </div>
+            <div class="panel-title"><h2>Prioridad</h2><span id="confidenceBadge">Sin análisis</span></div>
             <h3 id="primaryIssue">Vídeo pendiente</h3>
             <p id="primaryEvidence">El análisis aparecerá después de cargar un vídeo.</p>
-            <div class="drill-box">
-              <span>Drill</span>
-              <strong id="drillName">Captura guiada</strong>
-              <p id="drillDescription">Graba con cámara fija, buena luz y jugador completo visible.</p>
-            </div>
+            <div class="drill-box"><span>Drill</span><strong id="drillName">Captura guiada</strong><p id="drillDescription">Graba con cámara fija, buena luz y jugador completo visible.</p></div>
           </div>
-
-          <div class="panel">
-            <div class="panel-title">
-              <h2>Recomendaciones</h2>
-            </div>
-            <div class="recommendation-list" id="recommendationList"></div>
-          </div>
-
-          <div class="panel">
-            <div class="panel-title">
-              <h2>Qué significa</h2>
-            </div>
-            <div class="explanation-list" id="explanationList"></div>
-          </div>
-
-          <div class="panel">
-            <div class="panel-title">
-              <h2>Métricas</h2>
-            </div>
-            <div class="metric-list" id="metricList"></div>
-          </div>
-
-          <div class="panel export-panel">
-            <div class="panel-title">
-              <h2>Salidas</h2>
-            </div>
-            <button type="button" id="exportCsvBtn">
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" />
-                <path d="M14 2v6h6M8 13h8M8 17h5" />
-              </svg>
-              CSV métricas
-            </button>
-            <button type="button" id="exportPngBtn">
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <rect x="3" y="3" width="18" height="18" rx="2" />
-                <circle cx="8.5" cy="8.5" r="1.5" />
-                <path d="m21 15-5-5L5 21" />
-              </svg>
-              PNG frame
-            </button>
-          </div>
-
-          <div class="panel history-panel">
-            <div class="panel-title">
-              <h2>Historial</h2>
-              <button class="text-button" id="refreshHistoryBtn" type="button">Actualizar</button>
-            </div>
-            <div class="history-list" id="historyList"></div>
-          </div>
+          <div class="panel"><div class="panel-title"><h2>Recomendaciones</h2></div><div class="recommendation-list" id="recommendationList"></div></div>
+          <div class="panel"><div class="panel-title"><h2>Qué significa</h2></div><div class="explanation-list" id="explanationList"></div></div>
+          <div class="panel"><div class="panel-title"><h2>Métricas</h2></div><div class="metric-list" id="metricList"></div></div>
+          <div class="panel export-panel"><div class="panel-title"><h2>Salidas</h2></div><button type="button" id="exportCsvBtn">CSV métricas</button><button type="button" id="exportPngBtn">PNG frame</button></div>
+          <div class="panel history-panel" id="historyPanel"><div class="panel-title"><h2>Historial</h2><button class="text-button" id="refreshHistoryBtn" type="button">Actualizar</button></div><div class="history-list" id="historyList"></div></div>
         </aside>
       </main>
 
       <main class="ball-workspace is-hidden" id="ballWorkspace" aria-label="Vista de bola y golpe">
         <section class="ball-viewer">
           <div class="ball-head">
-            <div>
-              <p class="eyebrow">Bola y golpe</p>
-              <h2>Trayectoria visual del golpe</h2>
-            </div>
+            <div><p class="eyebrow">Bola y golpe</p><h2>Trayectoria visual del golpe</h2></div>
             <div class="ball-actions">
-              <button class="ghost-button" id="markBallLaunchBtn" type="button">
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <circle cx="12" cy="12" r="3" />
-                  <path d="M12 2v4M12 18v4M2 12h4M18 12h4" />
-                </svg>
-                Salida
-              </button>
-              <button class="ghost-button" id="autoBallPathBtn" type="button">
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="m4 18 6-6 4 4 6-8" />
-                  <path d="M14 8h6v6" />
-                </svg>
-                Detectar bola
-              </button>
-              <button class="ghost-button" id="clearBallPathBtn" type="button">
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M3 6h18M8 6V4h8v2M6 6l1 15h10l1-15" />
-                </svg>
-                Limpiar
-              </button>
-              <button class="primary-button" id="ballFullscreenBtn" type="button">
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M8 3H3v5M16 3h5v5M8 21H3v-5M21 16v5h-5" />
-                </svg>
-                Pantalla
-              </button>
+              <button class="ghost-button" id="markBallLaunchBtn" type="button">Salida</button>
+              <button class="ghost-button" id="autoBallPathBtn" type="button">Detectar bola</button>
+              <button class="ghost-button" id="clearBallPathBtn" type="button">Limpiar</button>
+              <button class="primary-button" id="ballFullscreenBtn" type="button">Pantalla</button>
             </div>
           </div>
           <div class="ball-stage" id="ballStage">
             <video id="ballVideo" playsinline muted controls preload="metadata"></video>
             <canvas id="ballCanvas"></canvas>
-            <div class="empty-stage" id="ballEmptyStage">
-              <img src="./assets/swing-guide.svg" alt="" />
-              <div>
-                <p class="eyebrow">Solo resultado</p>
-                <h2>Esta vista es para disfrutar el golpe y marcar la bola</h2>
-              </div>
-            </div>
+            <div class="empty-stage" id="ballEmptyStage"><img src="./assets/swing-guide.svg" alt="" /><div><p class="eyebrow">Solo resultado</p><h2>Marca o detecta la salida de bola</h2></div></div>
           </div>
           <div class="ball-side">
-            <div class="panel">
-              <div class="panel-title">
-                <h2>Cómo usarlo</h2>
-              </div>
-              <p class="panel-note">Pulsa detectar y reproduce el vídeo. La línea se recorre con el golpe. Si falla, arrastra los puntos o toca para añadir una corrección.</p>
-            </div>
-            <div class="panel">
-              <div class="panel-title">
-                <h2>Resultado</h2>
-                <span id="ballPathLabel">Sin camino</span>
-              </div>
-              <p class="panel-note" id="ballLaunchLabel">Salida no marcada. Se usará la guía.</p>
-              <p class="panel-note" id="ballPathStatus">La trayectoria aparece después de detectar la bola.</p>
-              <p id="ballPathSummary">Sube un vídeo y usa Detectar bola o marca puntos manuales.</p>
-            </div>
+            <div class="panel"><div class="panel-title"><h2>Cómo usarlo</h2></div><p class="panel-note">Pulsa detectar y reproduce el vídeo. Si falla, toca o arrastra los puntos.</p></div>
+            <div class="panel"><div class="panel-title"><h2>Resultado</h2><span id="ballPathLabel">Sin camino</span></div><p class="panel-note" id="ballLaunchLabel">Salida no marcada. Se usará la guía.</p><p class="panel-note" id="ballPathStatus">La trayectoria aparece después de detectar la bola.</p><p id="ballPathSummary">Sube un vídeo y usa Detectar bola o marca puntos manuales.</p></div>
           </div>
         </section>
       </main>
@@ -526,11 +323,7 @@
     <template id="historyItemTemplate">
       <article class="history-item">
         <img class="history-thumb" alt="" hidden />
-        <div>
-          <strong></strong>
-          <span></span>
-          <small></small>
-        </div>
+        <div><strong></strong><span></span><small></small></div>
         <button type="button">Cargar</button>
       </article>
     </template>

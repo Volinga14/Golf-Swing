@@ -1,5 +1,5 @@
 const APP_VERSION = "0.5.5";
-const CACHE_NAME = `swing-lab-ai-v${APP_VERSION}`;
+const CACHE_NAME = `swing-lab-ai-v${APP_VERSION}-flow-redesign`;
 const APP_SHELL = [
   "./",
   "./index.html",

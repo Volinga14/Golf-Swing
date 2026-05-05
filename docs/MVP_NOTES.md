@@ -22,3 +22,16 @@ Convertir el MVP previo en una PWA más usable y honesta: menos sensación de pr
 - Separar métricas por vista DTL/FO.
 - Mejorar detección real de fases.
 - Añadir evidencia visual por recomendación.
+
+## v0.5.5 Flow redesign
+
+Large UX redesign focused on mobile-first, video-first usage:
+
+- New home screen with three primary options: upload swing video, load previous analysis, or prepare comparison.
+- Guided flow reorganized around: upload, fit/crop guide, quality review, analyze, phase confirmation, report, save/export.
+- Video is now the center of the interface, with YouTube/Instagram-style playback controls and a sticky next-step card.
+- Automatic guide fitting is attempted when video metadata is loaded; manual guide sliders remain available.
+- Phase review now works as a sequence: the app jumps to each proposed phase and the user confirms or replaces it with the current frame.
+- Report and metrics are moved into a secondary analysis drawer so the user can stay in the video or leave the video to inspect metrics.
+- Previous technical panels are still available, but act as assistive drawers rather than the main experience.
+- Service worker cache key changed to force mobile refresh for the redesign.
