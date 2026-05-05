@@ -255,6 +255,9 @@ const overlay = new OverlayCanvas({
   getState: () => state
 });
 
+let pendingVideoLoadTimer = null;
+let finalizedVideoObjectUrl = "";
+
 const ballResizeObserver = new ResizeObserver(() => resizeBallCanvas());
 ballResizeObserver.observe(els.ballStage);
 
@@ -285,6 +288,78 @@ function setAppStatus(status, message) {
   renderFlowUi();
   renderPhaseCoach();
   renderHistoryMediaUi();
+}
+
+function scheduleVideoLoadGuard(file) {
+  if (pendingVideoLoadTimer) window.clearTimeout(pendingVideoLoadTimer);
+  pendingVideoLoadTimer = window.setTimeout(() => {
+    if (els.video.readyState >= 1 && state.videoObjectUrl) {
+      finalizeVideoLoad();
+      return;
+    }
+    if (!state.videoObjectUrl) return;
+    const name = file?.name ? ` “${file.name}”` : "";
+    els.analysisStatus.textContent = `El vídeo${name} sigue cargando o el navegador no ha podido leer su metadata. Prueba con MP4 H.264 si no aparece.`;
+    setAppStatus("loaded", "Vídeo cargando");
+  }, 3000);
+}
+
+function finalizeVideoLoad() {
+  if (!state.videoObjectUrl || state.isHistoryOnly) return;
+  if (finalizedVideoObjectUrl === state.videoObjectUrl) return;
+  finalizedVideoObjectUrl = state.videoObjectUrl;
+  if (pendingVideoLoadTimer) {
+    window.clearTimeout(pendingVideoLoadTimer);
+    pendingVideoLoadTimer = null;
+  }
+
+  player.handleMetadata();
+  state.duration = player.duration;
+  state.totalFrames = player.totalFrames;
+  state.videoSize = { width: els.video.videoWidth || 0, height: els.video.videoHeight || 0 };
+  state.orientation = state.videoSize.width >= state.videoSize.height ? "horizontal" : "vertical";
+  if (!state.totalFrames && state.duration > 0) {
+    state.totalFrames = Math.max(1, Math.floor(state.duration * state.fps));
+  }
+
+  els.emptyStage.style.display = "none";
+  els.ballEmptyStage.style.display = "none";
+  updateOrientationUi();
+  autoFitGuide(true);
+  clearDetectedEvents();
+  updateAnalysis();
+  overlay.resize();
+  overlay.render();
+  setAppStatus("loaded");
+  const learningMatch = findLearningMatch(state);
+  els.analysisStatus.textContent = learningMatch
+    ? `Vídeo listo. Hay una corrección parecida guardada: ${learningMatch.example.label}. Ajusta la guía y pulsa Analizar.`
+    : "Vídeo listo. Ajusta encuadre, guía y capture score si hace falta; después pulsa Analizar.";
+}
+
+function handleVideoLoadError() {
+  if (pendingVideoLoadTimer) {
+    window.clearTimeout(pendingVideoLoadTimer);
+    pendingVideoLoadTimer = null;
+  }
+  const failedName = state.videoName;
+  state.videoObjectUrl = "";
+  state.videoSize = { width: 0, height: 0 };
+  state.duration = 0;
+  state.totalFrames = 0;
+  state.flowStep = "upload";
+  els.video.pause();
+  els.video.removeAttribute("src");
+  els.video.load();
+  els.ballVideo.pause();
+  els.ballVideo.removeAttribute("src");
+  els.ballVideo.load();
+  els.emptyStage.style.display = "grid";
+  els.ballEmptyStage.style.display = "grid";
+  els.videoFileName.textContent = failedName ? `${failedName} · no compatible` : "MP4, MOV o WebM";
+  if (els.homeHint) els.homeHint.textContent = "No se pudo previsualizar el vídeo. Prueba con MP4 H.264/AAC o graba/exporta de nuevo el clip.";
+  setAppStatus("error", "Error al cargar vídeo");
+  updateAnalysis();
 }
 
 function renderWorkflow() {
@@ -342,6 +417,7 @@ function renderHistoryMediaUi() {
 function resetSession() {
   if (player.objectUrl) URL.revokeObjectURL(player.objectUrl);
   player.objectUrl = "";
+  finalizedVideoObjectUrl = "";
   els.video.pause();
   els.video.removeAttribute("src");
   els.video.load();
@@ -451,6 +527,7 @@ function bindEvents() {
     state.thumbnail = null;
     state.frameSnapshots = {};
     state.videoAnalysis = null;
+    finalizedVideoObjectUrl = "";
     state.ballPath = [];
     state.ballPathAuto = false;
     state.ballPathMeta = null;
@@ -465,32 +542,23 @@ function bindEvents() {
     if (emptyPreview) emptyPreview.src = "./assets/swing-guide.svg";
     els.emptyStage.style.display = "none";
     els.ballEmptyStage.style.display = "none";
-    els.analysisStatus.textContent = "Vídeo cargando. Ajusta la guía antes de analizar.";
+    els.analysisStatus.textContent = "Vídeo cargando. El visor se abre ya; si tarda, espera a que el navegador lea la metadata.";
     els.ballPathStatus.textContent = "La trayectoria aparece después de detectar la bola.";
-    setAppStatus("loaded", "Vídeo cargando");
     renderBallLaunch();
-    player.load(file);
+
+    const objectUrl = player.load(file);
+    state.videoObjectUrl = objectUrl;
+    els.ballVideo.src = objectUrl;
+    els.ballVideo.load();
+    setAppStatus("loaded", "Vídeo cargando");
+    updateAnalysis();
+    scheduleVideoLoadGuard(file);
   });
 
-  els.video.addEventListener("loadedmetadata", async () => {
-    state.duration = player.duration;
-    state.totalFrames = player.totalFrames;
-    state.videoObjectUrl = player.objectUrl;
-    state.videoSize = { width: els.video.videoWidth, height: els.video.videoHeight };
-    state.orientation = els.video.videoWidth >= els.video.videoHeight ? "horizontal" : "vertical";
-    els.ballVideo.src = state.videoObjectUrl;
-    els.ballVideo.load();
-    updateOrientationUi();
-    autoFitGuide();
-    clearDetectedEvents();
-    updateAnalysis();
-    overlay.render();
-    setAppStatus("loaded");
-    const learningMatch = findLearningMatch(state);
-    els.analysisStatus.textContent = learningMatch
-      ? `Vídeo listo. Hay una corrección parecida guardada: ${learningMatch.example.label}. Ajusta la guía y pulsa Analizar.`
-      : "Vídeo listo. Ajusta encuadre, guía y capture score si hace falta; después pulsa Analizar.";
-  });
+  els.video.addEventListener("loadedmetadata", () => finalizeVideoLoad());
+  els.video.addEventListener("loadeddata", () => finalizeVideoLoad());
+  els.video.addEventListener("canplay", () => finalizeVideoLoad());
+  els.video.addEventListener("error", () => handleVideoLoadError());
 
   els.video.addEventListener("play", () => {
     els.playIcon.innerHTML = '<path d="M8 5h3v14H8zM13 5h3v14h-3z" />';
@@ -1589,6 +1657,7 @@ async function loadSession(id) {
   els.ballVideo.removeAttribute("src");
   els.ballVideo.load();
   player.objectUrl = "";
+  finalizedVideoObjectUrl = "";
   state.videoName = session.video?.fileName || "";
   state.duration = session.video?.durationSec || 0;
   state.totalFrames = session.video?.totalFrames || 0;

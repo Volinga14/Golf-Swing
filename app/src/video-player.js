@@ -25,6 +25,7 @@ export class VideoPlayer {
     this.objectUrl = URL.createObjectURL(file);
     this.video.src = this.objectUrl;
     this.video.load();
+    return this.objectUrl;
   }
 
   get fps() {

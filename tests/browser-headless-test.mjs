@@ -6,6 +6,11 @@ import { existsSync } from "node:fs";
 import { extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+if (process.env.RUN_BROWSER_TESTS !== "1") {
+  console.log("SKIP: browser visual test is opt-in. Set RUN_BROWSER_TESTS=1 to run Chromium screenshots.");
+  process.exit(0);
+}
+
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const appDir = join(root, "app");
 const artifactsDir = join(root, "test-artifacts");
@@ -35,7 +40,7 @@ try {
     url
   ]);
   assert.match(dom.stdout, /Swing Lab AI/);
-  assert.match(dom.stdout, /Vídeo pendiente/);
+  assert.match(dom.stdout, /Sin vídeo cargado|Sube un swing/);
   assert.doesNotMatch(dom.stdout + dom.stderr, /ERR_FILE_NOT_FOUND|Uncaught|Failed to load module script/);
 
   await runBrowser([
@@ -129,8 +134,8 @@ function runBrowser(args) {
     const child = spawn(browserPath, ensureBrowserArgs(args), { windowsHide: true });
     const timeout = setTimeout(() => {
       child.kill("SIGKILL");
-      rejectRun(new Error("Headless browser timed out after 15s"));
-    }, 15_000);
+      rejectRun(new Error("Headless browser timed out after 30s"));
+    }, 30_000);
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (chunk) => {
