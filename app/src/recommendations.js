@@ -48,6 +48,7 @@ export function buildRecommendations(state, metrics) {
   if (metrics.captureScore < 70) {
     findings.push({
       issue: "La captura limita la lectura",
+      source: "Heurística",
       score: metrics.captureScore,
       confidence: 0.72,
       evidence: "La app necesita cuerpo, palo y bola visibles para que las métricas tengan sentido.",
@@ -60,6 +61,7 @@ export function buildRecommendations(state, metrics) {
   if (metrics.tempoRatio && (metrics.tempoRatio < 2.4 || metrics.tempoRatio > 3.8)) {
     findings.push({
       issue: "Tempo poco estable",
+      source: "Heurística",
       score: metrics.tempoScore,
       confidence: 0.68,
       evidence: `El tempo marcado es ${metrics.tempoRatio.toFixed(2)}:1 entre backswing y downswing.`,
@@ -71,7 +73,8 @@ export function buildRecommendations(state, metrics) {
 
   if (metrics.headStability < 62) {
     findings.push({
-      issue: state.viewType === "FO" ? "Sway lateral probable" : "Cabeza poco estable en vídeo",
+      issue: state.viewType === "FO" ? "Posible sway lateral" : "Posible inestabilidad de cabeza",
+      source: "Heurística",
       score: metrics.headStability,
       confidence: 0.64,
       evidence: "La métrica automática sugiere revisar address contra top antes de confiar en la lectura.",
@@ -83,10 +86,11 @@ export function buildRecommendations(state, metrics) {
 
   if (state.viewType === "DTL" && metrics.postureRetention < 66) {
     findings.push({
-      issue: "Early extension probable",
+      issue: "Posible pérdida de postura",
+      source: "Heurística",
       score: metrics.postureRetention,
       confidence: 0.66,
-      evidence: "En DTL, una postura baja suele indicar que la pelvis pierde espacio antes de impacto.",
+      evidence: "Revisar visualmente entre address e impact. La métrica revisable sugiere que podría perderse espacio/postura antes del contacto.",
       drill: "Chair drill",
       description: "Coloca una silla detrás de la cadera y conserva el contacto suave hasta después del impacto.",
       nextMetric: "Posture retention"
@@ -95,7 +99,8 @@ export function buildRecommendations(state, metrics) {
 
   if (state.viewType === "FO" && metrics.postureRetention < 60) {
     findings.push({
-      issue: "Impacto con eje cambiante",
+      issue: "Posible eje cambiante en impacto",
+      source: "Heurística",
       score: metrics.postureRetention,
       confidence: 0.58,
       evidence: "En FO, revisa si cabeza y pecho se desplazan demasiado antes de impacto.",
@@ -107,7 +112,8 @@ export function buildRecommendations(state, metrics) {
 
   if (state.viewType === "DTL" && metrics.handPath < 62) {
     findings.push({
-      issue: "Ruta de manos hacia fuera",
+      issue: "Posible ruta de manos hacia fuera",
+      source: "Heurística",
       score: metrics.handPath,
       confidence: 0.61,
       evidence: "La transición top-impact queda como punto a revisar con las líneas del visor.",
@@ -119,7 +125,8 @@ export function buildRecommendations(state, metrics) {
 
   if (metrics.finishBalance < 65) {
     findings.push({
-      issue: "Finish poco estable",
+      issue: "Posible finish poco estable",
+      source: "Heurística",
       score: metrics.finishBalance,
       confidence: 0.7,
       evidence: "El equilibrio final está por debajo del umbral inicial del MVP.",
@@ -131,7 +138,8 @@ export function buildRecommendations(state, metrics) {
 
   if (metrics.holdFinishSec != null && metrics.holdFinishSec < 0.45) {
     findings.push({
-      issue: "Finish demasiado corto",
+      issue: "Posible finish demasiado corto",
+      source: "Heurística",
       score: Math.round(metrics.holdFinishSec * 100),
       confidence: 0.63,
       evidence: `El finish queda marcado solo ${metrics.holdFinishSec.toFixed(2)} s después del impacto.`,
@@ -146,6 +154,7 @@ export function buildRecommendations(state, metrics) {
     issue: "Swing equilibrado para el MVP",
     score: metrics.overallScore,
     confidence: 0.58,
+    source: "Heurística",
     evidence: "Las métricas están en rango razonable. Conviene acumular historial con el mismo encuadre.",
     drill: "Repetición de referencia",
     description: "Guarda este swing como referencia y compara la próxima sesión con la misma vista y palo.",
@@ -157,12 +166,17 @@ export function buildRecommendations(state, metrics) {
     primaryIssue: primary.issue,
     confidenceLabel: confidenceLabel(metrics.confidence),
     evidence: primary.evidence,
+    evidenceSource: primary.source || "Heurística",
     drill: {
       name: primary.drill,
       description: primary.description
     },
     nextMetric: primary.nextMetric,
-    recommendations: sorted.slice(0, 5),
+    recommendations: sorted.slice(0, 5).map((item) => ({
+      ...item,
+      confidenceLabel: confidenceLabel(Math.round((item.confidence || 0.5) * 100)),
+      source: item.source || "Heurística"
+    })),
     explanations: buildExplanations(metrics)
   };
 }
@@ -193,7 +207,7 @@ function buildExplanations(metrics) {
     },
     {
       title: "Métricas revisables",
-      body: "Son estimaciones automáticas del MVP basadas en movimiento del vídeo y timing. Usa los botones Comprobar para saltar al frame relevante y ajustarlas manualmente."
+      body: "Son estimaciones revisables del MVP basadas en movimiento del vídeo y timing. No son todavía landmarks ni IA biomecánica; usa Comprobar para saltar al frame relevante y ajustarlas manualmente."
     }
   ];
 }

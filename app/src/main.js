@@ -6,7 +6,19 @@ import { downloadCsv, downloadJson, downloadPng } from "./export.js";
 import { getSession, listSessions, saveSession } from "./storage.js";
 import { analyzeVideo } from "./video-analysis.js";
 import { detectBallTrajectory } from "./ball-tracking.js";
-import { blendAnalysisWithLearning, correctionExampleCount, findLearningMatch, saveCorrectionExample } from "./learning.js";
+import { blendAnalysisWithLearning, correctionExampleCount, demoCorrectionExampleCount, findLearningMatch, isDemoLearningEnabled, saveCorrectionExample, setDemoLearningEnabled, storedCorrectionExampleCount } from "./learning.js";
+
+const APP_VERSION = "0.5.5";
+
+const APP_STATES = {
+  empty: "Sin vídeo cargado",
+  loaded: "Vídeo cargado",
+  analyzing: "Analizando",
+  complete: "Análisis completado",
+  saved: "Sesión guardada",
+  error: "Error de análisis",
+  history: "Sesión histórica sin vídeo"
+};
 
 const EVENT_LABELS = {
   address: "Address",
@@ -24,6 +36,11 @@ const METRIC_LABELS = {
 
 const els = {
   modeButtons: document.querySelectorAll("[data-mode]"),
+  workflowPanel: document.querySelector("#workflowPanel"),
+  appStateBadge: document.querySelector("#appStateBadge"),
+  appVersionBadge: document.querySelector("#appVersionBadge"),
+  refreshAppBtn: document.querySelector("#refreshAppBtn"),
+  resetSessionBtn: document.querySelector("#resetSessionBtn"),
   swingWorkspace: document.querySelector("#swingWorkspace"),
   ballWorkspace: document.querySelector("#ballWorkspace"),
   prepPanel: document.querySelector("#prepPanel"),
@@ -31,6 +48,8 @@ const els = {
   videoFileName: document.querySelector("#videoFileName"),
   video: document.querySelector("#swingVideo"),
   stage: document.querySelector("#stage"),
+  historyVideoNotice: document.querySelector("#historyVideoNotice"),
+  phaseSnapshotStrip: document.querySelector("#phaseSnapshotStrip"),
   emptyStage: document.querySelector("#emptyStage"),
   canvas: document.querySelector("#overlayCanvas"),
   frameSlider: document.querySelector("#frameSlider"),
@@ -90,6 +109,7 @@ const els = {
   refreshHistoryBtn: document.querySelector("#refreshHistoryBtn"),
   saveCorrectionBtn: document.querySelector("#saveCorrectionBtn"),
   learningCount: document.querySelector("#learningCount"),
+  demoLearningToggle: document.querySelector("#demoLearningToggle"),
   historyList: document.querySelector("#historyList"),
   historyItemTemplate: document.querySelector("#historyItemTemplate"),
   overallScore: document.querySelector("#overallScore"),
@@ -122,6 +142,10 @@ const state = {
   videoName: "",
   createdAt: null,
   videoObjectUrl: "",
+  appStatus: "empty",
+  isHistoryOnly: false,
+  thumbnail: null,
+  frameSnapshots: {},
   orientation: "none",
   videoSize: { width: 0, height: 0 },
   viewType: els.viewType.value,
@@ -202,12 +226,130 @@ const ballResizeObserver = new ResizeObserver(() => resizeBallCanvas());
 ballResizeObserver.observe(els.ballStage);
 
 setupPreparationPanel();
+initVersionUi();
 bindEvents();
 syncControls();
 renderLearningCount();
 updateAnalysis();
+setAppStatus("empty");
 renderHistory();
 registerServiceWorker();
+
+
+function initVersionUi() {
+  if (els.appVersionBadge) els.appVersionBadge.textContent = `v${APP_VERSION}`;
+  if (els.demoLearningToggle) els.demoLearningToggle.checked = isDemoLearningEnabled();
+}
+
+function setAppStatus(status, message) {
+  state.appStatus = status;
+  const label = message || APP_STATES[status] || APP_STATES.empty;
+  if (els.appStateBadge) {
+    els.appStateBadge.textContent = label;
+    els.appStateBadge.dataset.state = status;
+  }
+  renderWorkflow();
+  renderHistoryMediaUi();
+}
+
+function renderWorkflow() {
+  if (!els.workflowPanel) return;
+  const hasPlayableVideo = Boolean(state.videoObjectUrl && state.metrics?.hasVideo);
+  const eventsComplete = Boolean(state.metrics?.eventsComplete);
+  const analyzed = Boolean(state.videoAnalysis || eventsComplete || state.appStatus === "complete" || state.appStatus === "saved");
+  const saved = Boolean(state.id && state.createdAt) || state.appStatus === "saved";
+  const active = workflowActiveStep();
+  const completed = {
+    upload: hasPlayableVideo || state.isHistoryOnly,
+    frame: hasPlayableVideo || state.isHistoryOnly,
+    quality: state.metrics?.captureScore > 0 || state.isHistoryOnly,
+    analyze: analyzed,
+    events: eventsComplete,
+    report: eventsComplete,
+    save: saved
+  };
+  els.workflowPanel.querySelectorAll("[data-step]").forEach((step) => {
+    const key = step.dataset.step;
+    step.classList.toggle("is-complete", Boolean(completed[key]));
+    step.classList.toggle("is-active", key === active);
+  });
+}
+
+function workflowActiveStep() {
+  if (state.appStatus === "analyzing") return "analyze";
+  if (state.appStatus === "saved") return "save";
+  if (!state.videoObjectUrl && !state.isHistoryOnly) return "upload";
+  if (state.isHistoryOnly) return "save";
+  if (!state.videoAnalysis && !state.metrics?.eventsComplete) return "frame";
+  if (!state.metrics?.eventsComplete) return "events";
+  return "report";
+}
+
+function renderHistoryMediaUi() {
+  const historyOnly = Boolean(state.isHistoryOnly);
+  els.historyVideoNotice?.classList.toggle("is-hidden", !historyOnly);
+  els.phaseSnapshotStrip?.classList.toggle("is-hidden", !historyOnly || !Object.keys(state.frameSnapshots || {}).length);
+  if (!els.phaseSnapshotStrip) return;
+  els.phaseSnapshotStrip.innerHTML = "";
+  Object.entries(state.frameSnapshots || {}).forEach(([eventName, snapshot]) => {
+    if (!snapshot?.dataUrl) return;
+    const card = document.createElement("figure");
+    card.innerHTML = `
+      <img src="${snapshot.dataUrl}" alt="${EVENT_LABELS[eventName]} guardado" />
+      <figcaption>${EVENT_LABELS[eventName]} · frame ${snapshot.frame ?? "-"}</figcaption>
+    `;
+    els.phaseSnapshotStrip.append(card);
+  });
+}
+
+function resetSession() {
+  if (player.objectUrl) URL.revokeObjectURL(player.objectUrl);
+  player.objectUrl = "";
+  els.video.pause();
+  els.video.removeAttribute("src");
+  els.video.load();
+  els.ballVideo.pause();
+  els.ballVideo.removeAttribute("src");
+  els.ballVideo.load();
+  els.videoInput.value = "";
+  Object.assign(state, {
+    id: null,
+    videoName: "",
+    createdAt: null,
+    videoObjectUrl: "",
+    isHistoryOnly: false,
+    thumbnail: null,
+    frameSnapshots: {},
+    orientation: "none",
+    videoSize: { width: 0, height: 0 },
+    duration: 0,
+    totalFrames: 0,
+    currentFrame: 0,
+    events: { address: null, top: null, impact: null, finish: null },
+    eventMeta: {},
+    captureChecks: { frame: false, light: false, stable: false, ball: false, club: false, fps: false },
+    ballPath: [],
+    ballPathAuto: false,
+    ballPathMeta: null,
+    ballLaunchPoint: null,
+    isMarkingBallLaunch: false,
+    videoAnalysis: null,
+    isAnalyzing: false,
+    isDetectingBall: false
+  });
+  els.videoFileName.textContent = "MP4, MOV o WebM";
+  const emptyPreview = els.emptyStage.querySelector("img");
+  if (emptyPreview) emptyPreview.src = "./assets/swing-guide.svg";
+  els.orientationBadge.textContent = "Sin vídeo";
+  els.emptyStage.style.display = "grid";
+  els.ballEmptyStage.style.display = "grid";
+  syncCaptureInputs();
+  clearDetectedEvents();
+  overlay.clear();
+  updateAnalysis();
+  setAppStatus("empty");
+  els.analysisStatus.textContent = "Carga un vídeo, ajusta encuadre y pulsa Analizar.";
+}
 
 function setupPreparationPanel() {
   if (!els.prepPanel) return;
@@ -245,12 +387,27 @@ function bindEvents() {
     button.addEventListener("click", () => setMode(button.dataset.mode));
   });
 
+  els.resetSessionBtn?.addEventListener("click", () => resetSession());
+  els.refreshAppBtn?.addEventListener("click", () => {
+    if (navigator.serviceWorker?.controller) navigator.serviceWorker.controller.postMessage({ type: "SKIP_WAITING" });
+    window.location.reload();
+  });
+  els.demoLearningToggle?.addEventListener("change", () => {
+    setDemoLearningEnabled(els.demoLearningToggle.checked);
+    renderLearningCount();
+    const mode = els.demoLearningToggle.checked ? "activado" : "desactivado";
+    els.analysisStatus.textContent = `Modo demo de aprendizaje ${mode}. Las correcciones reales siguen guardadas aparte.`;
+  });
+
   els.videoInput.addEventListener("change", (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
     state.videoName = file.name;
     state.id = null;
     state.createdAt = null;
+    state.isHistoryOnly = false;
+    state.thumbnail = null;
+    state.frameSnapshots = {};
     state.videoAnalysis = null;
     state.ballPath = [];
     state.ballPathAuto = false;
@@ -262,10 +419,13 @@ function bindEvents() {
     state.captureChecks = { frame: false, light: false, stable: false, ball: false, club: false, fps: false };
     syncCaptureInputs();
     els.videoFileName.textContent = file.name;
+    const emptyPreview = els.emptyStage.querySelector("img");
+    if (emptyPreview) emptyPreview.src = "./assets/swing-guide.svg";
     els.emptyStage.style.display = "none";
     els.ballEmptyStage.style.display = "none";
     els.analysisStatus.textContent = "Vídeo cargando. Ajusta la guía antes de analizar.";
     els.ballPathStatus.textContent = "La trayectoria aparece después de detectar la bola.";
+    setAppStatus("loaded", "Vídeo cargando");
     renderBallLaunch();
     player.load(file);
   });
@@ -282,6 +442,7 @@ function bindEvents() {
     clearDetectedEvents();
     updateAnalysis();
     overlay.render();
+    setAppStatus("loaded");
     const learningMatch = findLearningMatch(state);
     els.analysisStatus.textContent = learningMatch
       ? `Vídeo listo. Hay una corrección parecida guardada: ${learningMatch.example.label}. Ajusta la guía y pulsa Analizar.`
@@ -391,13 +552,27 @@ function bindEvents() {
   });
 
   els.saveSessionBtn.addEventListener("click", async () => {
-    const session = buildSession();
-    await saveSession(session);
-    state.id = session.id;
-    await renderHistory();
+    els.saveSessionBtn.disabled = true;
+    els.analysisStatus.textContent = "Guardando sesión y frames principales...";
+    try {
+      const session = await buildSession({ includeFrameSnapshots: true });
+      await saveSession(session);
+      state.id = session.id;
+      state.createdAt = session.createdAt;
+      state.thumbnail = session.thumbnail || state.thumbnail;
+      state.frameSnapshots = session.frameSnapshots || state.frameSnapshots;
+      await renderHistory();
+      setAppStatus("saved");
+      els.analysisStatus.textContent = "Sesión guardada con miniatura y frames principales.";
+    } catch (error) {
+      setAppStatus("error");
+      els.analysisStatus.textContent = error.message || "No se pudo guardar la sesión.";
+    } finally {
+      renderActionStates();
+    }
   });
 
-  els.exportJsonBtn.addEventListener("click", () => downloadJson("swing-analysis.json", buildSession()));
+  els.exportJsonBtn.addEventListener("click", async () => downloadJson("swing-analysis.json", await buildSession()));
   els.exportCsvBtn.addEventListener("click", () => downloadCsv("swing-metrics.csv", state.metrics));
   els.exportPngBtn.addEventListener("click", () => downloadPng("swing-frame.png", els.video, overlay));
   els.refreshHistoryBtn.addEventListener("click", () => renderHistory());
@@ -487,6 +662,7 @@ async function runAutoAnalysis() {
   const token = (analysisToken += 1);
   state.isAnalyzing = true;
   els.autoAnalyzeBtn.disabled = true;
+  setAppStatus("analyzing");
   els.analysisStatus.textContent = "Analizando movimiento del vídeo...";
   try {
     let analysis = await analyzeVideo(els.video, {
@@ -512,10 +688,12 @@ async function runAutoAnalysis() {
     updateAnalysis();
     renderBall();
     const learning = analysis.summary.learningMatch ? ` Base local: ${analysis.summary.learningMatch}.` : "";
-    els.analysisStatus.textContent = `Análisis completado. Señal de movimiento: ${analysis.summary.signal}/100 aprox.${learning}`;
+    setAppStatus("complete");
+    els.analysisStatus.textContent = `Análisis completado. Señal de movimiento heurística: ${analysis.summary.signal}/100 aprox.${learning}`;
     const firstFrame = state.events.address;
     if (Number.isFinite(firstFrame)) player.seekFrame(firstFrame);
   } catch (error) {
+    setAppStatus("error");
     els.analysisStatus.textContent = "No se pudo analizar automáticamente. Puedes marcar las fases manualmente.";
   } finally {
     state.isAnalyzing = false;
@@ -548,7 +726,7 @@ function clearDetectedEvents() {
 }
 
 function markEvent(eventName) {
-  if (!state.metrics.hasVideo) return;
+  if (!state.videoObjectUrl || !state.metrics.hasVideo) return;
   state.events[eventName] = state.currentFrame;
   state.eventMeta[eventName] = { source: "manual", confidence: 95, note: "Marcado por el usuario" };
   renderEvents();
@@ -572,6 +750,7 @@ function renderEvents() {
     const sourceLabel = {
       manual: "Manual",
       aprendizaje: "Base local",
+      demo: "Demo",
       auto: "Auto",
       estimado: "Estimado"
     }[meta?.source] || "Auto";
@@ -589,6 +768,7 @@ function updateAnalysis() {
   renderEvents();
   renderReport();
   renderActionStates();
+  renderWorkflow();
   syncMetricControls();
   overlay.render();
 }
@@ -600,7 +780,7 @@ function renderReport() {
   const circumference = 302;
   els.scoreArc.style.strokeDashoffset = String(circumference - ((metrics.overallScore || 0) / 100) * circumference);
   els.reportSummary.textContent = report.summary;
-  els.confidenceBadge.textContent = report.confidenceLabel;
+  els.confidenceBadge.textContent = `${report.confidenceLabel} · ${report.evidenceSource || "Heurística"}`;
   els.primaryIssue.textContent = report.primaryIssue;
   els.primaryEvidence.textContent = report.evidence;
   els.drillName.textContent = report.drill?.name || "-";
@@ -635,15 +815,19 @@ function renderCards(container, items = [], emptyText) {
     container.append(p);
     return;
   }
-  items.forEach((item) => {
+  items.forEach((item, index) => {
     const article = document.createElement("details");
     article.className = item.issue ? "recommendation-item" : "explanation-item";
+    if (item.issue && index === 0) article.open = true;
     const title = item.issue || item.title;
     const body = item.description || item.body || item.evidence;
+    const sourceBadge = item.source ? `<em>${item.source}</em>` : "";
+    const confidenceBadge = item.confidenceLabel ? `<em>${item.confidenceLabel.replace("Confianza ", "")}</em>` : "";
     const evidence = item.evidence ? `<p><strong>Revisar:</strong> ${item.evidence}</p>` : "";
     const drill = item.drill ? `<p><strong>Drill:</strong> ${item.drill}</p>` : "";
     article.innerHTML = `
       <summary><strong>${title}</strong><span>${item.nextMetric || ""}</span></summary>
+      <div class="card-badges">${confidenceBadge}${sourceBadge}<em>Revisable</em></div>
       <p>${body}</p>
       ${evidence}
       ${drill}
@@ -653,27 +837,43 @@ function renderCards(container, items = [], emptyText) {
 }
 
 function renderActionStates() {
-  const canExport = state.metrics.hasVideo;
-  els.saveSessionBtn.disabled = !canExport;
-  els.exportJsonBtn.disabled = !canExport;
-  els.exportCsvBtn.disabled = !canExport;
-  els.exportPngBtn.disabled = !canExport;
-  els.autoAnalyzeBtn.disabled = !canExport || state.isAnalyzing;
-  els.autoBallPathBtn.disabled = !canExport || state.isDetectingBall;
+  const hasSessionData = Boolean(state.metrics.hasVideo || state.isHistoryOnly);
+  const hasPlayableVideo = Boolean(state.videoObjectUrl && state.metrics.hasVideo && !state.isHistoryOnly);
+  els.saveSessionBtn.disabled = !hasSessionData || state.isAnalyzing;
+  els.exportJsonBtn.disabled = !hasSessionData;
+  els.exportCsvBtn.disabled = !hasSessionData;
+  els.exportPngBtn.disabled = !hasPlayableVideo;
+  els.autoAnalyzeBtn.disabled = !hasPlayableVideo || state.isAnalyzing;
+  els.autoBallPathBtn.disabled = !hasPlayableVideo || state.isDetectingBall;
+  els.markBallLaunchBtn.disabled = !hasPlayableVideo;
+  els.ballFullscreenBtn.disabled = !hasPlayableVideo;
+  els.playPauseBtn.disabled = !hasPlayableVideo;
+  els.backFrameBtn.disabled = !hasPlayableVideo;
+  els.nextFrameBtn.disabled = !hasPlayableVideo;
+  els.fullscreenBtn.disabled = !hasPlayableVideo;
+  els.frameSlider.disabled = !hasPlayableVideo;
+  els.playbackRate.disabled = !hasPlayableVideo;
   els.saveCorrectionBtn.disabled = !state.metrics.eventsComplete;
   document.querySelectorAll("[data-event-mark]").forEach((button) => {
-    button.disabled = !canExport;
+    button.disabled = !hasPlayableVideo;
+  });
+  document.querySelectorAll("[data-metric-frame]").forEach((button) => {
+    const frame = state.events[button.dataset.metricFrame];
+    button.disabled = !hasPlayableVideo || !Number.isFinite(frame);
   });
   document.querySelectorAll("[data-event-jump]").forEach((button) => {
     const frame = state.events[button.dataset.eventJump];
-    button.disabled = !Number.isFinite(frame);
+    button.disabled = !hasPlayableVideo || !Number.isFinite(frame);
   });
 }
 
 function renderLearningCount() {
   if (!els.learningCount) return;
-  const count = correctionExampleCount();
-  els.learningCount.textContent = `${count} ${count === 1 ? "ejemplo" : "ejemplos"}`;
+  const total = correctionExampleCount();
+  const real = storedCorrectionExampleCount();
+  const demo = isDemoLearningEnabled() ? demoCorrectionExampleCount() : 0;
+  els.learningCount.textContent = `${real} reales${demo ? ` + ${demo} demo` : ""}`;
+  els.learningCount.title = `${total} ejemplos activos en este navegador`;
 }
 
 function syncControls() {
@@ -689,6 +889,10 @@ function syncCaptureInputs() {
   });
   if (state.videoAnalysis) {
     els.captureAutoNote.textContent = `Auto sugerido por vídeo · brillo ${state.videoAnalysis.summary.brightness ?? "-"} · contraste ${state.videoAnalysis.summary.contrast ?? "-"}.`;
+  } else if (state.isHistoryOnly) {
+    els.captureAutoNote.textContent = "Cargado desde historial; vídeo original no almacenado.";
+  } else {
+    els.captureAutoNote.textContent = "Automático al analizar; editable.";
   }
 }
 
@@ -905,11 +1109,29 @@ function stopBallAnimation() {
   renderBall();
 }
 
-function buildSession() {
+async function buildSession(options = {}) {
   const now = state.createdAt || new Date().toISOString();
+  let frameSnapshots = state.frameSnapshots || {};
+  let thumbnail = state.thumbnail || null;
+  if (options.includeFrameSnapshots && state.videoObjectUrl) {
+    const captured = await captureFrameSnapshots();
+    frameSnapshots = captured.frameSnapshots;
+    thumbnail = captured.thumbnail;
+    state.frameSnapshots = frameSnapshots;
+    state.thumbnail = thumbnail;
+  }
+
   return {
     id: state.id || `swing_${Date.now()}`,
+    appVersion: APP_VERSION,
     createdAt: now,
+    mediaStatus: {
+      hasStoredVideo: false,
+      hasFrameSnapshots: Object.keys(frameSnapshots || {}).length > 0,
+      note: "El MVP v0.5.5 guarda datos, miniatura y frames principales; por privacidad y peso no guarda el vídeo completo."
+    },
+    thumbnail,
+    frameSnapshots,
     video: {
       fileName: state.videoName,
       durationSec: Number((state.duration || 0).toFixed(3)),
@@ -950,6 +1172,66 @@ function buildSession() {
   };
 }
 
+async function captureFrameSnapshots() {
+  const frameSnapshots = {};
+  if (!state.videoObjectUrl || !els.video.videoWidth || !els.video.videoHeight) {
+    return { frameSnapshots, thumbnail: null };
+  }
+
+  const wasPaused = els.video.paused;
+  const originalTime = els.video.currentTime;
+  els.video.pause();
+
+  const maxWidth = 560;
+  const ratio = els.video.videoWidth / Math.max(1, els.video.videoHeight);
+  const width = Math.min(maxWidth, els.video.videoWidth);
+  const height = Math.round(width / ratio);
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+
+  for (const eventName of Object.keys(EVENT_LABELS)) {
+    const frame = state.events[eventName];
+    if (!Number.isFinite(frame)) continue;
+    await seekVideoForSnapshot(frame / state.fps);
+    ctx.drawImage(els.video, 0, 0, width, height);
+    ctx.fillStyle = "rgba(15, 23, 22, 0.72)";
+    ctx.fillRect(0, height - 34, width, 34);
+    ctx.fillStyle = "#fffaf0";
+    ctx.font = "700 18px system-ui, sans-serif";
+    ctx.fillText(`${EVENT_LABELS[eventName]} · frame ${frame}`, 14, height - 11);
+    frameSnapshots[eventName] = {
+      label: EVENT_LABELS[eventName],
+      frame,
+      timestamp: Number((frame / state.fps).toFixed(3)),
+      dataUrl: canvas.toDataURL("image/jpeg", 0.78)
+    };
+  }
+
+  await seekVideoForSnapshot(originalTime);
+  if (!wasPaused) els.video.play().catch(() => {});
+  player.syncFromVideo();
+  overlay.render();
+
+  const thumbnail = frameSnapshots.impact?.dataUrl || frameSnapshots.address?.dataUrl || Object.values(frameSnapshots)[0]?.dataUrl || null;
+  return { frameSnapshots, thumbnail };
+}
+
+function seekVideoForSnapshot(time) {
+  return new Promise((resolve) => {
+    const safeTime = clamp(time || 0, 0, Math.max(0, state.duration - 0.02));
+    const done = () => {
+      els.video.removeEventListener("seeked", done);
+      clearTimeout(timer);
+      resolve();
+    };
+    const timer = setTimeout(done, 500);
+    els.video.addEventListener("seeked", done, { once: true });
+    els.video.currentTime = safeTime;
+  });
+}
+
 async function renderHistory() {
   const sessions = await listSessions();
   els.historyList.innerHTML = "";
@@ -963,8 +1245,17 @@ async function renderHistory() {
 
   sessions.slice(0, 6).forEach((session) => {
     const item = els.historyItemTemplate.content.firstElementChild.cloneNode(true);
+    const thumb = item.querySelector("img");
+    const savedFrames = Object.keys(session.frameSnapshots || {}).length;
+    if (session.thumbnail && thumb) {
+      thumb.src = session.thumbnail;
+      thumb.hidden = false;
+    }
     item.querySelector("strong").textContent = `${session.club} · ${session.viewType} · ${session.metrics?.overallScore ?? 0}`;
     item.querySelector("span").textContent = new Date(session.createdAt).toLocaleString();
+    item.querySelector("small").textContent = savedFrames
+      ? `${savedFrames} frames guardados · recargar vídeo para revisar movimiento`
+      : "Datos guardados · sin vídeo almacenado";
     item.querySelector("button").addEventListener("click", () => loadSession(session.id));
     els.historyList.append(item);
   });
@@ -975,6 +1266,17 @@ async function loadSession(id) {
   if (!session) return;
   state.id = session.id;
   state.createdAt = session.createdAt;
+  state.isHistoryOnly = true;
+  state.videoObjectUrl = "";
+  state.thumbnail = session.thumbnail || null;
+  state.frameSnapshots = session.frameSnapshots || {};
+  els.video.pause();
+  els.video.removeAttribute("src");
+  els.video.load();
+  els.ballVideo.pause();
+  els.ballVideo.removeAttribute("src");
+  els.ballVideo.load();
+  player.objectUrl = "";
   state.videoName = session.video?.fileName || "";
   state.duration = session.video?.durationSec || 0;
   state.totalFrames = session.video?.totalFrames || 0;
@@ -995,6 +1297,14 @@ async function loadSession(id) {
   state.events = Object.fromEntries(Object.entries(session.events || {}).map(([key, value]) => [key, value.frame]));
   state.eventMeta = Object.fromEntries(Object.entries(session.events || {}).map(([key, value]) => [key, { confidence: value.confidence, source: value.source }]));
   els.fpsInput.value = state.fps;
+  els.videoFileName.textContent = state.videoName || "Vídeo original no almacenado";
+  els.emptyStage.style.display = "grid";
+  els.ballEmptyStage.style.display = "grid";
+  if (state.thumbnail) {
+    const preview = els.emptyStage.querySelector("img");
+    if (preview) preview.src = state.thumbnail;
+  }
+  updateOrientationUi();
   els.viewType.value = state.viewType;
   els.club.value = state.club;
   els.ballResult.value = state.ballResult;
@@ -1002,6 +1312,8 @@ async function loadSession(id) {
   overlay.load(session.overlayDrawings || []);
   updateAnalysis();
   renderBall();
+  setAppStatus("history");
+  els.analysisStatus.textContent = "Sesión histórica cargada. Los datos están disponibles; recarga el vídeo original para analizar o exportar PNG.";
 }
 
 function requestFullscreen(element) {
@@ -1054,7 +1366,21 @@ function clamp(value, min, max) {
 }
 
 function registerServiceWorker() {
-  if ("serviceWorker" in navigator && location.protocol !== "file:") {
-    navigator.serviceWorker.register("./service-worker.js").catch(() => {});
-  }
+  if (!("serviceWorker" in navigator) || location.protocol === "file:") return;
+  let refreshing = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (refreshing) return;
+    refreshing = true;
+    window.location.reload();
+  });
+  navigator.serviceWorker.register("./service-worker.js").then((registration) => {
+    const notifyUpdate = () => els.refreshAppBtn?.classList.remove("is-hidden");
+    if (registration.waiting) notifyUpdate();
+    registration.addEventListener("updatefound", () => {
+      const worker = registration.installing;
+      worker?.addEventListener("statechange", () => {
+        if (worker.state === "installed" && navigator.serviceWorker.controller) notifyUpdate();
+      });
+    });
+  }).catch(() => {});
 }

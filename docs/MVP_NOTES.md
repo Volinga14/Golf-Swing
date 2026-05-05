@@ -1,28 +1,24 @@
-# Swing Lab AI MVP
+# MVP notes — v0.5.5
 
-## Estado actual
+## Objetivo
 
-La app es una PWA local-first para revisar un vídeo de swing de golf.
+Convertir el MVP previo en una PWA más usable y honesta: menos sensación de prototipo, estados claros, historial robusto y recomendaciones revisables.
 
-Incluye:
+## Cambios principales
 
-- Subida local de vídeo con preparación previa: encuadre, guía y capture score antes de analizar.
-- Detección de orientación vertical/horizontal.
-- Cámara lenta y pantalla completa.
-- Detección automática heurística de `address`, `top`, `impact` y `finish`, con apoyo de ejemplos locales corregidos.
-- Corrección manual de fases y salto directo al frame.
-- Guía ajustable de encuadre.
-- Fases y grid ocultables.
-- Capture score automático editable.
-- Métricas automáticas revisables.
-- Recomendaciones, métricas y explicación de resultados expandibles.
-- Vista separada de bola con detección heurística, trayectoria animada y puntos editables.
-- Layout móvil Android-friendly con banda de preparación compacta.
-- Historial local con IndexedDB.
-- Exportación JSON, CSV y PNG.
+1. Flujo principal guiado con 7 pasos visibles.
+2. Estados de app visibles en la cabecera.
+3. Historial local sin vídeo corregido con aviso y snapshots.
+4. Guardado de miniatura y frames address/top/impact/finish.
+5. Acciones dependientes de vídeo deshabilitadas cuando se carga una sesión histórica.
+6. Aprendizaje local sin ejemplo hardcodeado; modo demo separado.
+7. Recomendaciones menos diagnósticas y con etiquetas de confianza/fuente.
+8. Service worker versionado y actualización más fiable.
+9. Tests smoke + workflow + browser headless con Chromium/Chrome/Edge.
 
-## Alcance honesto
+## Pendiente para v0.6
 
-La detección actual usa movimiento del vídeo y reglas heurísticas. No es todavía MediaPipe ni tracking biomecánico real.
-
-El siguiente paso técnico es integrar MediaPipe Pose Landmarker Web para reemplazar las métricas heurísticas por landmarks reales.
+- Integrar landmarks corporales.
+- Separar métricas por vista DTL/FO.
+- Mejorar detección real de fases.
+- Añadir evidencia visual por recomendación.

@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#163832" />
-    <title>Swing Lab AI MVP</title>
+    <title>Swing Lab AI v0.5.5</title>
     <link rel="manifest" href="./manifest.json" />
     <link rel="stylesheet" href="./styles/main.css" />
   </head>
@@ -20,7 +20,7 @@
             </svg>
           </div>
           <div>
-            <p class="eyebrow">MVP local-first</p>
+            <p class="eyebrow">v0.5.5 local-first</p>
             <h1>Swing Lab AI</h1>
           </div>
         </div>
@@ -31,6 +31,18 @@
         </nav>
 
         <div class="topbar-actions">
+          <div class="app-status-strip" aria-live="polite">
+            <span class="state-pill" id="appStateBadge">Sin vídeo cargado</span>
+            <span class="version-pill" id="appVersionBadge">v0.5.5</span>
+          </div>
+          <button class="text-button update-button is-hidden" id="refreshAppBtn" type="button">Actualizar app</button>
+          <button class="ghost-button" id="resetSessionBtn" type="button" title="Volver a empezar">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M3 12a9 9 0 1 0 3-6.7" />
+              <path d="M3 4v6h6" />
+            </svg>
+            Nuevo
+          </button>
           <button class="ghost-button" id="saveSessionBtn" type="button" title="Guardar análisis">
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z" />
@@ -43,7 +55,7 @@
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
               <path d="M7 10l5 5 5-5M12 15V3" />
             </svg>
-            Exportar
+            JSON
           </button>
         </div>
       </header>
@@ -211,7 +223,11 @@
               <h2>Aprendizaje local</h2>
               <span id="learningCount">0 ejemplos</span>
             </div>
-            <p class="panel-note">Guarda correcciones buenas para que la app compare futuros vídeos parecidos en este navegador.</p>
+            <p class="panel-note">Guarda correcciones buenas para que la app compare futuros vídeos parecidos en este navegador. No hay ejemplos de producción precargados.</p>
+            <div class="learning-modes" aria-label="Modos de aprendizaje">
+              <span>Real: correcciones guardadas</span>
+              <label><input id="demoLearningToggle" type="checkbox" /> Modo demo</label>
+            </div>
             <button class="wide-soft-button" id="saveCorrectionBtn" type="button">
               <svg viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M12 5v14M5 12h14" />
@@ -222,6 +238,18 @@
         </section>
 
         <section class="viewer-column" aria-label="Visor de swing">
+          <section class="workflow-panel" id="workflowPanel" aria-label="Flujo guiado">
+            <ol>
+              <li data-step="upload"><span>1</span><strong>Subir vídeo</strong></li>
+              <li data-step="frame"><span>2</span><strong>Ajustar encuadre</strong></li>
+              <li data-step="quality"><span>3</span><strong>Calidad</strong></li>
+              <li data-step="analyze"><span>4</span><strong>Analizar</strong></li>
+              <li data-step="events"><span>5</span><strong>Corregir fases</strong></li>
+              <li data-step="report"><span>6</span><strong>Métricas</strong></li>
+              <li data-step="save"><span>7</span><strong>Guardar/exportar</strong></li>
+            </ol>
+          </section>
+
           <section class="prep-panel" id="prepPanel" aria-label="Preparación antes del análisis"></section>
 
           <div class="viewer-toolbar">
@@ -265,6 +293,13 @@
               </div>
             </div>
           </div>
+
+          <div class="session-video-notice is-hidden" id="historyVideoNotice">
+            <strong>Sesión histórica cargada sin vídeo.</strong>
+            <span>Se muestran datos y frames guardados. Para analizar, reproducir, marcar fases o exportar PNG, vuelve a cargar el vídeo original.</span>
+          </div>
+
+          <div class="phase-snapshot-strip is-hidden" id="phaseSnapshotStrip" aria-label="Frames principales guardados"></div>
 
           <div class="transport">
             <button class="icon-button" id="backFrameBtn" type="button" title="Frame anterior" aria-label="Frame anterior">
@@ -490,9 +525,11 @@
 
     <template id="historyItemTemplate">
       <article class="history-item">
+        <img class="history-thumb" alt="" hidden />
         <div>
           <strong></strong>
           <span></span>
+          <small></small>
         </div>
         <button type="button">Cargar</button>
       </article>

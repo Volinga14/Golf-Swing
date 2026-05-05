@@ -26,6 +26,11 @@ async function testStaticAssets() {
   const indexHtml = await readText("app/index.html");
   const requiredIds = [
     "videoInput",
+    "workflowPanel",
+    "appStateBadge",
+    "appVersionBadge",
+    "refreshAppBtn",
+    "resetSessionBtn",
     "prepPanel",
     "swingVideo",
     "overlayCanvas",
@@ -45,6 +50,9 @@ async function testStaticAssets() {
     "historyList",
     "saveCorrectionBtn",
     "learningCount",
+    "demoLearningToggle",
+    "historyVideoNotice",
+    "phaseSnapshotStrip",
     "ballWorkspace",
     "ballVideo",
     "ballCanvas",
@@ -81,7 +89,7 @@ async function testBusinessLogic() {
   const { buildRecommendations } = await import(pathToFileURL(join(appDir, "src/recommendations.js")).href);
   const { buildAnalysis } = await import(pathToFileURL(join(appDir, "src/video-analysis.js")).href);
   const { buildTrajectoryFromDetections } = await import(pathToFileURL(join(appDir, "src/ball-tracking.js")).href);
-  const { blendAnalysisWithLearning, correctionExampleCount } = await import(pathToFileURL(join(appDir, "src/learning.js")).href);
+  const { blendAnalysisWithLearning, correctionExampleCount, isDemoLearningEnabled, setDemoLearningEnabled } = await import(pathToFileURL(join(appDir, "src/learning.js")).href);
 
   const state = {
     viewType: "DTL",
@@ -100,7 +108,7 @@ async function testBusinessLogic() {
   assert.ok(metrics.overallScore > 60);
 
   const report = buildRecommendations(state, metrics);
-  assert.equal(report.primaryIssue, "Early extension probable");
+  assert.equal(report.primaryIssue, "Posible pérdida de postura");
   assert.match(report.drill.name, /Chair/i);
 
   const incomplete = calculateMetrics({ ...state, events: { address: null, top: null, impact: null, finish: null } });
@@ -133,7 +141,10 @@ async function testBusinessLogic() {
   assert.equal(analysis.captureChecks.frame, true);
   assert.equal(analysis.captureChecks.light, true);
 
-  const learned = blendAnalysisWithLearning(analysis, {
+  setDemoLearningEnabled(false);
+  assert.equal(isDemoLearningEnabled(), false);
+  assert.equal(correctionExampleCount(), 0);
+  const notLearned = blendAnalysisWithLearning(analysis, {
     videoName: "WhatsApp Video 2026-05-05 at 9.43.22 AM.mp4",
     fps: 60,
     duration: 3.5,
@@ -142,11 +153,21 @@ async function testBusinessLogic() {
     viewType: "DTL",
     club: "7-iron"
   });
+  assert.equal(notLearned.events.address, analysis.events.address);
+  setDemoLearningEnabled(true);
+  const learned = blendAnalysisWithLearning(analysis, {
+    videoName: "",
+    fps: 60,
+    duration: 3.5,
+    totalFrames: 210,
+    orientation: "vertical",
+    videoSize: { width: 478, height: 850 },
+    viewType: "DTL",
+    club: "7-iron"
+  });
   assert.equal(correctionExampleCount() >= 1, true);
-  assert.equal(learned.events.address, 80);
-  assert.equal(learned.events.top, 138);
-  assert.equal(learned.events.impact, 155);
-  assert.equal(learned.events.finish, 188);
+  assert.equal(learned.eventMeta.address.source, "demo");
+  setDemoLearningEnabled(false);
 
   const trajectory = buildTrajectoryFromDetections(
     [

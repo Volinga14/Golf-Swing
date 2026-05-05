@@ -1,5 +1,5 @@
 {
-  "name": "Swing Lab AI MVP",
+  "name": "Swing Lab AI v0.5.5",
   "short_name": "Swing Lab",
   "id": "./",
   "start_url": "./index.html",
@@ -8,8 +8,12 @@
   "orientation": "any",
   "background_color": "#f4f1e8",
   "theme_color": "#163832",
-  "description": "MVP local-first para revisar, marcar y exportar analisis de swing de golf.",
-  "categories": ["sports", "productivity", "utilities"],
+  "description": "PWA local-first para revisar, marcar, guardar frames principales y exportar analisis revisable de swing de golf.",
+  "categories": [
+    "sports",
+    "productivity",
+    "utilities"
+  ],
   "lang": "es",
   "icons": [
     {

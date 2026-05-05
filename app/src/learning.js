@@ -1,10 +1,11 @@
 const STORAGE_KEY = "swingLabAi.correctionExamples.v1";
+const DEMO_MODE_KEY = "swingLabAi.demoLearningMode.v1";
 
-const SEED_EXAMPLES = [
+const DEMO_EXAMPLES = [
   {
-    id: "whatsapp-2026-05-05-manual",
-    label: "Swing WhatsApp corregido manualmente",
-    fileNameIncludes: "WhatsApp Video 2026-05-05 at 9.43.22 AM.mp4",
+    id: "demo-vertical-dtl-manual",
+    label: "Demo DTL vertical corregido",
+    fileNameIncludes: "",
     fps: 60,
     duration: 3.5,
     totalFrames: 210,
@@ -19,29 +20,53 @@ const SEED_EXAMPLES = [
       handPath: 66,
       finishBalance: 78,
       evidence: {
-        headStability: "Base local: cabeza razonablemente estable entre address y top.",
-        postureRetention: "Base local: revisar impacto; el cuerpo se levanta algo antes de contacto.",
-        handPath: "Base local: transición jugable, revisar plano con línea DTL.",
-        finishBalance: "Base local: finish equilibrado y sostenido."
+        headStability: "Demo local: cabeza razonablemente estable entre address y top.",
+        postureRetention: "Demo local: revisar impacto; posible pérdida de postura antes del contacto.",
+        handPath: "Demo local: transición jugable, revisar plano con línea DTL.",
+        finishBalance: "Demo local: finish equilibrado y sostenido."
       }
     },
     events: {
-      address: { frame: 80, time: 1.33 },
-      top: { frame: 138, time: 2.3 },
-      impact: { frame: 155, time: 2.58 },
-      finish: { frame: 188, time: 3.13 }
+      address: { frame: 80, time: 1.33, ratio: 0.38095 },
+      top: { frame: 138, time: 2.3, ratio: 0.65714 },
+      impact: { frame: 155, time: 2.58, ratio: 0.7381 },
+      finish: { frame: 188, time: 3.13, ratio: 0.89524 }
     }
   }
 ];
 
 const EVENT_ORDER = ["address", "top", "impact", "finish"];
+let memoryDemoMode = false;
+let memoryExamples = [];
 
 export function listCorrectionExamples() {
-  return [...SEED_EXAMPLES, ...readStoredExamples()];
+  return [...(isDemoLearningEnabled() ? DEMO_EXAMPLES : []), ...readStoredExamples()];
 }
 
 export function correctionExampleCount() {
   return listCorrectionExamples().length;
+}
+
+export function storedCorrectionExampleCount() {
+  return readStoredExamples().length;
+}
+
+export function demoCorrectionExampleCount() {
+  return DEMO_EXAMPLES.length;
+}
+
+export function isDemoLearningEnabled() {
+  if (!canUseLocalStorage()) return memoryDemoMode;
+  return localStorage.getItem(DEMO_MODE_KEY) === "1";
+}
+
+export function setDemoLearningEnabled(enabled) {
+  if (!canUseLocalStorage()) {
+    memoryDemoMode = Boolean(enabled);
+    return memoryDemoMode;
+  }
+  localStorage.setItem(DEMO_MODE_KEY, enabled ? "1" : "0");
+  return enabled;
 }
 
 export function findLearningMatch(state) {
@@ -76,8 +101,8 @@ export function blendAnalysisWithLearning(analysis, state) {
     if (!Number.isFinite(learnedFrame)) return;
     events[event] = learnedFrame;
     eventMeta[event] = {
-      source: "aprendizaje",
-      confidence: Math.round(82 + Math.min(13, match.score * 13)),
+      source: match.example.id?.startsWith("demo-") ? "demo" : "aprendizaje",
+      confidence: Math.round(78 + Math.min(17, match.score * 17)),
       note: `Sugerido desde ${match.example.label}`
     };
   });
@@ -122,7 +147,12 @@ export function saveCorrectionExample(state) {
     fps: state.fps,
     duration: state.duration,
     totalFrames: state.totalFrames,
-    events
+    events,
+    captureChecks: state.captureChecks,
+    metrics: {
+      ...state.manualMetrics,
+      evidence: state.metricEvidence || {}
+    }
   };
 
   const stored = readStoredExamples().filter((item) => item.fileNameIncludes !== example.fileNameIncludes);
@@ -141,11 +171,11 @@ function scoreExample(example, state) {
   if (example.club && example.club === state.club) score += 0.04;
   if (example.duration && state.duration) {
     const delta = Math.abs(example.duration - state.duration);
-    score += Math.max(0, 0.34 - delta / Math.max(1, state.duration) * 0.55);
+    score += Math.max(0, 0.34 - (delta / Math.max(1, state.duration)) * 0.55);
   }
   if (example.totalFrames && state.totalFrames) {
     const delta = Math.abs(example.totalFrames - state.totalFrames);
-    score += Math.max(0, 0.18 - delta / Math.max(1, state.totalFrames) * 0.32);
+    score += Math.max(0, 0.18 - (delta / Math.max(1, state.totalFrames)) * 0.32);
   }
   if (example.width && example.height && state.videoSize?.width && state.videoSize?.height) {
     const exampleRatio = Math.max(example.width, example.height) / Math.min(example.width, example.height);
@@ -172,7 +202,7 @@ function scaleEvents(example, state) {
 }
 
 function readStoredExamples() {
-  if (!canUseLocalStorage()) return [];
+  if (!canUseLocalStorage()) return memoryExamples;
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     return raw ? JSON.parse(raw) : [];
@@ -182,7 +212,10 @@ function readStoredExamples() {
 }
 
 function writeStoredExamples(examples) {
-  if (!canUseLocalStorage()) return;
+  if (!canUseLocalStorage()) {
+    memoryExamples = examples;
+    return;
+  }
   localStorage.setItem(STORAGE_KEY, JSON.stringify(examples));
 }
 

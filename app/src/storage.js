@@ -1,5 +1,5 @@
 const DB_NAME = "swing-lab-ai";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE = "sessions";
 
 export async function saveSession(session) {

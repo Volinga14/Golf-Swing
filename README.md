@@ -1,32 +1,30 @@
-# Swing Lab AI MVP
+# Swing Lab AI v0.5.5
 
-MVP local-first para revisar un vídeo de swing de golf desde el navegador.
+PWA local-first para revisar vídeos de swing de golf desde el navegador. Esta versión se centra en limpieza, estabilidad y UX base: la app deja más claro qué puede analizar, qué es editable y qué parte es una estimación heurística.
 
-## Qué incluye
+## Qué incluye v0.5.5
 
-- Subida de vídeo local sin análisis automático: primero se ajusta encuadre, guía y capture score; después se pulsa Analizar.
-- Detección de orientación vertical/horizontal y ajuste del visor.
-- Selección de vista DTL / FO, palo y resultado de bola.
-- Reproductor frame-by-frame con teclado, pantalla completa y cámara lenta.
-- Detección automática heurística de address, top, impact y finish, con corrección manual y aprendizaje local desde correcciones guardadas.
-- Botones de fase para saltar directamente al frame detectado.
-- Canvas con guía ajustable, rotación, ejemplo visual expandible, fases ocultables, grid, líneas y ángulos manuales.
-- Capture score automático y editable.
-- Métricas automáticas revisables con botones para comprobar los frames relevantes.
-- Recomendación principal, recomendaciones secundarias, métricas y explicación de resultados en tarjetas expandibles.
-- Vista separada de bola/golpe con punto de salida marcable, detección de bola, trayectoria animada durante la reproducción y puntos editables.
-- Layout móvil Android-friendly con preparación compacta, visor cercano y capturas headless desktop/mobile.
-- Historial local con IndexedDB.
-- Exportación JSON, CSV y PNG del frame actual.
-- Guardrails de confianza: sin vídeo no hay score, y las fases deben estar en orden cronológico.
-- Pruebas automatizadas de lógica, assets, servidor temporal y captura headless.
+- Flujo guiado de 7 pasos: subir vídeo, ajustar encuadre, revisar calidad, analizar, corregir fases, revisar métricas y guardar/exportar.
+- Estados visibles de app: sin vídeo, vídeo cargado, analizando, análisis completado, sesión guardada, error y sesión histórica sin vídeo.
+- Historial local corregido: la app no finge que el vídeo sigue disponible cuando solo se han guardado datos.
+- Guardado de miniatura y hasta 4 frames principales: address, top, impact y finish.
+- Aviso claro al cargar una sesión histórica sin vídeo original.
+- Desactivación de acciones que dependen del vídeo cuando solo hay una sesión histórica: reproducir, analizar, marcar fases, pantalla completa y PNG.
+- Aprendizaje local limpiado: sin ejemplo hardcodeado de producción. Las correcciones reales quedan separadas del modo demo.
+- Recomendaciones con lenguaje menos concluyente: “posible”, “revisar visualmente” y etiquetas de confianza/fuente.
+- Mejoras visuales rápidas: jerarquía de acciones, cards de recomendaciones priorizadas, badges, mobile-first y botones claros de nuevo/guardar.
+- PWA/cache mejorado: versión visible, cache v0.5.5, `skipWaiting`, `clients.claim`, estrategia network-first para HTML/JS/CSS y botón de actualización cuando haya nueva versión.
+- Tests ampliados: smoke, regresión de flujo y browser headless con Chromium/Chrome/Edge cuando está disponible y responde correctamente.
+
+## Alcance honesto
+
+Esta versión todavía no usa MediaPipe ni landmarks reales. El análisis automático sigue siendo heurístico y revisable. El objetivo de v0.5.5 es que la app sea usable, estable y honesta antes de integrar IA visual real en v0.6.
 
 ## Cómo abrirlo
 
-Sirve la carpeta `app` con un servidor estático y abre `index.html`. También puede abrirse directamente como archivo local, aunque la instalación PWA y el service worker solo funcionan con `http://localhost`.
+Sirve la carpeta `app` con un servidor estático y abre `index.html`.
 
 ```powershell
-cd golf-swing-ai
 python -m http.server 5174 --bind 127.0.0.1 --directory ./app
 ```
 
@@ -35,13 +33,19 @@ Luego abre `http://127.0.0.1:5174/`.
 ## Pruebas
 
 ```powershell
-cd golf-swing-ai
-node ./tests/smoke-test.mjs
-node ./tests/browser-headless-test.mjs
+npm test
 ```
 
-La prueba headless usa Microsoft Edge si está instalado y genera `test-artifacts/swing-lab-home.png` y `test-artifacts/swing-lab-mobile.png`.
+También se pueden ejecutar por separado:
 
-## Alcance honesto del MVP
+```powershell
+npm run test:smoke
+npm run test:workflow
+npm run test:browser
+```
 
-Esta versión no ejecuta todavía MediaPipe ni detecta landmarks reales. Es la base usable del Sprint 1: visor, eventos, overlays, datos, reporte y exportaciones. El siguiente paso natural es integrar MediaPipe Pose Landmarker Web sobre esta misma estructura.
+La prueba browser busca Chromium, Chrome o Edge. Si el navegador headless está instalado pero no responde a tiempo en el entorno local/CI, el test se salta de forma controlada para no bloquear el pipeline.
+
+## Siguiente paso natural
+
+v0.6 debería integrar detección corporal real con landmarks, mejorar la detección de fases y convertir las métricas actuales en mediciones visuales verificables.
