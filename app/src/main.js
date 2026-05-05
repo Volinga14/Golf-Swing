@@ -62,7 +62,8 @@ const els = {
   guideInputs: {
     x: document.querySelector("#guideX"),
     y: document.querySelector("#guideY"),
-    scale: document.querySelector("#guideScale")
+    scale: document.querySelector("#guideScale"),
+    rotation: document.querySelector("#guideRotation")
   },
   manualMetricInputs: {
     headStability: document.querySelector("#headStability"),
@@ -106,10 +107,12 @@ const els = {
   ballStage: document.querySelector("#ballStage"),
   ballCanvas: document.querySelector("#ballCanvas"),
   ballEmptyStage: document.querySelector("#ballEmptyStage"),
+  markBallLaunchBtn: document.querySelector("#markBallLaunchBtn"),
   autoBallPathBtn: document.querySelector("#autoBallPathBtn"),
   clearBallPathBtn: document.querySelector("#clearBallPathBtn"),
   ballFullscreenBtn: document.querySelector("#ballFullscreenBtn"),
   ballPathLabel: document.querySelector("#ballPathLabel"),
+  ballLaunchLabel: document.querySelector("#ballLaunchLabel"),
   ballPathStatus: document.querySelector("#ballPathStatus"),
   ballPathSummary: document.querySelector("#ballPathSummary")
 };
@@ -153,7 +156,8 @@ const state = {
   guide: {
     x: 0.5,
     y: 0.8,
-    scale: 1
+    scale: 1,
+    rotation: -8
   },
   overlay: {
     guide: true,
@@ -163,6 +167,8 @@ const state = {
   ballPath: [],
   ballPathAuto: false,
   ballPathMeta: null,
+  ballLaunchPoint: null,
+  isMarkingBallLaunch: false,
   videoAnalysis: null,
   isAnalyzing: false,
   isDetectingBall: false,
@@ -226,8 +232,8 @@ function setupPreparationPanel() {
     details.innerHTML = `
       <summary>Cómo colocar la guía</summary>
       <div>
-        <img src="./assets/swing-guide.svg" alt="" />
-        <p>Coloca la línea baja sobre los pies o la alfombra. En DTL, la diagonal sigue el plano aproximado del palo. En face-on, las líneas verticales ayudan a ver desplazamiento del cuerpo.</p>
+        <img src="./assets/guide-example.svg" alt="" />
+        <p>Coloca la línea baja sobre pies o alfombra. En DTL, rota la diagonal hasta que siga el plano aproximado del palo. En face-on, usa las verticales para ver desplazamiento del cuerpo.</p>
       </div>
     `;
     guidePanel.append(details);
@@ -249,6 +255,8 @@ function bindEvents() {
     state.ballPath = [];
     state.ballPathAuto = false;
     state.ballPathMeta = null;
+    state.ballLaunchPoint = null;
+    state.isMarkingBallLaunch = false;
     state.events = { address: null, top: null, impact: null, finish: null };
     state.eventMeta = {};
     state.captureChecks = { frame: false, light: false, stable: false, ball: false, club: false, fps: false };
@@ -258,6 +266,7 @@ function bindEvents() {
     els.ballEmptyStage.style.display = "none";
     els.analysisStatus.textContent = "Vídeo cargando. Ajusta la guía antes de analizar.";
     els.ballPathStatus.textContent = "La trayectoria aparece después de detectar la bola.";
+    renderBallLaunch();
     player.load(file);
   });
 
@@ -371,11 +380,12 @@ function bindEvents() {
       if (key === "x") state.guide.x = Number(input.value) / 100;
       if (key === "y") state.guide.y = Number(input.value) / 100;
       if (key === "scale") state.guide.scale = Number(input.value) / 100;
+      if (key === "rotation") state.guide.rotation = Number(input.value);
       overlay.render();
     });
   });
   els.centerGuideBtn.addEventListener("click", () => {
-    state.guide = { x: 0.5, y: state.orientation === "vertical" ? 0.83 : 0.8, scale: 1 };
+    state.guide = { x: 0.5, y: state.orientation === "vertical" ? 0.83 : 0.8, scale: 1, rotation: state.viewType === "DTL" ? -8 : 0 };
     syncGuideInputs();
     overlay.render();
   });
@@ -402,6 +412,11 @@ function bindEvents() {
     renderActionStates();
   });
 
+  els.markBallLaunchBtn.addEventListener("click", () => {
+    state.isMarkingBallLaunch = true;
+    els.markBallLaunchBtn.classList.add("is-active");
+    els.ballPathStatus.textContent = "Toca la bola en el vídeo justo donde sale. Esto mejora mucho la trayectoria.";
+  });
   els.autoBallPathBtn.addEventListener("click", () => detectBallPath());
   els.clearBallPathBtn.addEventListener("click", () => {
     state.ballPath = [];
@@ -421,6 +436,17 @@ function bindEvents() {
     if (event.target === els.ballVideo && event.clientY - rect.top > rect.height - 48) return;
     const point = pointerToVideoPoint(event);
     if (!point) return;
+    if (state.isMarkingBallLaunch) {
+      state.ballLaunchPoint = point;
+      state.isMarkingBallLaunch = false;
+      els.markBallLaunchBtn.classList.remove("is-active");
+      els.ballPathStatus.textContent = "Salida marcada. Ahora pulsa Detectar bola para calcular el recorrido desde ahí.";
+      state.ballPath = [];
+      state.ballPathMeta = null;
+      renderBallLaunch();
+      renderBall();
+      return;
+    }
     const existing = nearestBallPoint(point, rect);
     state.ballPathAuto = false;
     if (existing != null) {
@@ -679,6 +705,7 @@ function syncGuideInputs() {
   els.guideInputs.x.value = Math.round(state.guide.x * 100);
   els.guideInputs.y.value = Math.round(state.guide.y * 100);
   els.guideInputs.scale.value = Math.round(state.guide.scale * 100);
+  els.guideInputs.rotation.value = Math.round(state.guide.rotation || 0);
 }
 
 function updateOrientationUi() {
@@ -764,15 +791,29 @@ function renderBall() {
   resizeBallCanvas();
   const label = state.ballPathAuto ? state.ballPathMeta?.source === "vision" ? "Detectado" : "Sugerido" : state.ballPath.length ? "Manual" : "Sin camino";
   els.ballPathLabel.textContent = label;
+  renderBallLaunch();
   els.ballPathSummary.textContent = state.ballPath.length
     ? `${state.ballPath.length} puntos. ${state.ballPathMeta?.detections ?? 0} detecciones reales. Resultado: ${ballResultLabel(state.ballResult)}.`
-    : "Sube un vídeo y usa Detectar bola o marca puntos manuales.";
-  drawBallPath(els.ballCanvas.getContext("2d"), els.ballCanvas.width, els.ballCanvas.height, state.ballPath, ballResultLabel(state.ballResult), {
+    : state.ballLaunchPoint
+      ? "Salida marcada. Pulsa Detectar bola para crear la trayectoria."
+      : "Marca la salida o usa Detectar bola con la guía actual.";
+  const visiblePath = state.ballPath.length ? state.ballPath : state.ballLaunchPoint ? [{ ...state.ballLaunchPoint }] : [];
+  drawBallPath(els.ballCanvas.getContext("2d"), els.ballCanvas.width, els.ballCanvas.height, visiblePath, state.ballPath.length ? ballResultLabel(state.ballResult) : "Salida", {
     currentTime: els.ballVideo.currentTime,
     videoWidth: state.videoSize.width,
     videoHeight: state.videoSize.height,
     editable: true
   });
+}
+
+function renderBallLaunch() {
+  if (!els.ballLaunchLabel) return;
+  if (state.ballLaunchPoint) {
+    els.ballLaunchLabel.textContent = `Salida marcada · x ${Math.round(state.ballLaunchPoint.x * 100)} / y ${Math.round(state.ballLaunchPoint.y * 100)}.`;
+    return;
+  }
+  const guideLaunch = launchPointFromGuide();
+  els.ballLaunchLabel.textContent = `Salida no marcada. Se usará la guía · x ${Math.round(guideLaunch.x * 100)} / y ${Math.round(guideLaunch.y * 100)}.`;
 }
 
 function resizeBallCanvas() {
@@ -783,6 +824,7 @@ function resizeBallCanvas() {
 }
 
 function launchPointFromGuide() {
+  if (state.ballLaunchPoint) return state.ballLaunchPoint;
   return {
     x: clamp(state.guide.x + (state.viewType === "FO" ? 0.04 : 0.08), 0.08, 0.92),
     y: clamp(state.guide.y - 0.04, 0.12, 0.9)
@@ -900,6 +942,7 @@ function buildSession() {
     explanations: state.report.explanations,
     primaryIssue: state.report.primaryIssue,
     drill: state.report.drill,
+    ballLaunchPoint: state.ballLaunchPoint,
     ballPath: state.ballPath,
     ballPathMeta: state.ballPathMeta,
     overlayDrawings: overlay.serialize(),
@@ -945,6 +988,7 @@ async function loadSession(id) {
   state.manualMetrics = session.manualMetrics || state.manualMetrics;
   state.metricEvidence = session.metricEvidence || {};
   state.guide = session.guide || state.guide;
+  state.ballLaunchPoint = session.ballLaunchPoint || null;
   state.ballPath = session.ballPath || [];
   state.ballPathMeta = session.ballPathMeta || null;
   state.ballPathAuto = Boolean(session.ballPathMeta);

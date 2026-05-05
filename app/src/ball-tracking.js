@@ -20,14 +20,14 @@ export async function detectBallTrajectory(video, options = {}) {
 
   const detections = [];
   let previousGray = null;
-  let lastPoint = null;
+  let lastPoint = options.launchPoint || null;
 
   for (let index = 0; index < sampleCount; index += 1) {
     const time = startTime + ((endTime - startTime) * index) / Math.max(1, sampleCount - 1);
     await seekVideo(video, time);
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
     const frame = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const result = detectBallCandidate(frame.data, previousGray, canvas.width, canvas.height, lastPoint);
+    const result = detectBallCandidate(frame.data, previousGray, canvas.width, canvas.height, lastPoint, options.launchPoint);
     previousGray = result.gray;
     if (result.point) {
       const point = { ...result.point, time };
@@ -94,7 +94,7 @@ export function buildTrajectoryFromDetections(detections = [], options = {}) {
   };
 }
 
-function detectBallCandidate(data, previousGray, width, height, lastPoint) {
+function detectBallCandidate(data, previousGray, width, height, lastPoint, launchPoint) {
   const gray = new Uint8ClampedArray(width * height);
   const mask = new Uint8Array(width * height);
 
@@ -107,7 +107,9 @@ function detectBallCandidate(data, previousGray, width, height, lastPoint) {
     const y = Math.floor(pixel / width);
     const nx = x / width;
     const ny = y / height;
-    const inFlightZone = ny > 0.04 && ny < 0.9 && nx > 0.06 && nx < 0.96;
+    const nearLaunch = launchPoint ? Math.hypot(nx - launchPoint.x, ny - launchPoint.y) < 0.34 : true;
+    const likelyFlightSide = !launchPoint || nx > launchPoint.x - 0.18;
+    const inFlightZone = ny > 0.04 && ny < 0.92 && nx > 0.04 && nx < 0.98 && (nearLaunch || likelyFlightSide);
     if (inFlightZone && ((lum > 132 && diff > 14) || diff > 34)) {
       mask[pixel] = 1;
     }
@@ -122,7 +124,7 @@ function detectBallCandidate(data, previousGray, width, height, lastPoint) {
     if (!mask[pixel] || visited[pixel]) continue;
     const blob = traceBlob(pixel, mask, visited, gray, previousGray, width, height);
     if (!isBallSized(blob, width, height)) continue;
-    const point = scoreBlob(blob, width, height, lastPoint);
+    const point = scoreBlob(blob, width, height, lastPoint, launchPoint);
     if (!best || point.score > best.score) best = point;
   }
 
@@ -176,18 +178,20 @@ function isBallSized(blob, width, height) {
   return blob.area >= 1 && blob.area <= 90 && boxW <= maxBox && boxH <= maxBox && boxW / Math.max(1, boxH) < 4.2 && boxH / Math.max(1, boxW) < 4.2;
 }
 
-function scoreBlob(blob, width, height, lastPoint) {
+function scoreBlob(blob, width, height, lastPoint, launchPoint) {
   const x = blob.sumX / blob.area / width;
   const y = blob.sumY / blob.area / height;
   const avgLum = blob.sumLum / blob.area;
   const avgDiff = blob.sumDiff / blob.area;
   const sizePenalty = Math.max(0, blob.area - 18) * 0.55;
   const trendBonus = lastPoint ? Math.max(0, 28 - Math.hypot(x - lastPoint.x, y - lastPoint.y) * 140) : 0;
+  const launchBonus = launchPoint ? Math.max(0, 34 - Math.hypot(x - launchPoint.x, y - launchPoint.y) * 95) : 0;
+  const launchDirectionBonus = launchPoint ? Math.max(-14, (x - launchPoint.x) * 22 + (launchPoint.y - y) * 18) : 0;
   const upwardBonus = lastPoint ? Math.max(-10, (lastPoint.y - y) * 42) : 0;
   return {
     x,
     y,
-    score: avgDiff * 1.35 + avgLum * 0.14 + trendBonus + upwardBonus - sizePenalty
+    score: avgDiff * 1.35 + avgLum * 0.14 + trendBonus + launchBonus + launchDirectionBonus + upwardBonus - sizePenalty
   };
 }
 

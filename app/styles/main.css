@@ -287,14 +287,14 @@ svg {
 
 .guide-help div {
   display: grid;
-  grid-template-columns: 96px 1fr;
+  grid-template-columns: 180px 1fr;
   gap: 10px;
   align-items: center;
   margin-top: 9px;
 }
 
 .guide-help img {
-  width: 96px;
+  width: 180px;
   border-radius: var(--radius);
 }
 
@@ -579,8 +579,18 @@ input[type="range"] {
   pointer-events: none;
 }
 
+#overlayCanvas {
+  pointer-events: auto;
+  touch-action: none;
+}
+
 .ball-stage video {
   z-index: 1;
+}
+
+#markBallLaunchBtn.is-active {
+  background: var(--gold);
+  color: #14201e;
 }
 
 .empty-stage {

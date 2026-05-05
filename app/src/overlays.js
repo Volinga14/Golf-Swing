@@ -129,6 +129,7 @@ function drawGuides(ctx, width, height, state) {
   const cx = width * guide.x;
   const groundY = height * guide.y;
   const scale = guide.scale;
+  const rotation = Number.isFinite(guide.rotation) ? guide.rotation : 0;
   const stance = width * 0.18 * scale;
   const bodyHeight = height * 0.52 * scale;
   const bodyWidth = width * 0.18 * scale;
@@ -154,12 +155,16 @@ function drawGuides(ctx, width, height, state) {
     line(ctx, cx - stance, groundY, cx - stance, groundY - bodyHeight * 0.75);
     line(ctx, cx + stance, groundY, cx + stance, groundY - bodyHeight * 0.75);
   } else {
-    line(ctx, cx - stance * 0.8, groundY, cx + stance * 1.3, groundY - bodyHeight * 0.72);
+    const planeAngle = (-62 + rotation) * (Math.PI / 180);
+    const planeLength = Math.max(width, height) * 0.55 * scale;
+    const planeX = cx + stance * 0.24;
+    const planeY = groundY - bodyHeight * 0.35;
+    rotatedLine(ctx, planeX, planeY, planeLength, planeAngle);
   }
 
   ctx.fillStyle = "rgba(255, 250, 240, 0.86)";
   ctx.font = `${Math.max(11, width * 0.012)}px Inter, sans-serif`;
-  ctx.fillText("Alinea pies y bola", Math.max(8, cx - stance * 1.6), Math.max(18, groundY - bodyHeight - 10));
+  ctx.fillText(`Alinea pies y bola · rot ${Math.round(rotation)}°`, Math.max(8, cx - stance * 1.6), Math.max(18, groundY - bodyHeight - 10));
   ctx.restore();
 }
 
@@ -349,6 +354,12 @@ function line(ctx, x1, y1, x2, y2) {
   ctx.moveTo(x1, y1);
   ctx.lineTo(x2, y2);
   ctx.stroke();
+}
+
+function rotatedLine(ctx, centerX, centerY, length, angle) {
+  const dx = Math.cos(angle) * length * 0.5;
+  const dy = Math.sin(angle) * length * 0.5;
+  line(ctx, centerX - dx, centerY - dy, centerX + dx, centerY + dy);
 }
 
 function roundRect(ctx, x, y, width, height, radius) {

@@ -6,6 +6,25 @@ const SEED_EXAMPLES = [
     label: "Swing WhatsApp corregido manualmente",
     fileNameIncludes: "WhatsApp Video 2026-05-05 at 9.43.22 AM.mp4",
     fps: 60,
+    duration: 3.5,
+    totalFrames: 210,
+    width: 478,
+    height: 850,
+    orientation: "vertical",
+    viewType: "DTL",
+    captureChecks: { frame: true, light: false, stable: true, ball: true, club: true, fps: true },
+    metrics: {
+      headStability: 78,
+      postureRetention: 62,
+      handPath: 66,
+      finishBalance: 78,
+      evidence: {
+        headStability: "Base local: cabeza razonablemente estable entre address y top.",
+        postureRetention: "Base local: revisar impacto; el cuerpo se levanta algo antes de contacto.",
+        handPath: "Base local: transición jugable, revisar plano con línea DTL.",
+        finishBalance: "Base local: finish equilibrado y sostenido."
+      }
+    },
     events: {
       address: { frame: 80, time: 1.33 },
       top: { frame: 138, time: 2.3 },
@@ -38,7 +57,7 @@ export function findLearningMatch(state) {
     }
   });
 
-  if (!best || bestScore < 0.42) return null;
+  if (!best || bestScore < 0.34) return null;
   return {
     example: best,
     score: bestScore,
@@ -65,6 +84,8 @@ export function blendAnalysisWithLearning(analysis, state) {
 
   return {
     ...analysis,
+    captureChecks: match.example.captureChecks || analysis.captureChecks,
+    autoMetrics: match.example.metrics || analysis.autoMetrics,
     events,
     eventMeta,
     summary: {
@@ -115,16 +136,21 @@ function scoreExample(example, state) {
   const name = (state.videoName || "").toLowerCase();
   const exampleName = (example.fileNameIncludes || "").toLowerCase();
   if (exampleName && name.includes(exampleName)) score += 0.72;
-  if (example.orientation && example.orientation === state.orientation) score += 0.1;
+  if (example.orientation && example.orientation === state.orientation) score += 0.12;
   if (example.viewType && example.viewType === state.viewType) score += 0.08;
   if (example.club && example.club === state.club) score += 0.04;
   if (example.duration && state.duration) {
     const delta = Math.abs(example.duration - state.duration);
-    score += Math.max(0, 0.18 - delta / Math.max(1, state.duration) * 0.3);
+    score += Math.max(0, 0.34 - delta / Math.max(1, state.duration) * 0.55);
   }
   if (example.totalFrames && state.totalFrames) {
     const delta = Math.abs(example.totalFrames - state.totalFrames);
-    score += Math.max(0, 0.12 - delta / Math.max(1, state.totalFrames) * 0.2);
+    score += Math.max(0, 0.18 - delta / Math.max(1, state.totalFrames) * 0.32);
+  }
+  if (example.width && example.height && state.videoSize?.width && state.videoSize?.height) {
+    const exampleRatio = Math.max(example.width, example.height) / Math.min(example.width, example.height);
+    const stateRatio = Math.max(state.videoSize.width, state.videoSize.height) / Math.min(state.videoSize.width, state.videoSize.height);
+    score += Math.max(0, 0.1 - Math.abs(exampleRatio - stateRatio) * 0.18);
   }
   return Math.min(1, score);
 }

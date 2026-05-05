@@ -1,4 +1,4 @@
-const CACHE_NAME = "swing-lab-ai-v2";
+const CACHE_NAME = "swing-lab-ai-v3";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -15,6 +15,7 @@ const APP_SHELL = [
   "./src/learning.js",
   "./src/export.js",
   "./assets/swing-guide.svg",
+  "./assets/guide-example.svg",
   "./assets/icon-192.png",
   "./assets/icon-512.png",
   "./assets/icon-maskable-192.png",

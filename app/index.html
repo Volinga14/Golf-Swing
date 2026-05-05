@@ -153,6 +153,10 @@
                 Tamaño
                 <input id="guideScale" type="range" min="70" max="140" value="100" />
               </label>
+              <label>
+                Rotación
+                <input id="guideRotation" type="range" min="-25" max="25" value="-8" />
+              </label>
             </div>
             <p class="panel-note">Úsala para alinear pies, bola y cuerpo. No mide: ayuda a grabar y comparar siempre igual.</p>
           </div>
@@ -424,6 +428,13 @@
               <h2>Trayectoria visual del golpe</h2>
             </div>
             <div class="ball-actions">
+              <button class="ghost-button" id="markBallLaunchBtn" type="button">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <circle cx="12" cy="12" r="3" />
+                  <path d="M12 2v4M12 18v4M2 12h4M18 12h4" />
+                </svg>
+                Salida
+              </button>
               <button class="ghost-button" id="autoBallPathBtn" type="button">
                 <svg viewBox="0 0 24 24" aria-hidden="true">
                   <path d="m4 18 6-6 4 4 6-8" />
@@ -468,6 +479,7 @@
                 <h2>Resultado</h2>
                 <span id="ballPathLabel">Sin camino</span>
               </div>
+              <p class="panel-note" id="ballLaunchLabel">Salida no marcada. Se usará la guía.</p>
               <p class="panel-note" id="ballPathStatus">La trayectoria aparece después de detectar la bola.</p>
               <p id="ballPathSummary">Sube un vídeo y usa Detectar bola o marca puntos manuales.</p>
             </div>

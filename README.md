@@ -1,5 +1,5 @@
 # Swing Lab AI MVP
-https://volinga14.github.io/Golf-Swing/
+
 MVP local-first para revisar un vídeo de swing de golf desde el navegador.
 
 ## Qué incluye
@@ -10,11 +10,11 @@ MVP local-first para revisar un vídeo de swing de golf desde el navegador.
 - Reproductor frame-by-frame con teclado, pantalla completa y cámara lenta.
 - Detección automática heurística de address, top, impact y finish, con corrección manual y aprendizaje local desde correcciones guardadas.
 - Botones de fase para saltar directamente al frame detectado.
-- Canvas con guía ajustable, fases ocultables, grid, líneas y ángulos manuales.
+- Canvas con guía ajustable, rotación, ejemplo visual expandible, fases ocultables, grid, líneas y ángulos manuales.
 - Capture score automático y editable.
 - Métricas automáticas revisables con botones para comprobar los frames relevantes.
 - Recomendación principal, recomendaciones secundarias, métricas y explicación de resultados en tarjetas expandibles.
-- Vista separada de bola/golpe con detección de bola, trayectoria animada durante la reproducción y puntos editables.
+- Vista separada de bola/golpe con punto de salida marcable, detección de bola, trayectoria animada durante la reproducción y puntos editables.
 - Layout móvil Android-friendly con preparación compacta, visor cercano y capturas headless desktop/mobile.
 - Historial local con IndexedDB.
 - Exportación JSON, CSV y PNG del frame actual.
