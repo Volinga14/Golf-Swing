@@ -4,9 +4,125 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#061412" />
-    <title>Swing Lab AI v0.5.5 · Video upload fix</title>
+    <title>Swing Lab AI v0.5.5 · Upload robust</title>
     <link rel="manifest" href="./manifest.json" />
     <link rel="stylesheet" href="./styles/main.css" />
+    <script>
+      (function () {
+        function byId(id) { return document.getElementById(id); }
+
+        function setText(id, value) {
+          const el = byId(id);
+          if (el) el.textContent = value;
+        }
+
+        function showWorkspace(message) {
+          const home = byId("homeScreen");
+          const workspace = byId("swingWorkspace");
+          const empty = byId("emptyStage");
+          const ballEmpty = byId("ballEmptyStage");
+          if (home) home.classList.add("is-collapsed");
+          if (workspace) {
+            workspace.classList.add("has-video");
+            workspace.classList.remove("is-hidden");
+          }
+          if (empty) empty.style.display = "none";
+          if (ballEmpty) ballEmpty.style.display = "none";
+          setText("appStateBadge", "Vídeo cargado");
+          setText("orientationBadge", "Vídeo cargado");
+          if (message) setText("analysisStatus", message);
+        }
+
+        function showUnsupportedVideo(fileName) {
+          const empty = byId("emptyStage");
+          showWorkspace("El archivo se ha seleccionado, pero el navegador no puede previsualizarlo. Prueba con MP4 H.264/AAC.");
+          setText("appStateBadge", "Formato no compatible");
+          setText("orientationBadge", "Codec no compatible");
+          setText("videoScreenTitle", fileName || "Vídeo seleccionado");
+          if (empty) {
+            empty.style.display = "grid";
+            empty.innerHTML = '<div><p class="eyebrow">Vídeo seleccionado</p><h2>Formato no previsualizable</h2><p>La app ha recibido el archivo, pero este navegador no puede reproducirlo. Convierte/exporta el swing a MP4 H.264/AAC y vuelve a cargarlo.</p></div>';
+          }
+          document.body.dataset.uploadFallback = "unsupported";
+        }
+
+        window.SwingLabUploadFallback = function(event) {
+          try {
+            const input = event && event.target ? event.target : byId("videoInput");
+            const file = input && input.files ? input.files[0] : null;
+            if (!file) return;
+            const video = byId("swingVideo");
+            const ballVideo = byId("ballVideo");
+            if (!video || !window.URL || !URL.createObjectURL) return;
+
+            if (window.__swingLabFallbackUrl) URL.revokeObjectURL(window.__swingLabFallbackUrl);
+            const objectUrl = URL.createObjectURL(file);
+            window.__swingLabFallbackUrl = objectUrl;
+            window.__swingLabFallbackFileName = file.name;
+
+            setText("videoFileName", file.name);
+            setText("videoScreenTitle", file.name);
+            showWorkspace("Vídeo seleccionado. Abriendo visor...");
+
+            video.controls = true;
+            video.muted = true;
+            video.playsInline = true;
+            video.src = objectUrl;
+            try { video.load(); } catch (_) {}
+
+            if (ballVideo) {
+              ballVideo.controls = true;
+              ballVideo.muted = true;
+              ballVideo.playsInline = true;
+              ballVideo.src = objectUrl;
+              try { ballVideo.load(); } catch (_) {}
+            }
+
+            document.body.dataset.uploadFallback = "ready";
+            window.dispatchEvent(new CustomEvent("swinglab:fallback-video-selected", { detail: { file: file, objectUrl: objectUrl } }));
+          } catch (error) {
+            console.error("Swing Lab upload fallback failed", error);
+            setText("appStateBadge", "Error de carga");
+            setText("analysisStatus", "No se pudo abrir el selector de vídeo. Recarga la página e inténtalo de nuevo.");
+          }
+        };
+
+        document.addEventListener("DOMContentLoaded", function () {
+          const video = byId("swingVideo");
+          if (video) {
+            video.addEventListener("error", function () {
+              if (document.body.dataset.uploadFallback === "ready") {
+                showUnsupportedVideo(window.__swingLabFallbackFileName || "Vídeo seleccionado");
+              }
+            });
+          }
+
+          const historyBtn = byId("homeLoadHistoryBtn");
+          if (historyBtn) {
+            historyBtn.addEventListener("click", function () {
+              const home = byId("homeScreen");
+              if (home) home.classList.add("is-collapsed");
+              const history = byId("historyPanel");
+              if (history) history.scrollIntoView({ behavior: "smooth", block: "start" });
+              setText("analysisStatus", "Historial abierto. Si no ves sesiones, guarda primero un análisis en este navegador.");
+            });
+          }
+
+          const compareBtn = byId("homeCompareBtn");
+          if (compareBtn) {
+            compareBtn.addEventListener("click", function () {
+              const home = byId("homeScreen");
+              if (home) home.classList.add("is-collapsed");
+              const history = byId("historyPanel");
+              if (history) history.scrollIntoView({ behavior: "smooth", block: "start" });
+              const hint = byId("homeHint");
+              if (hint) hint.textContent = "Comparativa: carga o guarda dos análisis. La comparativa avanzada se activará en la siguiente iteración.";
+              setText("analysisStatus", "Comparativa preparada: usa el historial para cargar sesiones guardadas.");
+            });
+          }
+        });
+      })();
+    </script>
   </head>
   <body>
     <div class="app-shell flow-app">
@@ -51,7 +167,7 @@
           </div>
           <div class="home-actions-card panel upload-panel">
             <label class="upload-drop main-upload" for="videoInput">
-              <input id="videoInput" type="file" accept="video/*" />
+              <input id="videoInput" type="file" accept="video/*" onchange="window.SwingLabUploadFallback && window.SwingLabUploadFallback(event)" />
               <svg viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
                 <path d="M17 8l-5-5-5 5M12 3v12" />
@@ -111,7 +227,7 @@
             </div>
 
             <div class="stage" id="stage">
-              <video id="swingVideo" playsinline muted preload="metadata"></video>
+              <video id="swingVideo" playsinline muted controls preload="metadata"></video>
               <canvas id="overlayCanvas"></canvas>
 
               <div class="video-overlay-toolbar" id="videoOverlayToolbar" aria-label="Herramientas dentro del vídeo">
@@ -382,6 +498,6 @@
       </article>
     </template>
 
-    <script type="module" src="./src/main.js"></script>
+    <script src="./src/bundle.js"></script>
   </body>
 </html>

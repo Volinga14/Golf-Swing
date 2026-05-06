@@ -1,12 +1,1795 @@
-import { VideoPlayer, formatTime } from "./video-player.js";
-import { OverlayCanvas, drawBallPath } from "./overlays.js";
-import { calculateMetrics, metricRows } from "./metrics.js";
-import { buildRecommendations } from "./recommendations.js";
-import { downloadCsv, downloadJson, downloadPng } from "./export.js";
-import { getSession, listSessions, saveSession } from "./storage.js";
-import { analyzeVideo } from "./video-analysis.js";
-import { detectBallTrajectory } from "./ball-tracking.js";
-import { blendAnalysisWithLearning, correctionExampleCount, demoCorrectionExampleCount, findLearningMatch, isDemoLearningEnabled, saveCorrectionExample, setDemoLearningEnabled, storedCorrectionExampleCount } from "./learning.js";
+/* Swing Lab AI bundled runtime for file://, GitHub Pages and PWA usage. Generated for v0.5.5 upload robust. */
+(function () {
+  const SwingLabModules = {};
+  if (typeof window !== "undefined") window.SwingLabModules = SwingLabModules;
+  if (typeof window !== "undefined" && typeof window.ResizeObserver === "undefined") {
+    window.ResizeObserver = class { constructor(callback) { this.callback = callback; } observe() {} unobserve() {} disconnect() {} };
+  }
+
+
+  // ---- video-player.js ----
+  (function (exports) {
+exports.VideoPlayer = class VideoPlayer {
+  constructor({ video, slider, fpsInput, frameReadout, timeReadout, onFrame }) {
+    this.video = video;
+    this.slider = slider;
+    this.fpsInput = fpsInput;
+    this.frameReadout = frameReadout;
+    this.timeReadout = timeReadout;
+    this.onFrame = onFrame;
+    this.duration = 0;
+    this.totalFrames = 0;
+    this.currentFrame = 0;
+    this.objectUrl = "";
+    this._raf = null;
+
+    this.video.addEventListener("loadedmetadata", () => this.handleMetadata());
+    this.video.addEventListener("timeupdate", () => this.syncFromVideo());
+    this.video.addEventListener("play", () => this.tick());
+    this.video.addEventListener("pause", () => this.stopTick());
+    this.slider.addEventListener("input", () => this.seekFrame(Number(this.slider.value)));
+    this.fpsInput.addEventListener("change", () => this.handleMetadata());
+  }
+
+  load(file) {
+    if (this.objectUrl) URL.revokeObjectURL(this.objectUrl);
+    this.objectUrl = URL.createObjectURL(file);
+    this.video.src = this.objectUrl;
+    this.video.load();
+    return this.objectUrl;
+  }
+
+  get fps() {
+    const parsed = Number(this.fpsInput.value);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 60;
+  }
+
+  handleMetadata() {
+    this.duration = Number.isFinite(this.video.duration) ? this.video.duration : 0;
+    this.totalFrames = Math.max(0, Math.floor(this.duration * this.fps));
+    this.slider.max = String(this.totalFrames);
+    this.seekFrame(0);
+  }
+
+  seekFrame(frame) {
+    const safeFrame = Math.min(Math.max(0, Math.round(frame)), this.totalFrames);
+    this.currentFrame = safeFrame;
+    if (this.duration > 0) {
+      this.video.currentTime = Math.min(this.duration, safeFrame / this.fps);
+    }
+    this.renderReadout();
+    this.onFrame?.(this.currentFrame);
+  }
+
+  step(direction) {
+    this.video.pause();
+    this.seekFrame(this.currentFrame + direction);
+  }
+
+  togglePlayback() {
+    if (!this.video.src) return;
+    if (this.video.paused) {
+      this.video.play();
+    } else {
+      this.video.pause();
+    }
+  }
+
+  setPlaybackRate(rate) {
+    const safeRate = Number.isFinite(Number(rate)) ? Number(rate) : 1;
+    this.video.playbackRate = Math.min(2, Math.max(0.1, safeRate));
+  }
+
+  syncFromVideo() {
+    if (!this.video.src) return;
+    this.currentFrame = Math.min(this.totalFrames, Math.round(this.video.currentTime * this.fps));
+    this.slider.value = String(this.currentFrame);
+    this.renderReadout();
+    this.onFrame?.(this.currentFrame);
+  }
+
+  tick() {
+    this.syncFromVideo();
+    this._raf = requestAnimationFrame(() => this.tick());
+  }
+
+  stopTick() {
+    if (this._raf) cancelAnimationFrame(this._raf);
+    this._raf = null;
+  }
+
+  renderReadout() {
+    this.slider.value = String(this.currentFrame);
+    this.frameReadout.textContent = `Frame ${this.currentFrame}`;
+    this.timeReadout.textContent = formatTime(this.currentFrame / this.fps);
+  }
+}
+
+exports.formatTime = function formatTime(seconds) {
+  const safe = Math.max(0, seconds || 0);
+  const mins = Math.floor(safe / 60);
+  const secs = safe % 60;
+  return `${String(mins).padStart(2, "0")}:${secs.toFixed(2).padStart(5, "0")}`;
+}
+
+  })(SwingLabModules);
+
+
+  // ---- overlays.js ----
+  (function (exports) {
+const EVENT_COLORS = {
+  address: "#e9d8a6",
+  top: "#79addc",
+  impact: "#e26d5c",
+  finish: "#83c5be"
+};
+
+const EVENT_LABELS = {
+  address: "ADDRESS",
+  top: "TOP",
+  impact: "IMPACT",
+  finish: "FINISH"
+};
+
+exports.OverlayCanvas = class OverlayCanvas {
+  constructor({ canvas, video, getState }) {
+    this.canvas = canvas;
+    this.video = video;
+    this.getState = getState;
+    this.tool = "select";
+    this.pendingPoints = [];
+    this.drawings = [];
+    this.resizeObserver = new ResizeObserver(() => this.resize());
+    this.resizeObserver.observe(this.canvas.parentElement);
+    this.canvas.addEventListener("pointerdown", (event) => this.handlePointer(event));
+    this.resize();
+  }
+
+  setTool(tool) {
+    this.tool = tool;
+    this.pendingPoints = [];
+  }
+
+  clear() {
+    this.drawings = [];
+    this.render();
+  }
+
+  serialize() {
+    return this.drawings.slice();
+  }
+
+  load(drawings = []) {
+    this.drawings = drawings.slice();
+    this.render();
+  }
+
+  resize() {
+    const rect = this.canvas.getBoundingClientRect();
+    const scale = window.devicePixelRatio || 1;
+    this.canvas.width = Math.max(1, Math.round(rect.width * scale));
+    this.canvas.height = Math.max(1, Math.round(rect.height * scale));
+    this.render();
+  }
+
+  handlePointer(event) {
+    if (this.tool === "select") return;
+    const rect = this.canvas.getBoundingClientRect();
+    const point = {
+      x: (event.clientX - rect.left) / rect.width,
+      y: (event.clientY - rect.top) / rect.height
+    };
+    this.pendingPoints.push(point);
+    const needed = this.tool === "angle" ? 3 : 2;
+    if (this.pendingPoints.length === needed) {
+      this.drawings.push({
+        type: this.tool,
+        points: this.pendingPoints.slice(),
+        color: this.tool === "angle" ? "#d7b56d" : "#f7f2dc"
+      });
+      this.pendingPoints = [];
+    }
+    this.render();
+  }
+
+  render(targetContext = null, targetSize = null, drawVideo = false) {
+    const ctx = targetContext || this.canvas.getContext("2d");
+    const width = targetSize?.width || this.canvas.width;
+    const height = targetSize?.height || this.canvas.height;
+    const state = this.getState();
+
+    ctx.clearRect(0, 0, width, height);
+    if (drawVideo && this.video.readyState >= 2) {
+      drawContainedVideo(ctx, this.video, width, height);
+    }
+    if (state.overlay.grid) drawGrid(ctx, width, height);
+    if (state.overlay.guide) drawGuides(ctx, width, height, state);
+    if (state.overlay.events) drawEvents(ctx, width, height, state);
+    this.drawings.forEach((drawing) => drawDrawing(ctx, width, height, drawing));
+    this.pendingPoints.forEach((point) => drawPoint(ctx, width, height, point));
+  }
+}
+
+function drawContainedVideo(ctx, video, width, height) {
+  const videoRatio = video.videoWidth / video.videoHeight || 16 / 9;
+  const canvasRatio = width / height;
+  let drawWidth = width;
+  let drawHeight = height;
+  let x = 0;
+  let y = 0;
+
+  if (videoRatio > canvasRatio) {
+    drawHeight = width / videoRatio;
+    y = (height - drawHeight) / 2;
+  } else {
+    drawWidth = height * videoRatio;
+    x = (width - drawWidth) / 2;
+  }
+  ctx.fillStyle = "#0f1716";
+  ctx.fillRect(0, 0, width, height);
+  ctx.drawImage(video, x, y, drawWidth, drawHeight);
+}
+
+function drawGrid(ctx, width, height) {
+  ctx.save();
+  ctx.strokeStyle = "rgba(255, 250, 240, 0.16)";
+  ctx.lineWidth = 1;
+  for (let x = width / 4; x < width; x += width / 4) {
+    line(ctx, x, 0, x, height);
+  }
+  for (let y = height / 4; y < height; y += height / 4) {
+    line(ctx, 0, y, width, y);
+  }
+  ctx.restore();
+}
+
+function drawGuides(ctx, width, height, state) {
+  const guide = state.guide || { x: 0.5, y: 0.8, scale: 1, width: 1, footAngle: 0, rotation: -8 };
+  const cx = width * guide.x;
+  const groundY = height * guide.y;
+  const scale = guide.scale || 1;
+  const hipWidthScale = guide.width || 1;
+  const footAngle = Number.isFinite(guide.footAngle) ? guide.footAngle : 0;
+  const clubAngle = Number.isFinite(guide.rotation) ? guide.rotation : 0;
+
+  const stance = width * 0.18 * scale;
+  const footLineLength = width * 0.46 * scale;
+  const headToHipHeight = height * 0.39 * scale;
+  const hipY = groundY - height * 0.23 * scale;
+  const headY = Math.max(8, hipY - headToHipHeight);
+  const bodyWidth = width * 0.17 * scale * hipWidthScale;
+  const bodyX = cx - bodyWidth / 2;
+  const bodyRadius = Math.max(10, width * 0.012);
+  const shoulderY = headY + headToHipHeight * 0.28;
+  const hipLineY = hipY;
+  const ballX = cx + stance * 0.78;
+  const ballY = groundY - height * 0.025 * scale;
+
+  ctx.save();
+  ctx.lineWidth = Math.max(2, width * 0.003);
+  ctx.font = `${Math.max(11, width * 0.012)}px Inter, sans-serif`;
+  ctx.textBaseline = "middle";
+
+  // Main body box: user should align top with head and lower edge with hips/seat.
+  ctx.strokeStyle = "rgba(255, 250, 240, 0.86)";
+  ctx.fillStyle = "rgba(255, 250, 240, 0.055)";
+  roundRect(ctx, bodyX, headY, bodyWidth, hipY - headY, bodyRadius);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.setLineDash([8, 8]);
+  ctx.strokeStyle = "rgba(255, 250, 240, 0.46)";
+  line(ctx, bodyX - bodyWidth * 0.25, headY, bodyX + bodyWidth * 1.25, headY);
+  line(ctx, bodyX - bodyWidth * 0.25, hipLineY, bodyX + bodyWidth * 1.25, hipLineY);
+  line(ctx, cx, headY, cx, groundY);
+  ctx.setLineDash([]);
+
+  ctx.fillStyle = "rgba(255, 250, 240, 0.9)";
+  labelPill(ctx, "cabeza", bodyX + bodyWidth + 8, headY, width);
+  labelPill(ctx, "caderas / culo", bodyX + bodyWidth + 8, hipLineY, width);
+
+  // Feet direction: a simple rotatable baseline for stance/target alignment.
+  ctx.strokeStyle = "rgba(215, 181, 109, 0.92)";
+  ctx.fillStyle = "rgba(215, 181, 109, 0.95)";
+  rotatedLine(ctx, cx, groundY, footLineLength, (footAngle * Math.PI) / 180);
+  labelPill(ctx, `pies ${Math.round(footAngle)}°`, Math.max(8, cx - footLineLength * 0.5), groundY - 18, width);
+
+  // Ball marker.
+  ctx.beginPath();
+  ctx.arc(ballX, ballY, Math.max(4, width * 0.0045), 0, Math.PI * 2);
+  ctx.fillStyle = "rgba(255, 250, 240, 0.92)";
+  ctx.fill();
+
+  // Club/shaft angle guide. In DTL it represents swing plane; in FO it works as approximate shaft lean.
+  ctx.strokeStyle = state.viewType === "DTL" ? "rgba(121, 173, 220, 0.88)" : "rgba(131, 197, 190, 0.88)";
+  ctx.setLineDash([10, 8]);
+  const clubBaseAngle = state.viewType === "FO" ? -78 : -62;
+  const clubLength = Math.max(width, height) * 0.56 * scale;
+  const clubOriginX = ballX - stance * 0.05;
+  const clubOriginY = ballY;
+  rotatedLine(ctx, clubOriginX, clubOriginY, clubLength, ((clubBaseAngle + clubAngle) * Math.PI) / 180);
+  ctx.setLineDash([]);
+  labelPill(ctx, `palo ${Math.round(clubAngle)}°`, Math.min(width - 130, clubOriginX + 10), Math.max(18, clubOriginY - height * 0.24 * scale), width);
+
+  // Light reference lines for shoulders/hips in face-on.
+  if (state.viewType === "FO") {
+    ctx.strokeStyle = "rgba(131, 197, 190, 0.42)";
+    line(ctx, bodyX - bodyWidth * 0.35, shoulderY, bodyX + bodyWidth * 1.35, shoulderY);
+    line(ctx, bodyX - bodyWidth * 0.35, hipY, bodyX + bodyWidth * 1.35, hipY);
+  }
+
+  ctx.restore();
+}
+
+function labelPill(ctx, text, x, y, width) {
+  const paddingX = 7;
+  const paddingY = 4;
+  const metrics = ctx.measureText(text);
+  const fontSize = Number((ctx.font.match(/(\d+(?:\.\d+)?)px/) || [0, 12])[1]);
+  const pillWidth = metrics.width + paddingX * 2;
+  const pillHeight = fontSize + paddingY * 2;
+  const safeX = Math.max(6, Math.min(width - pillWidth - 6, x));
+  const safeY = Math.max(pillHeight / 2 + 4, y);
+  ctx.save();
+  ctx.fillStyle = "rgba(6, 20, 18, 0.74)";
+  roundRect(ctx, safeX, safeY - pillHeight / 2, pillWidth, pillHeight, pillHeight / 2);
+  ctx.fill();
+  ctx.fillStyle = "rgba(255, 250, 240, 0.92)";
+  ctx.fillText(text, safeX + paddingX, safeY + 0.5);
+  ctx.restore();
+}
+
+function drawEvents(ctx, width, height, state) {
+  if (!state.totalFrames) return;
+  ctx.save();
+  ctx.font = `${Math.max(12, width * 0.014)}px Inter, sans-serif`;
+  ctx.textBaseline = "middle";
+  Object.entries(state.events).forEach(([event, frame]) => {
+    if (frame == null) return;
+    const x = (frame / state.totalFrames) * width;
+    ctx.strokeStyle = EVENT_COLORS[event] || "#fff";
+    ctx.fillStyle = EVENT_COLORS[event] || "#fff";
+    ctx.lineWidth = 2;
+    line(ctx, x, height * 0.04, x, height * 0.96);
+    ctx.fillText(EVENT_LABELS[event] || event.toUpperCase(), Math.min(width - 86, x + 8), height * 0.08);
+  });
+  ctx.restore();
+}
+
+function drawDrawing(ctx, width, height, drawing) {
+  ctx.save();
+  ctx.strokeStyle = drawing.color;
+  ctx.fillStyle = drawing.color;
+  ctx.lineWidth = 3;
+  if (drawing.type === "line") {
+    const [a, b] = drawing.points;
+    line(ctx, a.x * width, a.y * height, b.x * width, b.y * height);
+  }
+  if (drawing.type === "angle") {
+    const [a, b, c] = drawing.points;
+    line(ctx, a.x * width, a.y * height, b.x * width, b.y * height);
+    line(ctx, b.x * width, b.y * height, c.x * width, c.y * height);
+    const angle = angleBetween(a, b, c);
+    ctx.font = `${Math.max(12, width * 0.016)}px Inter, sans-serif`;
+    ctx.fillText(`${Math.round(angle)}°`, b.x * width + 10, b.y * height - 10);
+  }
+  drawing.points.forEach((point) => drawPoint(ctx, width, height, point));
+  ctx.restore();
+}
+
+exports.drawBallPath = function drawBallPath(ctx, width, height, points, label = "", options = {}) {
+  ctx.clearRect(0, 0, width, height);
+  if (!points?.length) return;
+  const videoRect = containedRect(width, height, options.videoWidth, options.videoHeight);
+  const visiblePoints = pathUntilTime(points, options.currentTime);
+
+  ctx.save();
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  if (visiblePoints.length) {
+    ctx.shadowColor = "rgba(215, 181, 109, 0.65)";
+    ctx.shadowBlur = Math.max(9, width * 0.012);
+    ctx.lineWidth = Math.max(7, width * 0.008);
+    ctx.strokeStyle = "rgba(215, 181, 109, 0.28)";
+    drawCurve(ctx, videoRect, visiblePoints);
+    ctx.stroke();
+
+    ctx.shadowBlur = Math.max(4, width * 0.006);
+    ctx.lineWidth = Math.max(3, width * 0.004);
+    ctx.strokeStyle = "rgba(255, 245, 199, 0.96)";
+    drawCurve(ctx, videoRect, visiblePoints);
+    ctx.stroke();
+
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = "rgba(255, 250, 240, 0.96)";
+    const active = visiblePoints[visiblePoints.length - 1];
+    drawBallGlow(ctx, mapBallPoint(active, videoRect), width);
+  }
+
+  points.forEach((point, index) => {
+    const mapped = mapBallPoint(point, videoRect);
+    ctx.beginPath();
+    ctx.arc(mapped.x, mapped.y, index === points.length - 1 ? 7 : 5, 0, Math.PI * 2);
+    ctx.fillStyle = index === 0 ? "rgba(131, 197, 190, 0.96)" : "rgba(255, 250, 240, 0.78)";
+    ctx.fill();
+    if (options.editable) {
+      ctx.strokeStyle = "rgba(15, 23, 22, 0.78)";
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+  });
+
+  if (label) {
+    const lastMapped = mapBallPoint(points[points.length - 1], videoRect);
+    ctx.fillStyle = "rgba(255, 250, 240, 0.92)";
+    ctx.font = `${Math.max(12, width * 0.013)}px Inter, sans-serif`;
+    ctx.fillText(label, Math.min(width - 104, lastMapped.x + 12), Math.max(16, lastMapped.y - 12));
+  }
+  ctx.restore();
+}
+
+function drawCurve(ctx, rect, points) {
+  ctx.beginPath();
+  const first = points[0];
+  const firstMapped = mapBallPoint(first, rect);
+  ctx.moveTo(firstMapped.x, firstMapped.y);
+  if (points.length === 2) {
+    const b = mapBallPoint(points[1], rect);
+    ctx.lineTo(b.x, b.y);
+  } else {
+    for (let i = 1; i < points.length; i += 1) {
+      const point = points[i];
+      const prev = points[i - 1];
+      const prevMapped = mapBallPoint(prev, rect);
+      const pointMapped = mapBallPoint(point, rect);
+      const midX = (prevMapped.x + pointMapped.x) / 2;
+      const midY = (prevMapped.y + pointMapped.y) / 2;
+      ctx.quadraticCurveTo(prevMapped.x, prevMapped.y, midX, midY);
+    }
+    const last = points[points.length - 1];
+    const lastMapped = mapBallPoint(last, rect);
+    ctx.lineTo(lastMapped.x, lastMapped.y);
+  }
+}
+
+function pathUntilTime(points, currentTime) {
+  if (!Number.isFinite(currentTime)) return points;
+  const firstTime = points.find((point) => Number.isFinite(point.time))?.time;
+  if (!Number.isFinite(firstTime)) return points;
+  if (currentTime < firstTime) return [];
+
+  const visible = [];
+  for (let index = 0; index < points.length; index += 1) {
+    const point = points[index];
+    if (!Number.isFinite(point.time) || point.time <= currentTime) {
+      visible.push(point);
+      continue;
+    }
+    const prev = visible[visible.length - 1];
+    if (prev && Number.isFinite(prev.time)) {
+      const ratio = Math.max(0, Math.min(1, (currentTime - prev.time) / Math.max(0.001, point.time - prev.time)));
+      visible.push({
+        x: prev.x + (point.x - prev.x) * ratio,
+        y: prev.y + (point.y - prev.y) * ratio,
+        time: currentTime
+      });
+    }
+    break;
+  }
+  return visible;
+}
+
+function drawBallGlow(ctx, point, width) {
+  const radius = Math.max(7, width * 0.008);
+  const gradient = ctx.createRadialGradient(point.x, point.y, 1, point.x, point.y, radius * 2.6);
+  gradient.addColorStop(0, "rgba(255, 255, 255, 1)");
+  gradient.addColorStop(0.32, "rgba(255, 245, 199, 0.92)");
+  gradient.addColorStop(1, "rgba(215, 181, 109, 0)");
+  ctx.fillStyle = gradient;
+  ctx.beginPath();
+  ctx.arc(point.x, point.y, radius * 2.6, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#fffdf4";
+  ctx.beginPath();
+  ctx.arc(point.x, point.y, radius * 0.58, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function mapBallPoint(point, rect) {
+  return {
+    x: rect.x + point.x * rect.width,
+    y: rect.y + point.y * rect.height
+  };
+}
+
+function containedRect(width, height, videoWidth, videoHeight) {
+  if (!videoWidth || !videoHeight) return { x: 0, y: 0, width, height };
+  const videoRatio = videoWidth / videoHeight;
+  const canvasRatio = width / height;
+  if (videoRatio > canvasRatio) {
+    const drawHeight = width / videoRatio;
+    return { x: 0, y: (height - drawHeight) / 2, width, height: drawHeight };
+  }
+  const drawWidth = height * videoRatio;
+  return { x: (width - drawWidth) / 2, y: 0, width: drawWidth, height };
+}
+
+function drawPoint(ctx, width, height, point) {
+  ctx.beginPath();
+  ctx.arc(point.x * width, point.y * height, 5, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function line(ctx, x1, y1, x2, y2) {
+  ctx.beginPath();
+  ctx.moveTo(x1, y1);
+  ctx.lineTo(x2, y2);
+  ctx.stroke();
+}
+
+function rotatedLine(ctx, centerX, centerY, length, angle) {
+  const dx = Math.cos(angle) * length * 0.5;
+  const dy = Math.sin(angle) * length * 0.5;
+  line(ctx, centerX - dx, centerY - dy, centerX + dx, centerY + dy);
+}
+
+function roundRect(ctx, x, y, width, height, radius) {
+  const r = Math.min(radius, width / 2, height / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + width, y, x + width, y + height, r);
+  ctx.arcTo(x + width, y + height, x, y + height, r);
+  ctx.arcTo(x, y + height, x, y, r);
+  ctx.arcTo(x, y, x + width, y, r);
+  ctx.closePath();
+}
+
+function angleBetween(a, b, c) {
+  const ab = { x: a.x - b.x, y: a.y - b.y };
+  const cb = { x: c.x - b.x, y: c.y - b.y };
+  const dot = ab.x * cb.x + ab.y * cb.y;
+  const mag = Math.hypot(ab.x, ab.y) * Math.hypot(cb.x, cb.y);
+  return Math.acos(Math.min(1, Math.max(-1, dot / mag))) * (180 / Math.PI);
+}
+
+  })(SwingLabModules);
+
+
+  // ---- metrics.js ----
+  (function (exports) {
+exports.calculateMetrics = function calculateMetrics(state) {
+  const captureScore = calculateCaptureScore(state.captureChecks);
+  const hasVideo = Number.isFinite(state.totalFrames) && state.totalFrames > 0;
+  const eventsMarked = ["address", "top", "impact", "finish"].every((event) => Number.isFinite(state.events[event]));
+  const eventsOrdered = areEventsOrdered(state.events);
+  const eventsComplete = hasVideo && eventsMarked && eventsOrdered;
+  const fps = state.fps || 60;
+  const backswingFrames = eventDelta(state, "address", "top");
+  const downswingFrames = eventDelta(state, "top", "impact");
+  const finishFrames = eventDelta(state, "impact", "finish");
+  const tempoRatio = backswingFrames && downswingFrames ? backswingFrames / Math.max(1, downswingFrames) : null;
+  const tempoScore = tempoRatio ? scoreTempo(tempoRatio) : 0;
+  const topTiming = state.totalFrames && state.events.top != null ? (state.events.top / state.totalFrames) * 100 : null;
+
+  const qualityInputs = state.manualMetrics;
+  const overallScore = hasVideo
+    ? Math.round(
+        weightedAverage([
+          [captureScore, 0.18],
+          [tempoScore, 0.2],
+          [qualityInputs.headStability, 0.16],
+          [qualityInputs.postureRetention, 0.18],
+          [qualityInputs.handPath, 0.14],
+          [qualityInputs.finishBalance, 0.14]
+        ])
+      )
+    : 0;
+
+  return {
+    eventsComplete,
+    eventsMarked,
+    eventsOrdered,
+    hasVideo,
+    captureScore,
+    overallScore,
+    tempoRatio,
+    tempoScore,
+    topTiming,
+    backswingSec: backswingFrames ? backswingFrames / fps : null,
+    downswingSec: downswingFrames ? downswingFrames / fps : null,
+    holdFinishSec: finishFrames ? finishFrames / fps : null,
+    headStability: qualityInputs.headStability,
+    postureRetention: qualityInputs.postureRetention,
+    handPath: qualityInputs.handPath,
+    finishBalance: qualityInputs.finishBalance,
+    confidence: hasVideo ? Math.round(weightedAverage([[captureScore, 0.55], [eventsComplete ? 88 : 40, 0.45]])) : 0
+  };
+}
+
+function areEventsOrdered(events) {
+  const sequence = ["address", "top", "impact", "finish"].map((event) => events[event]);
+  if (!sequence.every(Number.isFinite)) return false;
+  return sequence.every((frame, index) => index === 0 || frame > sequence[index - 1]);
+}
+
+exports.calculateCaptureScore = function calculateCaptureScore(checks) {
+  const values = Object.values(checks || {});
+  if (!values.length) return 0;
+  return Math.round((values.filter(Boolean).length / values.length) * 100);
+}
+
+function eventDelta(state, start, end) {
+  const a = state.events[start];
+  const b = state.events[end];
+  if (!Number.isFinite(a) || !Number.isFinite(b) || b <= a) return null;
+  return b - a;
+}
+
+function scoreTempo(ratio) {
+  const distance = Math.abs(ratio - 3);
+  return Math.round(Math.max(0, 100 - distance * 34));
+}
+
+function weightedAverage(pairs) {
+  const totalWeight = pairs.reduce((sum, [, weight]) => sum + weight, 0);
+  return pairs.reduce((sum, [value, weight]) => sum + (Number(value) || 0) * weight, 0) / totalWeight;
+}
+
+exports.metricRows = function metricRows(metrics) {
+  return [
+    {
+      label: "Tempo",
+      value: metrics.tempoRatio ? `${metrics.tempoRatio.toFixed(2)}:1` : "Pendiente",
+      score: metrics.tempoScore,
+      detail: "Objetivo inicial aproximado: cerca de 3:1."
+    },
+    {
+      label: "Capture score",
+      value: `${metrics.captureScore}/100`,
+      score: metrics.captureScore,
+      detail: "Calidad de encuadre, luz, fps y visibilidad."
+    },
+    {
+      label: "Cabeza",
+      value: `${metrics.headStability}/100`,
+      score: metrics.headStability,
+      detail: "Estabilidad visual durante el backswing."
+    },
+    {
+      label: "Postura",
+      value: `${metrics.postureRetention}/100`,
+      score: metrics.postureRetention,
+      detail: "Espacio y postura conservada hasta impacto."
+    },
+    {
+      label: "Ruta manos",
+      value: `${metrics.handPath}/100`,
+      score: metrics.handPath,
+      detail: "Proxy manual de ruta limpia en transición."
+    },
+    {
+      label: "Finish",
+      value: `${metrics.finishBalance}/100`,
+      score: metrics.finishBalance,
+      detail: "Equilibrio y final completo."
+    }
+  ];
+}
+
+  })(SwingLabModules);
+
+
+  // ---- recommendations.js ----
+  (function (exports) {
+exports.buildRecommendations = function buildRecommendations(state, metrics) {
+  if (!metrics.hasVideo) {
+    return {
+      summary: "Carga un vídeo para crear el primer análisis.",
+      primaryIssue: "Vídeo pendiente",
+      confidenceLabel: "Sin análisis",
+      evidence: "El MVP necesita duración y frames para calcular eventos, tempo y exportar una sesión útil.",
+      drill: {
+        name: "Captura guiada",
+        description: "Graba con cámara fija, buena luz y jugador completo visible durante todo el swing."
+      },
+      recommendations: [],
+      explanations: defaultExplanations()
+    };
+  }
+
+  if (metrics.eventsMarked && !metrics.eventsOrdered) {
+    return {
+      summary: "Revisa el orden de las fases marcadas.",
+      primaryIssue: "Fases fuera de orden",
+      confidenceLabel: "Confianza baja",
+      evidence: "Las fases deben avanzar en el tiempo: address, top, impact y finish.",
+      drill: {
+        name: "Corrección de timeline",
+        description: "Mueve el vídeo frame a frame y vuelve a marcar cada fase en orden cronológico."
+      },
+      recommendations: [],
+      explanations: defaultExplanations()
+    };
+  }
+
+  if (!metrics.eventsComplete) {
+    return {
+      summary: "Marca o detecta las cuatro fases principales para desbloquear el reporte.",
+      primaryIssue: "Faltan fases clave",
+      confidenceLabel: "Confianza baja",
+      evidence: "Address, top, impact y finish permiten calcular tempo y timing.",
+      drill: {
+        name: "Detección guiada",
+        description: "Usa detectar fases y corrige manualmente cualquier frame que no coincida."
+      },
+      recommendations: [],
+      explanations: defaultExplanations()
+    };
+  }
+
+  const findings = [];
+  if (metrics.captureScore < 70) {
+    findings.push({
+      issue: "La captura limita la lectura",
+      source: "Heurística",
+      score: metrics.captureScore,
+      confidence: 0.72,
+      evidence: "La app necesita cuerpo, palo y bola visibles para que las métricas tengan sentido.",
+      drill: "Repetir captura",
+      description: "Graba a 60 FPS o más, con cámara fija, buena luz y jugador completo en plano.",
+      nextMetric: "Capture score"
+    });
+  }
+
+  if (metrics.tempoRatio && (metrics.tempoRatio < 2.4 || metrics.tempoRatio > 3.8)) {
+    findings.push({
+      issue: "Tempo poco estable",
+      source: "Heurística",
+      score: metrics.tempoScore,
+      confidence: 0.68,
+      evidence: `El tempo marcado es ${metrics.tempoRatio.toFixed(2)}:1 entre backswing y downswing.`,
+      drill: "3:1 tempo drill",
+      description: "Cuenta 1-2-3 en la subida y 1 en la bajada, manteniendo la misma velocidad de rutina.",
+      nextMetric: "Tempo ratio"
+    });
+  }
+
+  if (metrics.headStability < 62) {
+    findings.push({
+      issue: state.viewType === "FO" ? "Posible sway lateral" : "Posible inestabilidad de cabeza",
+      source: "Heurística",
+      score: metrics.headStability,
+      confidence: 0.64,
+      evidence: "La métrica automática sugiere revisar address contra top antes de confiar en la lectura.",
+      drill: "Pivot sobre eje central",
+      description: "Haz swings cortos sintiendo que el pecho rota alrededor de un eje estable.",
+      nextMetric: "Head stability"
+    });
+  }
+
+  if (state.viewType === "DTL" && metrics.postureRetention < 66) {
+    findings.push({
+      issue: "Posible pérdida de postura",
+      source: "Heurística",
+      score: metrics.postureRetention,
+      confidence: 0.66,
+      evidence: "Revisar visualmente entre address e impact. La métrica revisable sugiere que podría perderse espacio/postura antes del contacto.",
+      drill: "Chair drill",
+      description: "Coloca una silla detrás de la cadera y conserva el contacto suave hasta después del impacto.",
+      nextMetric: "Posture retention"
+    });
+  }
+
+  if (state.viewType === "FO" && metrics.postureRetention < 60) {
+    findings.push({
+      issue: "Posible eje cambiante en impacto",
+      source: "Heurística",
+      score: metrics.postureRetention,
+      confidence: 0.58,
+      evidence: "En FO, revisa si cabeza y pecho se desplazan demasiado antes de impacto.",
+      drill: "Step-through controlado",
+      description: "Haz medio swing dejando que el peso avance sin que el torso se lance hacia la bola.",
+      nextMetric: "Impact posture"
+    });
+  }
+
+  if (state.viewType === "DTL" && metrics.handPath < 62) {
+    findings.push({
+      issue: "Posible ruta de manos hacia fuera",
+      source: "Heurística",
+      score: metrics.handPath,
+      confidence: 0.61,
+      evidence: "La transición top-impact queda como punto a revisar con las líneas del visor.",
+      drill: "Pump drill bajo plano",
+      description: "Pausa en top, baja manos hacia el bolsillo trasero y golpea medio swing.",
+      nextMetric: "Hand path DTL"
+    });
+  }
+
+  if (metrics.finishBalance < 65) {
+    findings.push({
+      issue: "Posible finish poco estable",
+      source: "Heurística",
+      score: metrics.finishBalance,
+      confidence: 0.7,
+      evidence: "El equilibrio final está por debajo del umbral inicial del MVP.",
+      drill: "Hold finish",
+      description: "Mantén el finish tres segundos mirando el objetivo después de cada bola.",
+      nextMetric: "Finish balance"
+    });
+  }
+
+  if (metrics.holdFinishSec != null && metrics.holdFinishSec < 0.45) {
+    findings.push({
+      issue: "Posible finish demasiado corto",
+      source: "Heurística",
+      score: Math.round(metrics.holdFinishSec * 100),
+      confidence: 0.63,
+      evidence: `El finish queda marcado solo ${metrics.holdFinishSec.toFixed(2)} s después del impacto.`,
+      drill: "Finish freeze",
+      description: "Golpea al 70% y congela el finish hasta que la bola aterrice.",
+      nextMetric: "Hold finish time"
+    });
+  }
+
+  const sorted = findings.sort((a, b) => a.score - b.score);
+  const primary = sorted[0] || {
+    issue: "Swing equilibrado para el MVP",
+    score: metrics.overallScore,
+    confidence: 0.58,
+    source: "Heurística",
+    evidence: "Las métricas están en rango razonable. Conviene acumular historial con el mismo encuadre.",
+    drill: "Repetición de referencia",
+    description: "Guarda este swing como referencia y compara la próxima sesión con la misma vista y palo.",
+    nextMetric: "Consistencia"
+  };
+
+  return {
+    summary: buildSummary(state, metrics, primary),
+    primaryIssue: primary.issue,
+    confidenceLabel: confidenceLabel(metrics.confidence),
+    evidence: primary.evidence,
+    evidenceSource: primary.source || "Heurística",
+    drill: {
+      name: primary.drill,
+      description: primary.description
+    },
+    nextMetric: primary.nextMetric,
+    recommendations: sorted.slice(0, 5).map((item) => ({
+      ...item,
+      confidenceLabel: confidenceLabel(Math.round((item.confidence || 0.5) * 100)),
+      source: item.source || "Heurística"
+    })),
+    explanations: buildExplanations(metrics)
+  };
+}
+
+function buildSummary(state, metrics, primary) {
+  const tempo = metrics.tempoRatio ? `Tempo ${metrics.tempoRatio.toFixed(2)}:1` : "Tempo pendiente";
+  const auto = state.videoAnalysis?.summary?.signal != null ? `Movimiento ${state.videoAnalysis.summary.signal}/100 aprox.` : "Movimiento revisable.";
+  return `${tempo}. Vista ${state.viewType}. ${auto} Prioridad: ${primary.issue.toLowerCase()}.`;
+}
+
+function confidenceLabel(confidence) {
+  if (confidence >= 80) return "Confianza alta";
+  if (confidence >= 60) return "Confianza media";
+  return "Confianza baja";
+}
+
+function buildExplanations(metrics) {
+  return [
+    {
+      title: "Tempo",
+      body: metrics.tempoRatio
+        ? `Mide cuánto tarda la subida frente a la bajada. Un valor cercano a 3:1 suele ser una referencia simple para revisar ritmo, no una ley universal.`
+        : "Aparece cuando address, top e impact están marcados."
+    },
+    {
+      title: "Capture score",
+      body: "Resume si el vídeo permite confiar en el análisis: luz, estabilidad, resolución, fps y visibilidad. Si baja, conviene repetir captura antes de corregir técnica."
+    },
+    {
+      title: "Métricas revisables",
+      body: "Son estimaciones revisables del MVP basadas en movimiento del vídeo y timing. No son todavía landmarks ni IA biomecánica; usa Comprobar para saltar al frame relevante y ajustarlas manualmente."
+    }
+  ];
+}
+
+function defaultExplanations() {
+  return [
+    {
+      title: "Cómo empieza",
+      body: "Sube un vídeo, ajusta encuadre y guía, y pulsa Analizar. La orientación se reconoce al cargar; fases, capture score y métricas se calculan cuando tú lo pides."
+    },
+    {
+      title: "Vista de bola",
+      body: "La pestaña Bola es independiente: sirve para ver trayectoria y resultado sin mezclarlo con el análisis técnico del swing."
+    }
+  ];
+}
+
+  })(SwingLabModules);
+
+
+  // ---- export.js ----
+  (function (exports) {
+exports.downloadJson = function downloadJson(filename, data) {
+  downloadBlob(filename, JSON.stringify(data, null, 2), "application/json");
+}
+
+exports.downloadCsv = function downloadCsv(filename, metrics) {
+  const rows = Object.entries(metrics).map(([key, value]) => [key, value == null ? "" : value]);
+  const csv = [["metric", "value"], ...rows]
+    .map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(","))
+    .join("\n");
+  downloadBlob(filename, csv, "text/csv;charset=utf-8");
+}
+
+exports.downloadPng = function downloadPng(filename, video, overlayCanvas) {
+  const canvas = document.createElement("canvas");
+  const width = overlayCanvas.canvas.width || 1280;
+  const height = overlayCanvas.canvas.height || 720;
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  overlayCanvas.render(ctx, { width, height }, true);
+  canvas.toBlob((blob) => {
+    if (blob) downloadBlob(filename, blob, "image/png");
+  }, "image/png");
+}
+
+function downloadBlob(filename, body, type) {
+  const blob = body instanceof Blob ? body : new Blob([body], { type });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
+
+  })(SwingLabModules);
+
+
+  // ---- storage.js ----
+  (function (exports) {
+const DB_NAME = "swing-lab-ai";
+const DB_VERSION = 2;
+const STORE = "sessions";
+
+exports.saveSession = async function saveSession(session) {
+  const db = await openDb();
+  return requestToPromise(db.transaction(STORE, "readwrite").objectStore(STORE).put(session));
+}
+
+exports.listSessions = async function listSessions() {
+  const db = await openDb();
+  const records = await requestToPromise(db.transaction(STORE, "readonly").objectStore(STORE).getAll());
+  return records.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+}
+
+exports.getSession = async function getSession(id) {
+  const db = await openDb();
+  return requestToPromise(db.transaction(STORE, "readonly").objectStore(STORE).get(id));
+}
+
+function openDb() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(STORE)) {
+        db.createObjectStore(STORE, { keyPath: "id" });
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+function requestToPromise(request) {
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+  })(SwingLabModules);
+
+
+  // ---- video-analysis.js ----
+  (function (exports) {
+const EVENT_ORDER = ["address", "top", "impact", "finish"];
+
+exports.analyzeVideo = async function analyzeVideo(video, { fps = 60, onProgress } = {}) {
+  const duration = Number.isFinite(video.duration) ? video.duration : 0;
+  if (!duration || !video.videoWidth || !video.videoHeight) {
+    return emptyAnalysis();
+  }
+
+  const sampleCount = Math.min(96, Math.max(32, Math.round(duration * 18)));
+  const canvas = document.createElement("canvas");
+  const ratio = video.videoWidth / video.videoHeight;
+  canvas.width = ratio >= 1 ? 72 : 42;
+  canvas.height = ratio >= 1 ? 42 : 72;
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  const originalTime = video.currentTime || 0;
+  const wasPaused = video.paused;
+  video.pause();
+
+  const samples = [];
+  let previous = null;
+  for (let index = 0; index < sampleCount; index += 1) {
+    const time = (duration * index) / Math.max(1, sampleCount - 1);
+    await seekVideo(video, time);
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const frame = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const stats = frameStats(frame.data, previous);
+    previous = stats.gray;
+    samples.push({ index, time, ...stats });
+    onProgress?.(Math.round(((index + 1) / sampleCount) * 100));
+  }
+
+  await seekVideo(video, Math.min(originalTime, duration));
+  if (!wasPaused) video.play().catch(() => {});
+
+  return buildAnalysis({
+    samples,
+    fps,
+    duration,
+    width: video.videoWidth,
+    height: video.videoHeight
+  });
+}
+
+exports.buildAnalysis = function buildAnalysis({ samples, fps, duration, width, height }) {
+  const motion = samples.map((sample) => sample.motion);
+  const smoothed = smooth(motion, 2);
+  const brightness = average(samples.map((sample) => sample.brightness));
+  const contrast = average(samples.map((sample) => sample.contrast));
+  const firstMotion = average(smoothed.slice(0, Math.max(3, Math.round(samples.length * 0.12))));
+  const peakMotion = Math.max(...smoothed);
+  const baseline = median(smoothed.slice(0, Math.max(4, Math.round(samples.length * 0.18))));
+  const signal = Math.max(0, peakMotion - baseline);
+  const events = estimateEvents(samples, smoothed, fps, duration, signal, baseline);
+  const captureChecks = estimateCaptureChecks({ fps, width, height, brightness, contrast, signal, firstMotion, peakMotion });
+  const captureScore = Math.round((Object.values(captureChecks).filter(Boolean).length / Object.values(captureChecks).length) * 100);
+  const autoMetrics = estimateMetrics({ samples, smoothed, events, fps, captureScore, signal, firstMotion, peakMotion });
+
+  return {
+    events: events.frames,
+    eventMeta: events.meta,
+    captureChecks,
+    autoMetrics,
+    summary: {
+      brightness: Math.round(brightness),
+      contrast: Math.round(contrast),
+      signal: Math.round(signal),
+      peakMotion: Math.round(peakMotion),
+      baseline: Math.round(baseline),
+      sampleCount: samples.length
+    }
+  };
+}
+
+function estimateEvents(samples, smoothed, fps, duration, signal, baseline) {
+  const threshold = baseline + Math.max(2, signal * 0.24);
+  const active = smoothed
+    .map((value, index) => ({ value, index }))
+    .filter((item, index) => index > 1 && item.value > threshold)
+    .map((item) => item.index);
+
+  const firstActive = active[0] ?? Math.round(samples.length * 0.12);
+  const lastActive = active[active.length - 1] ?? Math.round(samples.length * 0.86);
+  const impactSearchStart = clampIndex(Math.max(firstActive + 5, Math.round(samples.length * 0.35)), samples.length);
+  const impactSearchEnd = clampIndex(Math.max(impactSearchStart + 1, Math.min(samples.length - 1, lastActive + 4)), samples.length);
+  const impactIndex = indexOfMax(smoothed, impactSearchStart, impactSearchEnd);
+  const topStart = clampIndex(firstActive + 3, samples.length);
+  const topEnd = clampIndex(Math.max(topStart + 1, impactIndex - 3), samples.length);
+  let topIndex = indexOfMin(smoothed, topStart, topEnd);
+  if (topIndex <= firstActive || topIndex >= impactIndex) {
+    topIndex = Math.round(firstActive + (impactIndex - firstActive) * 0.52);
+  }
+  const addressIndex = clampIndex(firstActive - 3, samples.length);
+  const finishIndex = findFinishIndex(smoothed, impactIndex, threshold, lastActive);
+
+  const frameEntries = {
+    address: sampleToFrame(samples[addressIndex], fps, duration),
+    top: sampleToFrame(samples[topIndex], fps, duration),
+    impact: sampleToFrame(samples[impactIndex], fps, duration),
+    finish: sampleToFrame(samples[finishIndex], fps, duration)
+  };
+  enforceOrder(frameEntries, Math.round(duration * fps));
+
+  const confidence = Math.round(Math.min(94, Math.max(38, 42 + signal * 2.6)));
+  return {
+    frames: frameEntries,
+    meta: Object.fromEntries(
+      EVENT_ORDER.map((event) => [
+        event,
+        {
+          source: "auto",
+          confidence,
+          note: confidence >= 72 ? "Detección automática sólida" : "Detección automática revisable"
+        }
+      ])
+    )
+  };
+}
+
+function estimateCaptureChecks({ fps, width, height, brightness, contrast, signal, firstMotion, peakMotion }) {
+  const resolution = Math.max(width, height);
+  return {
+    frame: resolution >= 720,
+    light: brightness > 42 && brightness < 225 && contrast > 18,
+    stable: firstMotion < Math.max(5, peakMotion * 0.55),
+    ball: resolution >= 720 && brightness > 45,
+    club: signal > 4.5,
+    fps: fps >= 60
+  };
+}
+
+function estimateMetrics({ samples, smoothed, events, fps, captureScore, signal, firstMotion, peakMotion }) {
+  const totalFrames = Math.max(...Object.values(events.frames));
+  const addressFrame = events.frames.address;
+  const topFrame = events.frames.top;
+  const impactFrame = events.frames.impact;
+  const finishFrame = events.frames.finish;
+  const tempoRatio = topFrame > addressFrame && impactFrame > topFrame ? (topFrame - addressFrame) / (impactFrame - topFrame) : 3;
+  const postFinishMotion = average(smoothed.slice(Math.round(samples.length * 0.78)));
+  const signalScore = normalize(signal, 3, 24);
+
+  return {
+    headStability: clampScore(92 - firstMotion * 4.2 + captureScore * 0.05),
+    postureRetention: clampScore(48 + captureScore * 0.22 + signalScore * 0.18 - Math.abs(tempoRatio - 3) * 7),
+    handPath: clampScore(50 + signalScore * 0.27 + Math.min(14, peakMotion * 0.28)),
+    finishBalance: clampScore(62 + ((finishFrame - impactFrame) / Math.max(1, fps)) * 5 - postFinishMotion * 2.8),
+    evidence: {
+      headStability: `Auto: compara address (${addressFrame}) con top (${topFrame}).`,
+      postureRetention: `Auto: revisa impacto en frame ${impactFrame}.`,
+      handPath: `Auto: transición top-impact (${topFrame}-${impactFrame}).`,
+      finishBalance: `Auto: finish detectado en frame ${finishFrame}.`
+    }
+  };
+}
+
+function emptyAnalysis() {
+  return {
+    events: { address: null, top: null, impact: null, finish: null },
+    eventMeta: {},
+    captureChecks: { frame: false, light: false, stable: false, ball: false, club: false, fps: false },
+    autoMetrics: null,
+    summary: {}
+  };
+}
+
+function frameStats(data, previousGray) {
+  const gray = new Uint8ClampedArray(data.length / 4);
+  let brightness = 0;
+  let motion = 0;
+  for (let i = 0, p = 0; i < data.length; i += 4, p += 1) {
+    const value = Math.round(data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114);
+    gray[p] = value;
+    brightness += value;
+    if (previousGray) motion += Math.abs(value - previousGray[p]);
+  }
+  brightness /= gray.length;
+  const variance = gray.reduce((sum, value) => sum + (value - brightness) ** 2, 0) / gray.length;
+  return {
+    gray,
+    brightness,
+    contrast: Math.sqrt(variance),
+    motion: previousGray ? motion / gray.length : 0
+  };
+}
+
+function seekVideo(video, time) {
+  return new Promise((resolve) => {
+    const done = () => {
+      video.removeEventListener("seeked", done);
+      resolve();
+    };
+    video.addEventListener("seeked", done, { once: true });
+    video.currentTime = Math.min(Math.max(0, time), video.duration || time);
+    window.setTimeout(done, 900);
+  });
+}
+
+function smooth(values, radius) {
+  return values.map((_, index) => {
+    const start = Math.max(0, index - radius);
+    const end = Math.min(values.length, index + radius + 1);
+    return average(values.slice(start, end));
+  });
+}
+
+function sampleToFrame(sample, fps, duration) {
+  return Math.round(Math.min(duration, sample?.time ?? 0) * fps);
+}
+
+function enforceOrder(events, maxFrame) {
+  let previous = -1;
+  EVENT_ORDER.forEach((event) => {
+    const frame = Number.isFinite(events[event]) ? events[event] : previous + 1;
+    events[event] = Math.min(maxFrame, Math.max(previous + 1, frame));
+    previous = events[event];
+  });
+}
+
+function findFinishIndex(smoothed, impactIndex, threshold, lastActive) {
+  for (let i = impactIndex + 4; i < smoothed.length - 2; i += 1) {
+    if (smoothed[i] < threshold * 0.72 && smoothed[i + 1] < threshold * 0.72) return i + 1;
+  }
+  return clampIndex(Math.max(lastActive + 3, Math.round(smoothed.length * 0.9)), smoothed.length);
+}
+
+function indexOfMax(values, start, end) {
+  let best = start;
+  for (let i = start; i <= end; i += 1) {
+    if (values[i] > values[best]) best = i;
+  }
+  return best;
+}
+
+function indexOfMin(values, start, end) {
+  let best = start;
+  for (let i = start; i <= end; i += 1) {
+    if (values[i] < values[best]) best = i;
+  }
+  return best;
+}
+
+function clampIndex(index, length) {
+  return Math.min(length - 1, Math.max(0, Math.round(index)));
+}
+
+function average(values) {
+  if (!values.length) return 0;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function median(values) {
+  if (!values.length) return 0;
+  const sorted = values.slice().sort((a, b) => a - b);
+  return sorted[Math.floor(sorted.length / 2)];
+}
+
+function normalize(value, low, high) {
+  return Math.max(0, Math.min(100, ((value - low) / Math.max(1, high - low)) * 100));
+}
+
+function clampScore(value) {
+  return Math.round(Math.max(0, Math.min(100, value)));
+}
+
+  })(SwingLabModules);
+
+
+  // ---- ball-tracking.js ----
+  (function (exports) {
+exports.detectBallTrajectory = async function detectBallTrajectory(video, options = {}) {
+  const duration = Number.isFinite(video.duration) ? video.duration : options.duration || 0;
+  if (!duration || !video.videoWidth || !video.videoHeight) {
+    return fallbackResult(options, "Sin vídeo suficiente para detectar la bola.");
+  }
+
+  const fps = options.fps || 60;
+  const impactTime = Number.isFinite(options.impactFrame) ? options.impactFrame / fps : duration * 0.55;
+  const startTime = Math.max(0, impactTime - 0.08);
+  const endTime = Math.min(duration, Math.max(startTime + 0.55, impactTime + 2.2));
+  const sampleCount = Math.min(64, Math.max(22, Math.round((endTime - startTime) * 26)));
+  const canvas = document.createElement("canvas");
+  const ratio = video.videoWidth / video.videoHeight;
+  canvas.width = ratio >= 1 ? 300 : 170;
+  canvas.height = Math.round(canvas.width / ratio);
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  const originalTime = video.currentTime || 0;
+  const wasPaused = video.paused;
+  video.pause();
+
+  const detections = [];
+  let previousGray = null;
+  let lastPoint = options.launchPoint || null;
+
+  for (let index = 0; index < sampleCount; index += 1) {
+    const time = startTime + ((endTime - startTime) * index) / Math.max(1, sampleCount - 1);
+    await seekVideo(video, time);
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const frame = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const result = detectBallCandidate(frame.data, previousGray, canvas.width, canvas.height, lastPoint, options.launchPoint);
+    previousGray = result.gray;
+    if (result.point) {
+      const point = { ...result.point, time };
+      detections.push(point);
+      lastPoint = point;
+    }
+    options.onProgress?.(Math.round(((index + 1) / sampleCount) * 100));
+  }
+
+  await seekVideo(video, Math.min(originalTime, duration));
+  if (!wasPaused) video.play().catch(() => {});
+
+  return buildTrajectoryFromDetections(detections, {
+    ...options,
+    impactTime,
+    duration,
+    source: "vision"
+  });
+}
+
+exports.buildTrajectoryFromDetections = function buildTrajectoryFromDetections(detections = [], options = {}) {
+  const launchPoint = options.launchPoint || { x: 0.52, y: 0.72 };
+  const impactTime = options.impactTime || 0;
+  const clean = cleanDetections(detections, launchPoint);
+
+  if (clean.length < 2) {
+    const fallback = fallbackTrajectory({ ...options, launchPoint, impactTime });
+    return {
+      points: fallback,
+      detections: clean,
+      confidence: 38,
+      source: "fallback",
+      summary: "No se encontró la bola con claridad; se creó una trayectoria editable desde el impacto."
+    };
+  }
+
+  const points = [
+    { ...launchPoint, time: impactTime },
+    ...clean.map((point) => ({
+      x: point.x,
+      y: point.y,
+      time: point.time,
+      confidence: Math.round(point.score || 55)
+    }))
+  ];
+
+  while (points.length < 5) {
+    const last = points[points.length - 1];
+    const prev = points[points.length - 2] || launchPoint;
+    points.push({
+      x: clamp(last.x + (last.x - prev.x) * 0.72, 0.04, 0.96),
+      y: clamp(last.y + (last.y - prev.y) * 0.65, 0.04, 0.92),
+      time: last.time + 0.22,
+      confidence: 44
+    });
+  }
+
+  return {
+    points: smoothPoints(points.slice(0, 7)),
+    detections: clean,
+    confidence: Math.round(Math.min(91, 48 + clean.length * 7)),
+    source: "vision",
+    summary: `${clean.length} puntos de bola detectados. Ajusta arrastrando si la línea se separa del vuelo real.`
+  };
+}
+
+function detectBallCandidate(data, previousGray, width, height, lastPoint, launchPoint) {
+  const gray = new Uint8ClampedArray(width * height);
+  const mask = new Uint8Array(width * height);
+
+  for (let pixel = 0, offset = 0; offset < data.length; pixel += 1, offset += 4) {
+    const lum = Math.round(data[offset] * 0.299 + data[offset + 1] * 0.587 + data[offset + 2] * 0.114);
+    gray[pixel] = lum;
+    if (!previousGray) continue;
+    const diff = Math.abs(lum - previousGray[pixel]);
+    const x = pixel % width;
+    const y = Math.floor(pixel / width);
+    const nx = x / width;
+    const ny = y / height;
+    const nearLaunch = launchPoint ? Math.hypot(nx - launchPoint.x, ny - launchPoint.y) < 0.34 : true;
+    const likelyFlightSide = !launchPoint || nx > launchPoint.x - 0.18;
+    const inFlightZone = ny > 0.04 && ny < 0.92 && nx > 0.04 && nx < 0.98 && (nearLaunch || likelyFlightSide);
+    if (inFlightZone && ((lum > 132 && diff > 14) || diff > 34)) {
+      mask[pixel] = 1;
+    }
+  }
+
+  if (!previousGray) return { gray, point: null };
+
+  const visited = new Uint8Array(width * height);
+  let best = null;
+
+  for (let pixel = 0; pixel < mask.length; pixel += 1) {
+    if (!mask[pixel] || visited[pixel]) continue;
+    const blob = traceBlob(pixel, mask, visited, gray, previousGray, width, height);
+    if (!isBallSized(blob, width, height)) continue;
+    const point = scoreBlob(blob, width, height, lastPoint, launchPoint);
+    if (!best || point.score > best.score) best = point;
+  }
+
+  return { gray, point: best };
+}
+
+function traceBlob(start, mask, visited, gray, previousGray, width, height) {
+  const stack = [start];
+  let area = 0;
+  let sumX = 0;
+  let sumY = 0;
+  let sumLum = 0;
+  let sumDiff = 0;
+  let minX = width;
+  let maxX = 0;
+  let minY = height;
+  let maxY = 0;
+
+  visited[start] = 1;
+  while (stack.length) {
+    const pixel = stack.pop();
+    const x = pixel % width;
+    const y = Math.floor(pixel / width);
+    area += 1;
+    sumX += x;
+    sumY += y;
+    sumLum += gray[pixel];
+    sumDiff += Math.abs(gray[pixel] - previousGray[pixel]);
+    minX = Math.min(minX, x);
+    maxX = Math.max(maxX, x);
+    minY = Math.min(minY, y);
+    maxY = Math.max(maxY, y);
+
+    const neighbors = [pixel - 1, pixel + 1, pixel - width, pixel + width];
+    neighbors.forEach((next) => {
+      if (next < 0 || next >= mask.length || visited[next] || !mask[next]) return;
+      const nx = next % width;
+      if (Math.abs(nx - x) > 1) return;
+      visited[next] = 1;
+      stack.push(next);
+    });
+  }
+
+  return { area, sumX, sumY, sumLum, sumDiff, minX, maxX, minY, maxY };
+}
+
+function isBallSized(blob, width, height) {
+  const boxW = blob.maxX - blob.minX + 1;
+  const boxH = blob.maxY - blob.minY + 1;
+  const maxBox = Math.max(width, height) * 0.09;
+  return blob.area >= 1 && blob.area <= 90 && boxW <= maxBox && boxH <= maxBox && boxW / Math.max(1, boxH) < 4.2 && boxH / Math.max(1, boxW) < 4.2;
+}
+
+function scoreBlob(blob, width, height, lastPoint, launchPoint) {
+  const x = blob.sumX / blob.area / width;
+  const y = blob.sumY / blob.area / height;
+  const avgLum = blob.sumLum / blob.area;
+  const avgDiff = blob.sumDiff / blob.area;
+  const sizePenalty = Math.max(0, blob.area - 18) * 0.55;
+  const trendBonus = lastPoint ? Math.max(0, 28 - Math.hypot(x - lastPoint.x, y - lastPoint.y) * 140) : 0;
+  const launchBonus = launchPoint ? Math.max(0, 34 - Math.hypot(x - launchPoint.x, y - launchPoint.y) * 95) : 0;
+  const launchDirectionBonus = launchPoint ? Math.max(-14, (x - launchPoint.x) * 22 + (launchPoint.y - y) * 18) : 0;
+  const upwardBonus = lastPoint ? Math.max(-10, (lastPoint.y - y) * 42) : 0;
+  return {
+    x,
+    y,
+    score: avgDiff * 1.35 + avgLum * 0.14 + trendBonus + launchBonus + launchDirectionBonus + upwardBonus - sizePenalty
+  };
+}
+
+function cleanDetections(detections, launchPoint) {
+  const sorted = detections
+    .filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y) && Number.isFinite(point.time))
+    .sort((a, b) => a.time - b.time);
+
+  const clean = [];
+  sorted.forEach((point) => {
+    const last = clean[clean.length - 1];
+    const distanceFromLaunch = Math.hypot(point.x - launchPoint.x, point.y - launchPoint.y);
+    if (!last && distanceFromLaunch > 0.5) return;
+    if (last && Math.hypot(point.x - last.x, point.y - last.y) > 0.28) return;
+    if (point.score < 28) return;
+    clean.push(point);
+  });
+  return clean;
+}
+
+function fallbackResult(options, summary) {
+  return {
+    points: fallbackTrajectory(options),
+    detections: [],
+    confidence: 28,
+    source: "fallback",
+    summary
+  };
+}
+
+function fallbackTrajectory(options = {}) {
+  const launch = options.launchPoint || { x: 0.52, y: 0.72 };
+  const time = options.impactTime || 0;
+  const curve = curveForResult(options.result);
+  return [
+    { x: launch.x, y: launch.y, time },
+    { x: clamp(launch.x + 0.1 + curve.start, 0.04, 0.96), y: clamp(launch.y - 0.16, 0.04, 0.92), time: time + 0.22 },
+    { x: clamp(launch.x + 0.22 + curve.mid, 0.04, 0.96), y: clamp(launch.y - 0.34, 0.04, 0.92), time: time + 0.55 },
+    { x: clamp(launch.x + 0.38 + curve.end, 0.04, 0.96), y: clamp(launch.y - 0.46, 0.04, 0.92), time: time + 0.9 }
+  ];
+}
+
+function smoothPoints(points) {
+  return points.map((point, index) => {
+    if (index === 0 || index === points.length - 1) return point;
+    const prev = points[index - 1];
+    const next = points[index + 1];
+    return {
+      ...point,
+      x: point.x * 0.6 + prev.x * 0.2 + next.x * 0.2,
+      y: point.y * 0.6 + prev.y * 0.2 + next.y * 0.2
+    };
+  });
+}
+
+function curveForResult(result) {
+  return {
+    draw: { start: -0.03, mid: -0.02, end: 0.06 },
+    fade: { start: 0.03, mid: 0.02, end: -0.06 },
+    slice: { start: 0.04, mid: 0.09, end: 0.18 },
+    hook: { start: -0.04, mid: -0.09, end: -0.18 },
+    push: { start: 0.06, mid: 0.08, end: 0.1 },
+    pull: { start: -0.06, mid: -0.08, end: -0.1 },
+    straight: { start: 0, mid: 0, end: 0 }
+  }[result] || { start: 0.01, mid: 0.03, end: 0.06 };
+}
+
+function seekVideo(video, time) {
+  return new Promise((resolve) => {
+    const done = () => {
+      video.removeEventListener("seeked", done);
+      resolve();
+    };
+    video.addEventListener("seeked", done, { once: true });
+    video.currentTime = Math.min(Math.max(0, time), video.duration || time);
+    window.setTimeout(done, 800);
+  });
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+  })(SwingLabModules);
+
+
+  // ---- learning.js ----
+  (function (exports) {
+const STORAGE_KEY = "swingLabAi.correctionExamples.v1";
+const DEMO_MODE_KEY = "swingLabAi.demoLearningMode.v1";
+
+const DEMO_EXAMPLES = [
+  {
+    id: "demo-vertical-dtl-manual",
+    label: "Demo DTL vertical corregido",
+    fileNameIncludes: "",
+    fps: 60,
+    duration: 3.5,
+    totalFrames: 210,
+    width: 478,
+    height: 850,
+    orientation: "vertical",
+    viewType: "DTL",
+    captureChecks: { frame: true, light: false, stable: true, ball: true, club: true, fps: true },
+    metrics: {
+      headStability: 78,
+      postureRetention: 62,
+      handPath: 66,
+      finishBalance: 78,
+      evidence: {
+        headStability: "Demo local: cabeza razonablemente estable entre address y top.",
+        postureRetention: "Demo local: revisar impacto; posible pérdida de postura antes del contacto.",
+        handPath: "Demo local: transición jugable, revisar plano con línea DTL.",
+        finishBalance: "Demo local: finish equilibrado y sostenido."
+      }
+    },
+    events: {
+      address: { frame: 80, time: 1.33, ratio: 0.38095 },
+      top: { frame: 138, time: 2.3, ratio: 0.65714 },
+      impact: { frame: 155, time: 2.58, ratio: 0.7381 },
+      finish: { frame: 188, time: 3.13, ratio: 0.89524 }
+    }
+  }
+];
+
+const EVENT_ORDER = ["address", "top", "impact", "finish"];
+let memoryDemoMode = false;
+let memoryExamples = [];
+
+exports.listCorrectionExamples = function listCorrectionExamples() {
+  return [...(isDemoLearningEnabled() ? DEMO_EXAMPLES : []), ...readStoredExamples()];
+}
+
+exports.correctionExampleCount = function correctionExampleCount() {
+  return listCorrectionExamples().length;
+}
+
+exports.storedCorrectionExampleCount = function storedCorrectionExampleCount() {
+  return readStoredExamples().length;
+}
+
+exports.demoCorrectionExampleCount = function demoCorrectionExampleCount() {
+  return DEMO_EXAMPLES.length;
+}
+
+exports.isDemoLearningEnabled = function isDemoLearningEnabled() {
+  if (!canUseLocalStorage()) return memoryDemoMode;
+  return localStorage.getItem(DEMO_MODE_KEY) === "1";
+}
+
+exports.setDemoLearningEnabled = function setDemoLearningEnabled(enabled) {
+  if (!canUseLocalStorage()) {
+    memoryDemoMode = Boolean(enabled);
+    return memoryDemoMode;
+  }
+  localStorage.setItem(DEMO_MODE_KEY, enabled ? "1" : "0");
+  return enabled;
+}
+
+exports.findLearningMatch = function findLearningMatch(state) {
+  const examples = listCorrectionExamples();
+  let best = null;
+  let bestScore = 0;
+
+  examples.forEach((example) => {
+    const score = scoreExample(example, state);
+    if (score > bestScore) {
+      best = example;
+      bestScore = score;
+    }
+  });
+
+  if (!best || bestScore < 0.34) return null;
+  return {
+    example: best,
+    score: bestScore,
+    events: scaleEvents(best, state)
+  };
+}
+
+exports.blendAnalysisWithLearning = function blendAnalysisWithLearning(analysis, state) {
+  const match = findLearningMatch(state);
+  if (!match) return analysis;
+
+  const events = { ...analysis.events };
+  const eventMeta = { ...analysis.eventMeta };
+  EVENT_ORDER.forEach((event) => {
+    const learnedFrame = match.events[event];
+    if (!Number.isFinite(learnedFrame)) return;
+    events[event] = learnedFrame;
+    eventMeta[event] = {
+      source: match.example.id?.startsWith("demo-") ? "demo" : "aprendizaje",
+      confidence: Math.round(78 + Math.min(17, match.score * 17)),
+      note: `Sugerido desde ${match.example.label}`
+    };
+  });
+
+  return {
+    ...analysis,
+    captureChecks: match.example.captureChecks || analysis.captureChecks,
+    autoMetrics: match.example.metrics || analysis.autoMetrics,
+    events,
+    eventMeta,
+    summary: {
+      ...analysis.summary,
+      learningMatch: match.example.label,
+      learningScore: Math.round(match.score * 100)
+    }
+  };
+}
+
+exports.saveCorrectionExample = function saveCorrectionExample(state) {
+  const events = Object.fromEntries(
+    EVENT_ORDER.map((event) => [
+      event,
+      {
+        frame: state.events[event],
+        time: Number.isFinite(state.events[event]) ? Number((state.events[event] / state.fps).toFixed(3)) : null,
+        ratio: state.totalFrames ? Number((state.events[event] / state.totalFrames).toFixed(5)) : null
+      }
+    ])
+  );
+
+  if (!EVENT_ORDER.every((event) => Number.isFinite(events[event].frame))) {
+    throw new Error("Marca address, top, impact y finish antes de guardar.");
+  }
+
+  const example = {
+    id: `local_${Date.now()}`,
+    label: state.videoName || "Corrección local",
+    fileNameIncludes: state.videoName || "",
+    orientation: state.orientation,
+    viewType: state.viewType,
+    club: state.club,
+    fps: state.fps,
+    duration: state.duration,
+    totalFrames: state.totalFrames,
+    events,
+    captureChecks: state.captureChecks,
+    metrics: {
+      ...state.manualMetrics,
+      evidence: state.metricEvidence || {}
+    }
+  };
+
+  const stored = readStoredExamples().filter((item) => item.fileNameIncludes !== example.fileNameIncludes);
+  stored.unshift(example);
+  writeStoredExamples(stored.slice(0, 24));
+  return example;
+}
+
+function scoreExample(example, state) {
+  let score = 0;
+  const name = (state.videoName || "").toLowerCase();
+  const exampleName = (example.fileNameIncludes || "").toLowerCase();
+  if (exampleName && name.includes(exampleName)) score += 0.72;
+  if (example.orientation && example.orientation === state.orientation) score += 0.12;
+  if (example.viewType && example.viewType === state.viewType) score += 0.08;
+  if (example.club && example.club === state.club) score += 0.04;
+  if (example.duration && state.duration) {
+    const delta = Math.abs(example.duration - state.duration);
+    score += Math.max(0, 0.34 - (delta / Math.max(1, state.duration)) * 0.55);
+  }
+  if (example.totalFrames && state.totalFrames) {
+    const delta = Math.abs(example.totalFrames - state.totalFrames);
+    score += Math.max(0, 0.18 - (delta / Math.max(1, state.totalFrames)) * 0.32);
+  }
+  if (example.width && example.height && state.videoSize?.width && state.videoSize?.height) {
+    const exampleRatio = Math.max(example.width, example.height) / Math.min(example.width, example.height);
+    const stateRatio = Math.max(state.videoSize.width, state.videoSize.height) / Math.min(state.videoSize.width, state.videoSize.height);
+    score += Math.max(0, 0.1 - Math.abs(exampleRatio - stateRatio) * 0.18);
+  }
+  return Math.min(1, score);
+}
+
+function scaleEvents(example, state) {
+  return Object.fromEntries(
+    EVENT_ORDER.map((event) => {
+      const value = example.events?.[event];
+      if (!value) return [event, null];
+      if (Number.isFinite(value.ratio) && state.totalFrames) {
+        return [event, Math.round(value.ratio * state.totalFrames)];
+      }
+      if (Number.isFinite(value.time) && state.fps) {
+        return [event, Math.round(value.time * state.fps)];
+      }
+      return [event, value.frame];
+    })
+  );
+}
+
+function readStoredExamples() {
+  if (!canUseLocalStorage()) return memoryExamples;
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeStoredExamples(examples) {
+  if (!canUseLocalStorage()) {
+    memoryExamples = examples;
+    return;
+  }
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(examples));
+}
+
+function canUseLocalStorage() {
+  try {
+    return typeof localStorage !== "undefined";
+  } catch {
+    return false;
+  }
+}
+
+  })(SwingLabModules);
+
+
+  // ---- main.js ----
+  const {
+    VideoPlayer, formatTime, OverlayCanvas, drawBallPath, calculateMetrics, metricRows, buildRecommendations,
+    downloadCsv, downloadJson, downloadPng, getSession, listSessions, saveSession, analyzeVideo, detectBallTrajectory,
+    blendAnalysisWithLearning, correctionExampleCount, demoCorrectionExampleCount, findLearningMatch, isDemoLearningEnabled,
+    saveCorrectionExample, setDemoLearningEnabled, storedCorrectionExampleCount
+  } = SwingLabModules;
 
 const APP_VERSION = "0.5.5";
 const FLOW_STEPS = ["upload", "frame", "quality", "analyze", "events", "report", "save"];
@@ -1820,3 +3603,7 @@ function registerServiceWorker() {
     });
   }).catch(() => {});
 }
+
+
+
+})();

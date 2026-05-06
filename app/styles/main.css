@@ -342,6 +342,8 @@ svg {
 }
 
 .upload-drop {
+  position: relative;
+  cursor: pointer;
   display: grid;
   gap: 8px;
   place-items: center;
@@ -355,7 +357,18 @@ svg {
 
 .upload-drop input {
   position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   opacity: 0;
+  pointer-events: auto;
+  cursor: pointer;
+  z-index: 2;
+}
+
+.upload-drop svg,
+.upload-drop span,
+.upload-drop small {
   pointer-events: none;
 }
 

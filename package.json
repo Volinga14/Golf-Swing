@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node ./tests/smoke-test.mjs && node ./tests/workflow-test.mjs && node ./tests/upload-flow-test.mjs",
+    "test": "node --check ./app/src/bundle.js && node ./tests/smoke-test.mjs && node ./tests/workflow-test.mjs && node ./tests/upload-flow-test.mjs && node ./tests/upload-fallback-runtime-test.mjs",
     "test:smoke": "node ./tests/smoke-test.mjs",
     "test:browser": "node ./tests/browser-headless-test.mjs",
     "serve": "python -m http.server 5174 --bind 127.0.0.1 --directory ./app",

@@ -76,6 +76,7 @@ async function testStaticAssets() {
     assert.ok(existsSync(join(appDir, asset)), `Missing referenced asset: ${asset}`);
   }
 
+  assert.match(indexHtml, /src="\.\/src\/bundle\.js"/, "App should load bundled runtime for file:// and GitHub Pages compatibility");
   const serviceWorker = await readText("app/service-worker.js");
   const cacheEntries = [...serviceWorker.matchAll(/"\.\/([^"]*)"/g)].map((match) => match[1] || "index.html");
   for (const entry of cacheEntries) {
@@ -202,7 +203,7 @@ async function testHttpServer() {
   const { port } = server.address();
   try {
     const base = `http://127.0.0.1:${port}`;
-    for (const path of ["/", "/styles/main.css", "/src/main.js", "/manifest.json", "/service-worker.js"]) {
+    for (const path of ["/", "/styles/main.css", "/src/bundle.js", "/src/main.js", "/manifest.json", "/service-worker.js"]) {
       const response = await fetch(base + path);
       assert.equal(response.status, 200, `HTTP ${path}`);
       assert.ok((await response.text()).length > 20, `Non-empty ${path}`);

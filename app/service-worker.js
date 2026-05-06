@@ -1,10 +1,12 @@
 const APP_VERSION = "0.5.5";
-const CACHE_NAME = `swing-lab-ai-v${APP_VERSION}-video-upload-fix`;
+const CACHE_BUILD = "upload-safe-fix-20260506";
+const CACHE_NAME = `swing-lab-ai-v${APP_VERSION}-${CACHE_BUILD}`;
 const APP_SHELL = [
   "./",
   "./index.html",
   "./manifest.json",
   "./styles/main.css",
+  "./src/bundle.js",
   "./src/main.js",
   "./src/video-player.js",
   "./src/overlays.js",

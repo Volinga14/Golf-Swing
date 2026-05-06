@@ -65,3 +65,8 @@ This iteration refines the redesigned flow for real mobile use:
 - In-video drawing controls: select, line, angle, clear, guide, phases and grid controls are now inside the video area so they remain usable in fullscreen.
 - Improved framing guide: body box now represents head-to-hips/seat, with separate feet-direction and club-angle guides.
 - Updated guide example SVG to explain the new alignment logic.
+
+
+## v0.5.5 upload-safe
+
+Incluye fallback directo de carga de vídeo en HTML, input de archivo más robusto, visor visible inmediatamente tras seleccionar archivo y cache PWA renovada.
