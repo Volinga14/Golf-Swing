@@ -1,4 +1,4 @@
-/* Swing Lab AI bundled runtime for file://, GitHub Pages and PWA usage. Generated for v0.5.5 upload robust. */
+/* Swing Lab AI bundled runtime for file://, GitHub Pages and PWA usage. Generated for v0.5.5 interaction fix. */
 (function () {
   const SwingLabModules = {};
   if (typeof window !== "undefined") window.SwingLabModules = SwingLabModules;
@@ -112,6 +112,8 @@ exports.formatTime = function formatTime(seconds) {
   return `${String(mins).padStart(2, "0")}:${secs.toFixed(2).padStart(5, "0")}`;
 }
 
+  const formatTime = exports.formatTime;
+
   })(SwingLabModules);
 
 
@@ -198,6 +200,7 @@ exports.OverlayCanvas = class OverlayCanvas {
     const height = targetSize?.height || this.canvas.height;
     const state = this.getState();
 
+    if (!ctx || width < 8 || height < 8) return;
     ctx.clearRect(0, 0, width, height);
     if (drawVideo && this.video.readyState >= 2) {
       drawContainedVideo(ctx, this.video, width, height);
@@ -534,13 +537,16 @@ function rotatedLine(ctx, centerX, centerY, length, angle) {
 }
 
 function roundRect(ctx, x, y, width, height, radius) {
-  const r = Math.min(radius, width / 2, height / 2);
+  const safeWidth = Math.max(0, width);
+  const safeHeight = Math.max(0, height);
+  if (safeWidth <= 0 || safeHeight <= 0) return;
+  const r = Math.max(0, Math.min(radius, safeWidth / 2, safeHeight / 2));
   ctx.beginPath();
   ctx.moveTo(x + r, y);
-  ctx.arcTo(x + width, y, x + width, y + height, r);
-  ctx.arcTo(x + width, y + height, x, y + height, r);
-  ctx.arcTo(x, y + height, x, y, r);
-  ctx.arcTo(x, y, x + width, y, r);
+  ctx.arcTo(x + safeWidth, y, x + safeWidth, y + safeHeight, r);
+  ctx.arcTo(x + safeWidth, y + safeHeight, x, y + safeHeight, r);
+  ctx.arcTo(x, y + safeHeight, x, y, r);
+  ctx.arcTo(x, y, x + safeWidth, y, r);
   ctx.closePath();
 }
 
@@ -675,6 +681,10 @@ exports.metricRows = function metricRows(metrics) {
     }
   ];
 }
+
+  const calculateMetrics = exports.calculateMetrics;
+  const calculateCaptureScore = exports.calculateCaptureScore;
+  const metricRows = exports.metricRows;
 
   })(SwingLabModules);
 
@@ -958,26 +968,56 @@ function downloadBlob(filename, body, type) {
 const DB_NAME = "swing-lab-ai";
 const DB_VERSION = 2;
 const STORE = "sessions";
+let memorySessions = [];
+let warnedStorageFallback = false;
 
 exports.saveSession = async function saveSession(session) {
-  const db = await openDb();
-  return requestToPromise(db.transaction(STORE, "readwrite").objectStore(STORE).put(session));
+  try {
+    const db = await openDb();
+    return requestToPromise(db.transaction(STORE, "readwrite").objectStore(STORE).put(session));
+  } catch (error) {
+    warnStorageFallback(error);
+    const existing = memorySessions.findIndex((item) => item.id === session.id);
+    if (existing >= 0) memorySessions[existing] = session;
+    else memorySessions.unshift(session);
+    return session.id;
+  }
 }
 
 exports.listSessions = async function listSessions() {
-  const db = await openDb();
-  const records = await requestToPromise(db.transaction(STORE, "readonly").objectStore(STORE).getAll());
-  return records.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  try {
+    const db = await openDb();
+    const records = await requestToPromise(db.transaction(STORE, "readonly").objectStore(STORE).getAll());
+    return records.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  } catch (error) {
+    warnStorageFallback(error);
+    return memorySessions.slice().sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  }
 }
 
 exports.getSession = async function getSession(id) {
-  const db = await openDb();
-  return requestToPromise(db.transaction(STORE, "readonly").objectStore(STORE).get(id));
+  try {
+    const db = await openDb();
+    return requestToPromise(db.transaction(STORE, "readonly").objectStore(STORE).get(id));
+  } catch (error) {
+    warnStorageFallback(error);
+    return memorySessions.find((item) => item.id === id) || null;
+  }
 }
 
 function openDb() {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    if (typeof indexedDB === "undefined") {
+      reject(new Error("IndexedDB is not available in this context."));
+      return;
+    }
+    let request;
+    try {
+      request = indexedDB.open(DB_NAME, DB_VERSION);
+    } catch (error) {
+      reject(error);
+      return;
+    }
     request.onupgradeneeded = () => {
       const db = request.result;
       if (!db.objectStoreNames.contains(STORE)) {
@@ -986,6 +1026,7 @@ function openDb() {
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
+    request.onblocked = () => reject(new Error("IndexedDB is blocked by another tab."));
   });
 }
 
@@ -995,6 +1036,13 @@ function requestToPromise(request) {
     request.onerror = () => reject(request.error);
   });
 }
+
+function warnStorageFallback(error) {
+  if (warnedStorageFallback) return;
+  warnedStorageFallback = true;
+  console.warn("Swing Lab storage fallback active", error?.message || error);
+}
+
 
   })(SwingLabModules);
 
@@ -1263,6 +1311,9 @@ function normalize(value, low, high) {
 function clampScore(value) {
   return Math.round(Math.max(0, Math.min(100, value)));
 }
+
+  const analyzeVideo = exports.analyzeVideo;
+  const buildAnalysis = exports.buildAnalysis;
 
   })(SwingLabModules);
 
@@ -1546,6 +1597,9 @@ function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 
+  const detectBallTrajectory = exports.detectBallTrajectory;
+  const buildTrajectoryFromDetections = exports.buildTrajectoryFromDetections;
+
   })(SwingLabModules);
 
 
@@ -1780,6 +1834,16 @@ function canUseLocalStorage() {
   }
 }
 
+  const listCorrectionExamples = exports.listCorrectionExamples;
+  const correctionExampleCount = exports.correctionExampleCount;
+  const storedCorrectionExampleCount = exports.storedCorrectionExampleCount;
+  const demoCorrectionExampleCount = exports.demoCorrectionExampleCount;
+  const isDemoLearningEnabled = exports.isDemoLearningEnabled;
+  const setDemoLearningEnabled = exports.setDemoLearningEnabled;
+  const findLearningMatch = exports.findLearningMatch;
+  const blendAnalysisWithLearning = exports.blendAnalysisWithLearning;
+  const saveCorrectionExample = exports.saveCorrectionExample;
+
   })(SwingLabModules);
 
 
@@ -1791,7 +1855,7 @@ function canUseLocalStorage() {
     saveCorrectionExample, setDemoLearningEnabled, storedCorrectionExampleCount
   } = SwingLabModules;
 
-const APP_VERSION = "0.5.5";
+const APP_VERSION = "0.5.5-fix2";
 const FLOW_STEPS = ["upload", "frame", "quality", "analyze", "events", "report", "save"];
 const PHASE_SEQUENCE = ["address", "top", "impact", "finish"];
 
@@ -2020,6 +2084,8 @@ let analysisToken = 0;
 let ballDragIndex = null;
 let ballAnimationFrame = 0;
 
+let overlay;
+
 const player = new VideoPlayer({
   video: els.video,
   slider: els.frameSlider,
@@ -2028,11 +2094,11 @@ const player = new VideoPlayer({
   timeReadout: els.timeReadout,
   onFrame: (frame) => {
     state.currentFrame = frame;
-    overlay.render();
+    if (overlay) overlay.render();
   }
 });
 
-const overlay = new OverlayCanvas({
+overlay = new OverlayCanvas({
   canvas: els.canvas,
   video: els.video,
   getState: () => state
@@ -2109,7 +2175,13 @@ function finalizeVideoLoad() {
   els.ballEmptyStage.style.display = "none";
   updateOrientationUi();
   autoFitGuide(true);
-  clearDetectedEvents();
+  if (!state.videoAnalysis) {
+    clearDetectedEvents();
+    suggestEvents();
+  } else {
+    renderEvents();
+  }
+  state.flowStep = "frame";
   updateAnalysis();
   overlay.resize();
   overlay.render();
@@ -2169,7 +2241,7 @@ function handleVideoLoadError() {
 
 function renderWorkflow() {
   if (!els.workflowPanel) return;
-  const hasPlayableVideo = Boolean(state.videoObjectUrl && state.metrics?.hasVideo);
+  const hasPlayableVideo = Boolean(state.videoObjectUrl && !state.isHistoryOnly);
   const eventsComplete = Boolean(state.metrics?.eventsComplete);
   const analyzed = Boolean(state.videoAnalysis || eventsComplete || state.appStatus === "complete" || state.appStatus === "saved");
   const saved = Boolean(state.id && state.createdAt) || state.appStatus === "saved";
@@ -2177,8 +2249,8 @@ function renderWorkflow() {
   const activeIndex = FLOW_STEPS.indexOf(active);
   const completed = {
     upload: hasPlayableVideo || state.isHistoryOnly,
-    frame: hasPlayableVideo && activeIndex > FLOW_STEPS.indexOf("frame") || analyzed || state.isHistoryOnly,
-    quality: hasPlayableVideo && activeIndex > FLOW_STEPS.indexOf("quality") || analyzed || state.isHistoryOnly,
+    frame: hasPlayableVideo || analyzed || state.isHistoryOnly,
+    quality: hasPlayableVideo || analyzed || state.isHistoryOnly,
     analyze: analyzed,
     events: eventsComplete && allEventsReviewed(),
     report: activeIndex > FLOW_STEPS.indexOf("report") || saved,
@@ -2318,7 +2390,10 @@ function showVideoWorkspaceImmediately(file, objectUrl) {
   if (els.emptyStage) els.emptyStage.style.display = "none";
   if (els.ballEmptyStage) els.ballEmptyStage.style.display = "none";
   if (els.homeScreen) els.homeScreen.classList.add("is-collapsed");
-  if (els.swingWorkspace) els.swingWorkspace.classList.add("has-video");
+  if (els.swingWorkspace) {
+    els.swingWorkspace.classList.add("has-video");
+    els.swingWorkspace.classList.remove("is-hidden");
+  }
   if (els.videoScreenTitle) els.videoScreenTitle.textContent = state.videoName;
   if (els.orientationBadge) els.orientationBadge.textContent = "Vídeo cargado";
   if (els.analysisStatus) els.analysisStatus.textContent = "Vídeo seleccionado. Abriendo visor y leyendo metadata...";
@@ -2326,6 +2401,8 @@ function showVideoWorkspaceImmediately(file, objectUrl) {
   if (typeof renderBallLaunch === "function") renderBallLaunch();
   state.videoObjectUrl = objectUrl;
   setAppStatus("loaded", "Vídeo cargado");
+  syncGuideInputs();
+  syncOverlayButtons();
   updateAnalysis();
 }
 
@@ -2653,7 +2730,13 @@ function selectPhase(eventName, options = {}) {
 }
 
 async function runAutoAnalysis() {
-  if (!state.videoObjectUrl || !state.duration) return;
+  if (!state.videoObjectUrl || state.isHistoryOnly) return;
+  if (!state.duration && els.video.readyState >= 1) finalizeVideoLoad();
+  if (!state.duration) {
+    els.analysisStatus.textContent = "El vídeo está seleccionado, pero el navegador aún no ha leído la duración. Reproduce un segundo o espera a que termine de cargar y vuelve a pulsar Analizar.";
+    setAppStatus("loaded", "Vídeo cargando");
+    return;
+  }
   const token = (analysisToken += 1);
   state.isAnalyzing = true;
   els.autoAnalyzeBtn.disabled = true;
@@ -2726,7 +2809,7 @@ function clearDetectedEvents() {
 }
 
 function markEvent(eventName) {
-  if (!state.videoObjectUrl || !state.metrics.hasVideo) return;
+  if (!state.videoObjectUrl || state.isHistoryOnly) return;
   state.events[eventName] = state.currentFrame;
   state.eventMeta[eventName] = { source: "manual", confidence: 95, note: "Marcado por el usuario" };
   state.reviewedEvents[eventName] = false;
@@ -2857,7 +2940,7 @@ function renderCards(container, items = [], emptyText) {
 
 function renderActionStates() {
   const hasSessionData = Boolean(state.metrics.hasVideo || state.isHistoryOnly);
-  const hasPlayableVideo = Boolean(state.videoObjectUrl && state.metrics.hasVideo && !state.isHistoryOnly);
+  const hasPlayableVideo = Boolean(state.videoObjectUrl && !state.isHistoryOnly);
   els.saveSessionBtn.disabled = !hasSessionData || state.isAnalyzing;
   els.exportJsonBtn.disabled = !hasSessionData;
   els.exportCsvBtn.disabled = !hasSessionData;
@@ -2885,8 +2968,7 @@ function renderActionStates() {
     button.disabled = !hasPlayableVideo || !Number.isFinite(frame);
   });
   document.querySelectorAll("[data-event-jump]").forEach((button) => {
-    const frame = state.events[button.dataset.eventJump];
-    button.disabled = !hasPlayableVideo || !Number.isFinite(frame);
+    button.disabled = !hasPlayableVideo;
   });
   const currentEvent = PHASE_SEQUENCE[state.activePhaseIndex];
   if (els.confirmPhaseBtn) els.confirmPhaseBtn.disabled = !hasPlayableVideo;
@@ -2999,10 +3081,10 @@ function setMode(mode) {
 function renderFlowUi() {
   const step = workflowActiveStep();
   const labels = {
-    upload: ["Paso 1", "Sube el vídeo", "Empieza con un clip claro del swing. Después la app intentará encajarlo automáticamente.", "Subir vídeo", "Cargar anterior"],
-    frame: ["Paso 2", "Encaja el swing", "He aplicado un encaje automático inicial. Ajusta la guía sobre el propio vídeo si cuerpo, bola o plano no quedan bien.", "Encaje correcto", "Recentrar guía"],
-    quality: ["Paso 3", "Revisa la calidad", "Marca si el jugador, bola y palo se ven bien. Esto condiciona la confianza de las recomendaciones.", "Calidad revisada", "Ver checks"],
-    analyze: ["Paso 4", "Analiza el vídeo", "La app buscará movimiento y sugerirá address, top, impact y finish. Luego podrás confirmar o cambiar cada fase.", "Analizar ahora", "Dibujar primero"],
+    upload: ["Inicio", "Sube el vídeo", "Empieza con un clip claro del swing. Al seleccionarlo pasarás directamente al visor.", "Subir vídeo", "Cargar anterior"],
+    frame: ["Paso 1", "Encaja y revisa", "Ajusta la guía dentro del vídeo si hace falta. No tienes que confirmar este paso: cuando lo veas bien, analiza directamente.", "Analizar ahora", "Recentrar guía"],
+    quality: ["Paso 1", "Encaja y revisa", "Los checks de calidad son opcionales. Puedes analizarlos después si quieres afinar la confianza.", "Analizar ahora", "Ver checks"],
+    analyze: ["Paso 2", "Analiza el vídeo", "La app buscará movimiento y sugerirá address, top, impact y finish. Luego podrás confirmar o cambiar cada fase.", "Analizar ahora", "Dibujar primero"],
     events: ["Paso 5", "Confirma las fases", "Toca cualquier fase para ir directo. En cada fase activa puedes aceptar la propuesta o confirmar el frame actual en un solo gesto.", "Confirmar frame actual", "Ver fases"],
     report: ["Paso 6", "Revisa vídeo o métricas", "Puedes quedarte dibujando sobre el swing o bajar al panel de métricas y recomendaciones.", "Ver métricas", "Seguir dibujando"],
     save: ["Paso 7", "Guarda o exporta", "Guarda la sesión con miniatura y cuatro frames clave, o exporta JSON, CSV y PNG.", "Guardar sesión", "Exportar JSON"]
@@ -3021,19 +3103,8 @@ function renderFlowUi() {
 function handleFlowPrimaryAction() {
   const step = workflowActiveStep();
   if (step === "upload") return els.videoInput?.click();
-  if (step === "frame") {
-    autoFitGuide();
-    state.flowStep = "quality";
-    els.analysisStatus.textContent = "Encaje confirmado. Revisa ahora la calidad de captura.";
-    updateAnalysis();
-    return;
-  }
-  if (step === "quality") {
-    state.flowStep = "analyze";
-    els.analysisStatus.textContent = "Calidad revisada. Ya puedes analizar el vídeo.";
-    updateAnalysis();
-    return;
-  }
+  if (step === "frame") return runAutoAnalysis();
+  if (step === "quality") return runAutoAnalysis();
   if (step === "analyze") return runAutoAnalysis();
   if (step === "events") return confirmPhaseAtCurrentFrame(true);
   if (step === "report") return document.querySelector(".report-rail")?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -3117,7 +3188,7 @@ function acceptCurrentPhaseProposal(advance = true) {
 
 function confirmPhaseAtCurrentFrame(advance = true) {
   const eventName = currentPhaseName();
-  if (!state.videoObjectUrl || !state.metrics.hasVideo) return;
+  if (!state.videoObjectUrl || state.isHistoryOnly) return;
   state.events[eventName] = state.currentFrame;
   state.eventMeta[eventName] = { source: "manual", confidence: 96, note: "Frame confirmado por el usuario", reviewed: true, accepted: false };
   state.reviewedEvents[eventName] = true;

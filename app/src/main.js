@@ -8,7 +8,7 @@ import { analyzeVideo } from "./video-analysis.js";
 import { detectBallTrajectory } from "./ball-tracking.js";
 import { blendAnalysisWithLearning, correctionExampleCount, demoCorrectionExampleCount, findLearningMatch, isDemoLearningEnabled, saveCorrectionExample, setDemoLearningEnabled, storedCorrectionExampleCount } from "./learning.js";
 
-const APP_VERSION = "0.5.5";
+const APP_VERSION = "0.5.5-fix2";
 const FLOW_STEPS = ["upload", "frame", "quality", "analyze", "events", "report", "save"];
 const PHASE_SEQUENCE = ["address", "top", "impact", "finish"];
 
@@ -237,6 +237,8 @@ let analysisToken = 0;
 let ballDragIndex = null;
 let ballAnimationFrame = 0;
 
+let overlay;
+
 const player = new VideoPlayer({
   video: els.video,
   slider: els.frameSlider,
@@ -245,11 +247,11 @@ const player = new VideoPlayer({
   timeReadout: els.timeReadout,
   onFrame: (frame) => {
     state.currentFrame = frame;
-    overlay.render();
+    if (overlay) overlay.render();
   }
 });
 
-const overlay = new OverlayCanvas({
+overlay = new OverlayCanvas({
   canvas: els.canvas,
   video: els.video,
   getState: () => state
@@ -326,7 +328,13 @@ function finalizeVideoLoad() {
   els.ballEmptyStage.style.display = "none";
   updateOrientationUi();
   autoFitGuide(true);
-  clearDetectedEvents();
+  if (!state.videoAnalysis) {
+    clearDetectedEvents();
+    suggestEvents();
+  } else {
+    renderEvents();
+  }
+  state.flowStep = "frame";
   updateAnalysis();
   overlay.resize();
   overlay.render();
@@ -386,7 +394,7 @@ function handleVideoLoadError() {
 
 function renderWorkflow() {
   if (!els.workflowPanel) return;
-  const hasPlayableVideo = Boolean(state.videoObjectUrl && state.metrics?.hasVideo);
+  const hasPlayableVideo = Boolean(state.videoObjectUrl && !state.isHistoryOnly);
   const eventsComplete = Boolean(state.metrics?.eventsComplete);
   const analyzed = Boolean(state.videoAnalysis || eventsComplete || state.appStatus === "complete" || state.appStatus === "saved");
   const saved = Boolean(state.id && state.createdAt) || state.appStatus === "saved";
@@ -394,8 +402,8 @@ function renderWorkflow() {
   const activeIndex = FLOW_STEPS.indexOf(active);
   const completed = {
     upload: hasPlayableVideo || state.isHistoryOnly,
-    frame: hasPlayableVideo && activeIndex > FLOW_STEPS.indexOf("frame") || analyzed || state.isHistoryOnly,
-    quality: hasPlayableVideo && activeIndex > FLOW_STEPS.indexOf("quality") || analyzed || state.isHistoryOnly,
+    frame: hasPlayableVideo || analyzed || state.isHistoryOnly,
+    quality: hasPlayableVideo || analyzed || state.isHistoryOnly,
     analyze: analyzed,
     events: eventsComplete && allEventsReviewed(),
     report: activeIndex > FLOW_STEPS.indexOf("report") || saved,
@@ -535,7 +543,10 @@ function showVideoWorkspaceImmediately(file, objectUrl) {
   if (els.emptyStage) els.emptyStage.style.display = "none";
   if (els.ballEmptyStage) els.ballEmptyStage.style.display = "none";
   if (els.homeScreen) els.homeScreen.classList.add("is-collapsed");
-  if (els.swingWorkspace) els.swingWorkspace.classList.add("has-video");
+  if (els.swingWorkspace) {
+    els.swingWorkspace.classList.add("has-video");
+    els.swingWorkspace.classList.remove("is-hidden");
+  }
   if (els.videoScreenTitle) els.videoScreenTitle.textContent = state.videoName;
   if (els.orientationBadge) els.orientationBadge.textContent = "Vídeo cargado";
   if (els.analysisStatus) els.analysisStatus.textContent = "Vídeo seleccionado. Abriendo visor y leyendo metadata...";
@@ -543,6 +554,8 @@ function showVideoWorkspaceImmediately(file, objectUrl) {
   if (typeof renderBallLaunch === "function") renderBallLaunch();
   state.videoObjectUrl = objectUrl;
   setAppStatus("loaded", "Vídeo cargado");
+  syncGuideInputs();
+  syncOverlayButtons();
   updateAnalysis();
 }
 
@@ -870,7 +883,13 @@ function selectPhase(eventName, options = {}) {
 }
 
 async function runAutoAnalysis() {
-  if (!state.videoObjectUrl || !state.duration) return;
+  if (!state.videoObjectUrl || state.isHistoryOnly) return;
+  if (!state.duration && els.video.readyState >= 1) finalizeVideoLoad();
+  if (!state.duration) {
+    els.analysisStatus.textContent = "El vídeo está seleccionado, pero el navegador aún no ha leído la duración. Reproduce un segundo o espera a que termine de cargar y vuelve a pulsar Analizar.";
+    setAppStatus("loaded", "Vídeo cargando");
+    return;
+  }
   const token = (analysisToken += 1);
   state.isAnalyzing = true;
   els.autoAnalyzeBtn.disabled = true;
@@ -943,7 +962,7 @@ function clearDetectedEvents() {
 }
 
 function markEvent(eventName) {
-  if (!state.videoObjectUrl || !state.metrics.hasVideo) return;
+  if (!state.videoObjectUrl || state.isHistoryOnly) return;
   state.events[eventName] = state.currentFrame;
   state.eventMeta[eventName] = { source: "manual", confidence: 95, note: "Marcado por el usuario" };
   state.reviewedEvents[eventName] = false;
@@ -1074,7 +1093,7 @@ function renderCards(container, items = [], emptyText) {
 
 function renderActionStates() {
   const hasSessionData = Boolean(state.metrics.hasVideo || state.isHistoryOnly);
-  const hasPlayableVideo = Boolean(state.videoObjectUrl && state.metrics.hasVideo && !state.isHistoryOnly);
+  const hasPlayableVideo = Boolean(state.videoObjectUrl && !state.isHistoryOnly);
   els.saveSessionBtn.disabled = !hasSessionData || state.isAnalyzing;
   els.exportJsonBtn.disabled = !hasSessionData;
   els.exportCsvBtn.disabled = !hasSessionData;
@@ -1102,8 +1121,7 @@ function renderActionStates() {
     button.disabled = !hasPlayableVideo || !Number.isFinite(frame);
   });
   document.querySelectorAll("[data-event-jump]").forEach((button) => {
-    const frame = state.events[button.dataset.eventJump];
-    button.disabled = !hasPlayableVideo || !Number.isFinite(frame);
+    button.disabled = !hasPlayableVideo;
   });
   const currentEvent = PHASE_SEQUENCE[state.activePhaseIndex];
   if (els.confirmPhaseBtn) els.confirmPhaseBtn.disabled = !hasPlayableVideo;
@@ -1216,10 +1234,10 @@ function setMode(mode) {
 function renderFlowUi() {
   const step = workflowActiveStep();
   const labels = {
-    upload: ["Paso 1", "Sube el vídeo", "Empieza con un clip claro del swing. Después la app intentará encajarlo automáticamente.", "Subir vídeo", "Cargar anterior"],
-    frame: ["Paso 2", "Encaja el swing", "He aplicado un encaje automático inicial. Ajusta la guía sobre el propio vídeo si cuerpo, bola o plano no quedan bien.", "Encaje correcto", "Recentrar guía"],
-    quality: ["Paso 3", "Revisa la calidad", "Marca si el jugador, bola y palo se ven bien. Esto condiciona la confianza de las recomendaciones.", "Calidad revisada", "Ver checks"],
-    analyze: ["Paso 4", "Analiza el vídeo", "La app buscará movimiento y sugerirá address, top, impact y finish. Luego podrás confirmar o cambiar cada fase.", "Analizar ahora", "Dibujar primero"],
+    upload: ["Inicio", "Sube el vídeo", "Empieza con un clip claro del swing. Al seleccionarlo pasarás directamente al visor.", "Subir vídeo", "Cargar anterior"],
+    frame: ["Paso 1", "Encaja y revisa", "Ajusta la guía dentro del vídeo si hace falta. No tienes que confirmar este paso: cuando lo veas bien, analiza directamente.", "Analizar ahora", "Recentrar guía"],
+    quality: ["Paso 1", "Encaja y revisa", "Los checks de calidad son opcionales. Puedes analizarlos después si quieres afinar la confianza.", "Analizar ahora", "Ver checks"],
+    analyze: ["Paso 2", "Analiza el vídeo", "La app buscará movimiento y sugerirá address, top, impact y finish. Luego podrás confirmar o cambiar cada fase.", "Analizar ahora", "Dibujar primero"],
     events: ["Paso 5", "Confirma las fases", "Toca cualquier fase para ir directo. En cada fase activa puedes aceptar la propuesta o confirmar el frame actual en un solo gesto.", "Confirmar frame actual", "Ver fases"],
     report: ["Paso 6", "Revisa vídeo o métricas", "Puedes quedarte dibujando sobre el swing o bajar al panel de métricas y recomendaciones.", "Ver métricas", "Seguir dibujando"],
     save: ["Paso 7", "Guarda o exporta", "Guarda la sesión con miniatura y cuatro frames clave, o exporta JSON, CSV y PNG.", "Guardar sesión", "Exportar JSON"]
@@ -1238,19 +1256,8 @@ function renderFlowUi() {
 function handleFlowPrimaryAction() {
   const step = workflowActiveStep();
   if (step === "upload") return els.videoInput?.click();
-  if (step === "frame") {
-    autoFitGuide();
-    state.flowStep = "quality";
-    els.analysisStatus.textContent = "Encaje confirmado. Revisa ahora la calidad de captura.";
-    updateAnalysis();
-    return;
-  }
-  if (step === "quality") {
-    state.flowStep = "analyze";
-    els.analysisStatus.textContent = "Calidad revisada. Ya puedes analizar el vídeo.";
-    updateAnalysis();
-    return;
-  }
+  if (step === "frame") return runAutoAnalysis();
+  if (step === "quality") return runAutoAnalysis();
   if (step === "analyze") return runAutoAnalysis();
   if (step === "events") return confirmPhaseAtCurrentFrame(true);
   if (step === "report") return document.querySelector(".report-rail")?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -1334,7 +1341,7 @@ function acceptCurrentPhaseProposal(advance = true) {
 
 function confirmPhaseAtCurrentFrame(advance = true) {
   const eventName = currentPhaseName();
-  if (!state.videoObjectUrl || !state.metrics.hasVideo) return;
+  if (!state.videoObjectUrl || state.isHistoryOnly) return;
   state.events[eventName] = state.currentFrame;
   state.eventMeta[eventName] = { source: "manual", confidence: 96, note: "Frame confirmado por el usuario", reviewed: true, accepted: false };
   state.reviewedEvents[eventName] = true;

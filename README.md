@@ -70,3 +70,16 @@ This iteration refines the redesigned flow for real mobile use:
 ## v0.5.5 upload-safe
 
 Incluye fallback directo de carga de vídeo en HTML, input de archivo más robusto, visor visible inmediatamente tras seleccionar archivo y cache PWA renovada.
+
+## v0.5.5 interaction fix
+
+This iteration fixes the post-upload workflow:
+
+- Selecting a video now opens the viewer and starts directly at the useful working step: **Encaja y revisa**.
+- The primary action after upload is now **Analizar ahora**, not a redundant upload/confirm step.
+- Main app controls no longer remain disabled while metadata is still settling, as long as a video object URL exists.
+- Phase buttons can be selected even before a proposal exists, so the user can manually mark any phase.
+- Fixed bundled runtime errors caused by internal exported function references.
+- Fixed an overlay/canvas initialization crash when the video was already loaded before the main controller finished booting.
+- Added safe storage fallback if IndexedDB is unavailable in restricted contexts.
+- Runtime browser QA performed with a generated MP4: upload, analyze, confirm all four phases, export enablement, save session and overlay tool activation.

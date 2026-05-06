@@ -79,6 +79,7 @@ export class OverlayCanvas {
     const height = targetSize?.height || this.canvas.height;
     const state = this.getState();
 
+    if (!ctx || width < 8 || height < 8) return;
     ctx.clearRect(0, 0, width, height);
     if (drawVideo && this.video.readyState >= 2) {
       drawContainedVideo(ctx, this.video, width, height);
@@ -415,13 +416,16 @@ function rotatedLine(ctx, centerX, centerY, length, angle) {
 }
 
 function roundRect(ctx, x, y, width, height, radius) {
-  const r = Math.min(radius, width / 2, height / 2);
+  const safeWidth = Math.max(0, width);
+  const safeHeight = Math.max(0, height);
+  if (safeWidth <= 0 || safeHeight <= 0) return;
+  const r = Math.max(0, Math.min(radius, safeWidth / 2, safeHeight / 2));
   ctx.beginPath();
   ctx.moveTo(x + r, y);
-  ctx.arcTo(x + width, y, x + width, y + height, r);
-  ctx.arcTo(x + width, y + height, x, y + height, r);
-  ctx.arcTo(x, y + height, x, y, r);
-  ctx.arcTo(x, y, x + width, y, r);
+  ctx.arcTo(x + safeWidth, y, x + safeWidth, y + safeHeight, r);
+  ctx.arcTo(x + safeWidth, y + safeHeight, x, y + safeHeight, r);
+  ctx.arcTo(x, y + safeHeight, x, y, r);
+  ctx.arcTo(x, y, x + safeWidth, y, r);
   ctx.closePath();
 }
 
