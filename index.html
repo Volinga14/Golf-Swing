@@ -1,30 +1,149 @@
 <!doctype html>
 <html lang="es">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta http-equiv="refresh" content="0; url=./app/" />
-    <title>Swing Lab AI</title>
-    <style>
-      body {
-        margin: 0;
-        min-height: 100vh;
-        display: grid;
-        place-items: center;
-        background: #f4f1e8;
-        color: #14201e;
-        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      }
-      a {
-        color: #1f5d49;
-        font-weight: 800;
-      }
-    </style>
-  </head>
-  <body>
-    <main>
-      <h1>Swing Lab AI</h1>
-      <p>Abriendo la PWA. Si no avanza, entra en <a href="./app/">la app</a>.</p>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no" />
+  <title>Swing Lab</title>
+  <meta name="description" content="Swing Lab PWA - análisis sencillo de swing de golf en formato Shorts fullscreen." />
+  <meta name="theme-color" content="#000000" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Swing Lab" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="app" class="app-shell">
+    <main class="short-stage" id="stage">
+      <section id="emptyState" class="empty-state">
+        <div class="empty-logo">⛳</div>
+        <h1>Swing Lab</h1>
+        <p>Sube o graba un swing. La app se abre como un Short: vídeo a pantalla completa, guías simples y marcado claro de fases.</p>
+        <div class="empty-actions">
+          <button id="pickVideoBtn" class="btn primary" type="button">Subir vídeo</button>
+          <button id="openCameraBtn" class="btn secondary" type="button">Grabar con cámara</button>
+        </div>
+        <button id="installBtnEmpty" class="install-empty hidden" type="button">Instalar PWA</button>
+        <p class="empty-tip">Recomendado: móvil vertical, cuerpo completo, cámara quieta y buena luz.</p>
+      </section>
+
+      <video id="video" class="video hidden" playsinline preload="metadata"></video>
+      <canvas id="thumbCanvas" class="hidden"></canvas>
+
+      <div id="tapLayer" class="tap-layer hidden" aria-label="Tocar para mostrar u ocultar controles"></div>
+      <div id="scrimTop" class="scrim top hidden"></div>
+      <div id="scrimBottom" class="scrim bottom hidden"></div>
+
+      <div id="guideOverlay" class="guide-overlay hidden" aria-hidden="true">
+        <div class="guide body-box"></div>
+        <div class="guide center-line"></div>
+        <div class="guide shoulder-line"></div>
+        <div class="guide hip-line"></div>
+        <div class="guide feet-line"></div>
+        <div id="dtlGuides" class="mode-guides">
+          <div class="guide plane plane-low"></div>
+          <div class="guide plane plane-high"></div>
+        </div>
+        <div id="foGuides" class="mode-guides hidden">
+          <div class="guide posture left-posture"></div>
+          <div class="guide posture right-posture"></div>
+        </div>
+      </div>
+
+      <header id="topHud" class="top-hud hidden">
+        <div>
+          <div class="brand">Swing Lab</div>
+          <div id="stateText" class="state-text">Vídeo cargado</div>
+        </div>
+        <div class="hud-actions">
+          <button id="installBtn" class="hud-btn hidden" type="button">Instalar</button>
+          <button id="uploadBtn" class="hud-btn" type="button">Subir</button>
+        </div>
+      </header>
+
+      <aside id="rightRail" class="right-rail hidden">
+        <button id="toggleGuidesBtn" class="rail-btn" type="button"><span>Guías</span><b>ON</b></button>
+        <button id="switchModeBtn" class="rail-btn" type="button"><span>Vista</span><b>DTL</b></button>
+        <button id="fitBtn" class="rail-btn" type="button"><span>Vídeo</span><b>Fill</b></button>
+        <button id="speedBtn" class="rail-btn" type="button"><span>Vel.</span><b>1x</b></button>
+      </aside>
+
+      <section id="phaseHud" class="phase-hud hidden">
+        <div class="phase-hud-top">
+          <div>
+            <div class="phase-label-small">Fase activa</div>
+            <div id="activePhaseName" class="active-phase-name">Address</div>
+          </div>
+          <div id="markStatus" class="mark-status">Sin marcar</div>
+        </div>
+        <div id="timeReadout" class="time-readout">0:00.00 · frame 0</div>
+      </section>
+
+      <section id="bottomDock" class="bottom-dock hidden">
+        <nav class="mode-tabs" aria-label="Modo de trabajo">
+          <button id="tabCapture" class="mode-tab active" type="button">Calidad</button>
+          <button id="tabPhases" class="mode-tab" type="button">Fases</button>
+          <button id="tabAnalysis" class="mode-tab" type="button">Análisis</button>
+          <button id="tabHistory" class="mode-tab" type="button">Historial</button>
+        </nav>
+
+        <div id="capturePanel" class="dock-panel">
+          <div class="dock-title-row">
+            <div>
+              <h2>Calidad de captura</h2>
+              <p id="qualityScore">Quality 0%</p>
+            </div>
+            <button id="goPhasesBtn" class="small-pill" type="button">Ir a fases</button>
+          </div>
+          <div id="checklist" class="checklist"></div>
+        </div>
+
+        <div id="phasesPanel" class="dock-panel hidden">
+          <div id="phaseChips" class="phase-chips"></div>
+          <input id="timeline" class="timeline" type="range" min="0" max="1000" value="0" step="1" aria-label="Timeline del vídeo" />
+          <div class="marking-controls">
+            <button id="backFrameBtn" class="frame-btn" type="button">−1f</button>
+            <button id="playBtn" class="play-btn" type="button">Play</button>
+            <button id="forwardFrameBtn" class="frame-btn" type="button">+1f</button>
+            <button id="markPhaseBtn" class="mark-btn" type="button">Marcar</button>
+          </div>
+          <div id="phaseSummary" class="phase-summary"></div>
+        </div>
+
+        <div id="analysisPanel" class="dock-panel hidden">
+          <div class="dock-title-row">
+            <div>
+              <h2>Análisis básico</h2>
+              <p id="analysisStatus">Marca las fases principales antes de analizar.</p>
+            </div>
+            <button id="analyzeBtn" class="small-pill" type="button">Analizar</button>
+          </div>
+          <div id="recommendations" class="recommendations"></div>
+          <button id="saveSessionBtn" class="wide-action" type="button">Guardar sesión local</button>
+        </div>
+
+        <div id="historyPanel" class="dock-panel hidden">
+          <div class="dock-title-row">
+            <div>
+              <h2>Historial local</h2>
+              <p>Sesiones guardadas en este dispositivo.</p>
+            </div>
+            <button id="clearHistoryBtn" class="small-pill danger" type="button">Borrar</button>
+          </div>
+          <div id="historyList" class="history-list"></div>
+        </div>
+      </section>
+
+      <div id="cleanHint" class="clean-hint hidden">Toca el vídeo para mostrar controles</div>
     </main>
-  </body>
+
+    <input id="videoInput" type="file" accept="video/*" class="hidden" />
+    <input id="cameraInput" type="file" accept="video/*" capture="environment" class="hidden" />
+  </div>
+
+  <script src="app.js" defer></script>
+</body>
 </html>

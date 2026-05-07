@@ -1,85 +1,62 @@
-# Swing Lab AI v0.5.5
+# Swing Lab PWA v0.2 - Fullscreen Shorts Workflow
 
-PWA local-first para revisar vídeos de swing de golf desde el navegador. Esta versión se centra en limpieza, estabilidad y UX base: la app deja más claro qué puede analizar, qué es editable y qué parte es una estimación heurística.
+Esta versión corrige la usabilidad móvil de la v0.1. El objetivo es que la app se use como un Short de YouTube: vídeo a pantalla completa, controles mínimos y marcado claro de fases.
 
-## Qué incluye v0.5.5
+## Cambios principales v0.2
 
-- Flujo guiado de 7 pasos: subir vídeo, ajustar encuadre, revisar calidad, analizar, corregir fases, revisar métricas y guardar/exportar.
-- Estados visibles de app: sin vídeo, vídeo cargado, analizando, análisis completado, sesión guardada, error y sesión histórica sin vídeo.
-- Historial local corregido: la app no finge que el vídeo sigue disponible cuando solo se han guardado datos.
-- Guardado de miniatura y hasta 4 frames principales: address, top, impact y finish.
-- Aviso claro al cargar una sesión histórica sin vídeo original.
-- Desactivación de acciones que dependen del vídeo cuando solo hay una sesión histórica: reproducir, analizar, marcar fases, pantalla completa y PNG.
-- Aprendizaje local limpiado: sin ejemplo hardcodeado de producción. Las correcciones reales quedan separadas del modo demo.
-- Recomendaciones con lenguaje menos concluyente: “posible”, “revisar visualmente” y etiquetas de confianza/fuente.
-- Mejoras visuales rápidas: jerarquía de acciones, cards de recomendaciones priorizadas, badges, mobile-first y botones claros de nuevo/guardar.
-- PWA/cache mejorado: versión visible, cache v0.5.5, `skipWaiting`, `clients.claim`, estrategia network-first para HTML/JS/CSS y botón de actualización cuando haya nueva versión.
-- Tests ampliados: smoke, regresión de flujo y browser headless con Chromium/Chrome/Edge cuando está disponible y responde correctamente.
+- Vídeo realmente fullscreen usando `100vw` y `100dvh`.
+- Interfaz sin contenedor pequeño en móvil.
+- Menos elementos encima del vídeo.
+- Controles ocultables tocando el vídeo.
+- HUD de fase activa grande y claro.
+- Lectura visible de tiempo y frame estimado.
+- Timeline inferior para moverse por el vídeo.
+- Botones grandes para `-1f`, `Play`, `+1f` y `Marcar`.
+- Fases principales con estado marcado/no marcado.
+- Bottom dock compacto por modos: Calidad, Fases, Análisis e Historial.
+- Guías DTL / Face-On con toggle.
+- Modo Fill/Fit para llenar pantalla o ver el vídeo completo.
+- Velocidad 1x / 0.5x / 0.25x.
+- Subida de vídeo y grabación desde cámara móvil.
+- Guardado local en IndexedDB con miniatura.
+- Service Worker offline-first.
+- Manifest PWA instalable.
 
-## Alcance honesto
+## Uso recomendado
 
-Esta versión todavía no usa MediaPipe ni landmarks reales. El análisis automático sigue siendo heurístico y revisable. El objetivo de v0.5.5 es que la app sea usable, estable y honesta antes de integrar IA visual real en v0.6.
+1. Abre la app en móvil.
+2. Sube o graba un vídeo vertical.
+3. Usa `Fill` para experiencia tipo Shorts. Usa `Fit` si necesitas ver el vídeo completo sin recorte.
+4. Entra en `Fases`.
+5. Selecciona una fase: Address, Takeaway, Top, Impact o Finish.
+6. Usa la timeline y los botones `-1f` / `+1f` para encontrar el frame exacto.
+7. Pulsa `Marcar`.
+8. Repite con el resto de fases.
+9. Ejecuta `Análisis`.
+10. Guarda la sesión local.
 
-## Cómo abrirlo
+## Instalación como PWA
 
-Sirve la carpeta `app` con un servidor estático y abre `index.html`.
+Para que el modo instalable/offline funcione correctamente, súbela a un servidor HTTPS:
 
-```powershell
-python -m http.server 5174 --bind 127.0.0.1 --directory ./app
-```
+- GitHub Pages
+- Cloudflare Pages
+- Netlify
+- Vercel
+- cualquier hosting HTTPS estático
 
-Luego abre `http://127.0.0.1:5174/`.
+Abrir `index.html` directamente como archivo local puede permitir ver la app, pero el Service Worker y la instalación PWA necesitan HTTPS o `localhost`.
 
-## Pruebas
+## Comprobaciones realizadas
 
-```powershell
-npm test
-```
+- Sintaxis JS validada con Node.
+- Manifest JSON validado.
+- Service Worker validado.
+- Estructura de assets comprobada.
+- ZIP generado con todos los archivos necesarios.
 
-También se pueden ejecutar por separado:
+## Limitaciones actuales
 
-```powershell
-npm run test:smoke
-npm run test:workflow
-npm run test:browser
-```
-
-La prueba browser busca Chromium, Chrome o Edge. Si el navegador headless está instalado pero no responde a tiempo en el entorno local/CI, el test se salta de forma controlada para no bloquear el pipeline.
-
-## Siguiente paso natural
-
-v0.6 debería integrar detección corporal real con landmarks, mejorar la detección de fases y convertir las métricas actuales en mediciones visuales verificables.
-
-
-## v0.5.5 Flow redesign
-
-This build introduces a mobile-first, video-first guided UX: home screen, automatic initial framing, phase-by-phase confirmation, sticky next-step card, and a secondary metrics/report drawer.
-
-## v0.5.5 Phase & guide polish
-
-This iteration refines the redesigned flow for real mobile use:
-
-- Direct phase navigation: tap Address, Top, Impact or Finish to jump to that phase.
-- Contextual phase controls: only the active phase shows its controls.
-- One-tap phase confirmation: “Confirmar frame actual” marks and confirms the selected frame at the same time.
-- In-video drawing controls: select, line, angle, clear, guide, phases and grid controls are now inside the video area so they remain usable in fullscreen.
-- Improved framing guide: body box now represents head-to-hips/seat, with separate feet-direction and club-angle guides.
-- Updated guide example SVG to explain the new alignment logic.
-
-
-## v0.5.5 upload-safe
-
-Incluye fallback directo de carga de vídeo en HTML, input de archivo más robusto, visor visible inmediatamente tras seleccionar archivo y cache PWA renovada.
-
-## v0.5.5 interaction fix
-
-This iteration fixes the post-upload workflow:
-
-- Selecting a video now opens the viewer and starts directly at the useful working step: **Encaja y revisa**.
-- The primary action after upload is now **Analizar ahora**, not a redundant upload/confirm step.
-- Main app controls no longer remain disabled while metadata is still settling, as long as a video object URL exists.
-- Phase buttons can be selected even before a proposal exists, so the user can manually mark any phase.
-- Fixed bundled runtime errors caused by internal exported function references.
-- Fixed an overlay/canvas initialization crash when the video was already loaded before the main controller finished booting.
-- Added safe storage fallback if IndexedDB is unavailable in restricted contexts.
-- Runtime browser QA performed with a generated MP4: upload, analyze, confirm all four phases, export enablement, save session and overlay tool activation.
+- El número de frame se estima a 30 fps porque el navegador no siempre expone el frame real del vídeo.
+- El análisis es todavía visual/manual, no usa pose estimation real.
+- Las guías todavía son fijas; en próximas versiones deberían poder moverse y escalarse.
