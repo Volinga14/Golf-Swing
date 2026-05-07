@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no" />
   <title>Swing Lab</title>
-  <meta name="description" content="Swing Lab PWA - análisis sencillo de swing de golf en formato Shorts fullscreen." />
+  <meta name="description" content="Swing Lab PWA - análisis de swing de golf en formato short fullscreen." />
   <meta name="theme-color" content="#000000" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -17,11 +17,11 @@
 </head>
 <body>
   <div id="app" class="app-shell">
-    <main class="short-stage" id="stage">
+    <main class="short-stage">
       <section id="emptyState" class="empty-state">
         <div class="empty-logo">⛳</div>
         <h1>Swing Lab</h1>
-        <p>Sube o graba un swing. La app se abre como un Short: vídeo a pantalla completa, guías simples y marcado claro de fases.</p>
+        <p>Sube o graba un swing. La app se abre como un short: vídeo a pantalla completa, marcado claro de fases y análisis visual muy simple.</p>
         <div class="empty-actions">
           <button id="pickVideoBtn" class="btn primary" type="button">Subir vídeo</button>
           <button id="openCameraBtn" class="btn secondary" type="button">Grabar con cámara</button>
@@ -31,7 +31,8 @@
       </section>
 
       <video id="video" class="video hidden" playsinline preload="metadata"></video>
-      <canvas id="thumbCanvas" class="hidden"></canvas>
+      <canvas id="drawingCanvas" class="drawing-canvas hidden"></canvas>
+      <canvas id="captureCanvas" class="hidden"></canvas>
 
       <div id="tapLayer" class="tap-layer hidden" aria-label="Tocar para mostrar u ocultar controles"></div>
       <div id="scrimTop" class="scrim top hidden"></div>
@@ -67,8 +68,10 @@
       <aside id="rightRail" class="right-rail hidden">
         <button id="toggleGuidesBtn" class="rail-btn" type="button"><span>Guías</span><b>ON</b></button>
         <button id="switchModeBtn" class="rail-btn" type="button"><span>Vista</span><b>DTL</b></button>
-        <button id="fitBtn" class="rail-btn" type="button"><span>Vídeo</span><b>Fill</b></button>
-        <button id="speedBtn" class="rail-btn" type="button"><span>Vel.</span><b>1x</b></button>
+        <button id="drawModeBtn" class="rail-btn" type="button"><span>Dib.</span><b>OFF</b></button>
+        <button id="toggleDrawingsBtn" class="rail-btn" type="button"><span>Líneas</span><b>ON</b></button>
+        <button id="undoLineBtn" class="rail-btn" type="button"><span>Undo</span><b>1</b></button>
+        <button id="clearLinesBtn" class="rail-btn rail-danger" type="button"><span>Borrar</span><b>All</b></button>
       </aside>
 
       <section id="phaseHud" class="phase-hud hidden">
@@ -83,45 +86,50 @@
       </section>
 
       <section id="bottomDock" class="bottom-dock hidden">
-        <nav class="mode-tabs" aria-label="Modo de trabajo">
-          <button id="tabCapture" class="mode-tab active" type="button">Calidad</button>
-          <button id="tabPhases" class="mode-tab" type="button">Fases</button>
-          <button id="tabAnalysis" class="mode-tab" type="button">Análisis</button>
-          <button id="tabHistory" class="mode-tab" type="button">Historial</button>
-        </nav>
-
-        <div id="capturePanel" class="dock-panel">
-          <div class="dock-title-row">
-            <div>
-              <h2>Calidad de captura</h2>
-              <p id="qualityScore">Quality 0%</p>
+        <div id="playerStrip" class="player-strip">
+          <div class="player-main-row">
+            <div class="player-readout">
+              <div id="playerReadout" class="player-readout-value">0:00.00 · frame 0</div>
+              <div id="playerPhaseReadout" class="player-phase-readout">Fase: Address</div>
             </div>
-            <button id="goPhasesBtn" class="small-pill" type="button">Ir a fases</button>
+            <button id="speedBtn" class="small-pill" type="button">1x</button>
           </div>
-          <div id="checklist" class="checklist"></div>
-        </div>
-
-        <div id="phasesPanel" class="dock-panel hidden">
-          <div id="phaseChips" class="phase-chips"></div>
           <input id="timeline" class="timeline" type="range" min="0" max="1000" value="0" step="1" aria-label="Timeline del vídeo" />
-          <div class="marking-controls">
+          <div class="marking-controls player-controls">
             <button id="backFrameBtn" class="frame-btn" type="button">−1f</button>
             <button id="playBtn" class="play-btn" type="button">Play</button>
             <button id="forwardFrameBtn" class="frame-btn" type="button">+1f</button>
             <button id="markPhaseBtn" class="mark-btn" type="button">Marcar</button>
           </div>
+        </div>
+
+        <nav class="mode-tabs" aria-label="Modo de trabajo">
+          <button id="tabPhases" class="mode-tab active" type="button">Fases</button>
+          <button id="tabAnalysis" class="mode-tab" type="button">Análisis</button>
+          <button id="tabHistory" class="mode-tab" type="button">Historial</button>
+        </nav>
+
+        <div id="phasesPanel" class="dock-panel">
+          <div class="dock-title-row compact-title-row">
+            <div>
+              <h2>Marcado de fases</h2>
+              <p>Selecciona una fase, coloca el frame y pulsa marcar.</p>
+            </div>
+          </div>
+          <div id="phaseChips" class="phase-chips"></div>
           <div id="phaseSummary" class="phase-summary"></div>
         </div>
 
         <div id="analysisPanel" class="dock-panel hidden">
           <div class="dock-title-row">
             <div>
-              <h2>Análisis básico</h2>
-              <p id="analysisStatus">Marca las fases principales antes de analizar.</p>
+              <h2>Análisis visual</h2>
+              <p id="analysisStatus">Marca las fases y genera las capturas.</p>
             </div>
-            <button id="analyzeBtn" class="small-pill" type="button">Analizar</button>
+            <button id="analyzeBtn" class="small-pill" type="button">Generar</button>
           </div>
           <div id="recommendations" class="recommendations"></div>
+          <div id="capturesGrid" class="captures-grid"></div>
           <button id="saveSessionBtn" class="wide-action" type="button">Guardar sesión local</button>
         </div>
 

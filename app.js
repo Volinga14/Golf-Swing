@@ -2,7 +2,7 @@
 
 const $ = (id) => document.getElementById(id);
 const DB_NAME = 'swing-lab-db';
-const DB_VERSION = 2;
+const DB_VERSION = 4;
 const STORE = 'sessions';
 const ASSUMED_FPS = 30;
 
@@ -11,40 +11,37 @@ const phases = [
   { id: 'takeaway', label: 'Takeaway', short: 'Take', pct: 0.18, hint: 'Primer movimiento del palo y conexión de brazos.' },
   { id: 'top', label: 'Top', short: 'Top', pct: 0.38, hint: 'Parte alta: rotación, estabilidad y posición de manos.' },
   { id: 'impact', label: 'Impact', short: 'Imp', pct: 0.62, hint: 'Impacto: manos, cadera, cabeza y línea del palo.' },
-  { id: 'finish', label: 'Finish', short: 'Fin', pct: 0.9, hint: 'Equilibrio final y rotación completa.' },
-];
-
-const defaultChecks = [
-  { id: 'vertical', label: 'Vertical', ok: null },
-  { id: 'body', label: 'Cuerpo completo', ok: null },
-  { id: 'light', label: 'Buena luz', ok: null },
-  { id: 'stable', label: 'Cámara estable', ok: null },
-  { id: 'angle', label: 'Ángulo correcto', ok: null },
-  { id: 'ball', label: 'Bola visible', ok: null },
+  { id: 'finish', label: 'Finish', short: 'Fin', pct: 0.90, hint: 'Equilibrio final y rotación completa.' },
 ];
 
 const state = {
   videoUrl: null,
   videoBlob: null,
   videoName: '',
-  mode: 'capture',
+  mode: 'phases',
   currentPhaseId: 'address',
   phaseTimes: {},
-  checks: clone(defaultChecks),
+  phaseCaptures: {},
   showGuides: true,
   guideMode: 'dtl',
-  fitContain: false,
   speed: 1,
   controlsVisible: true,
   isSeekingWithSlider: false,
   installPrompt: null,
   appState: 'empty',
+  drawingMode: false,
+  showDrawings: true,
+  lines: [],
+  previewLine: null,
+  pointerDown: false,
 };
 
 const refs = {
   app: $('app'),
   emptyState: $('emptyState'),
   video: $('video'),
+  drawingCanvas: $('drawingCanvas'),
+  captureCanvas: $('captureCanvas'),
   tapLayer: $('tapLayer'),
   scrimTop: $('scrimTop'),
   scrimBottom: $('scrimBottom'),
@@ -66,22 +63,23 @@ const refs = {
   installBtnEmpty: $('installBtnEmpty'),
   toggleGuidesBtn: $('toggleGuidesBtn'),
   switchModeBtn: $('switchModeBtn'),
-  fitBtn: $('fitBtn'),
-  speedBtn: $('speedBtn'),
+  drawModeBtn: $('drawModeBtn'),
+  toggleDrawingsBtn: $('toggleDrawingsBtn'),
+  undoLineBtn: $('undoLineBtn'),
+  clearLinesBtn: $('clearLinesBtn'),
   activePhaseName: $('activePhaseName'),
   markStatus: $('markStatus'),
   timeReadout: $('timeReadout'),
-  tabCapture: $('tabCapture'),
+  playerStrip: $('playerStrip'),
+  playerReadout: $('playerReadout'),
+  playerPhaseReadout: $('playerPhaseReadout'),
+  speedBtn: $('speedBtn'),
   tabPhases: $('tabPhases'),
   tabAnalysis: $('tabAnalysis'),
   tabHistory: $('tabHistory'),
-  capturePanel: $('capturePanel'),
   phasesPanel: $('phasesPanel'),
   analysisPanel: $('analysisPanel'),
   historyPanel: $('historyPanel'),
-  qualityScore: $('qualityScore'),
-  checklist: $('checklist'),
-  goPhasesBtn: $('goPhasesBtn'),
   phaseChips: $('phaseChips'),
   timeline: $('timeline'),
   backFrameBtn: $('backFrameBtn'),
@@ -92,10 +90,10 @@ const refs = {
   analyzeBtn: $('analyzeBtn'),
   analysisStatus: $('analysisStatus'),
   recommendations: $('recommendations'),
+  capturesGrid: $('capturesGrid'),
   saveSessionBtn: $('saveSessionBtn'),
   clearHistoryBtn: $('clearHistoryBtn'),
   historyList: $('historyList'),
-  thumbCanvas: $('thumbCanvas'),
 };
 
 function clone(value) {
@@ -162,8 +160,8 @@ function setAppState(next) {
     empty: 'Sin vídeo',
     loaded: 'Vídeo cargado',
     marking: 'Marcando fases',
-    analyzing: 'Analizando',
-    completed: 'Análisis completado',
+    analyzing: 'Generando capturas',
+    completed: 'Análisis listo',
     saved: 'Sesión guardada',
     error: 'Error',
   };
@@ -186,9 +184,44 @@ function frameNumber(time = refs.video.currentTime || 0) {
   return Math.max(0, Math.round(time * ASSUMED_FPS));
 }
 
-function qualityScore() {
-  const ok = state.checks.filter((item) => item.ok === true).length;
-  return Math.round((ok / state.checks.length) * 100);
+function markedCount() {
+  return Object.keys(state.phaseTimes).length;
+}
+
+function revokeVideoUrl() {
+  if (state.videoUrl) URL.revokeObjectURL(state.videoUrl);
+}
+
+function resetSessionState() {
+  state.mode = 'phases';
+  state.currentPhaseId = 'address';
+  state.phaseTimes = {};
+  state.phaseCaptures = {};
+  state.lines = [];
+  state.previewLine = null;
+  state.drawingMode = false;
+  state.showDrawings = true;
+  state.controlsVisible = true;
+}
+
+function applyVideoFile(file) {
+  if (!file) return;
+  if (!file.type.startsWith('video/')) {
+    alert('Selecciona un archivo de vídeo válido.');
+    return;
+  }
+  revokeVideoUrl();
+  resetSessionState();
+  state.videoBlob = file;
+  state.videoUrl = URL.createObjectURL(file);
+  state.videoName = file.name || `swing-${new Date().toISOString().slice(0, 10)}.mp4`;
+  refs.analysisStatus.textContent = 'Marca las fases y genera las capturas.';
+  refs.recommendations.innerHTML = '';
+  refs.capturesGrid.innerHTML = '';
+  refs.video.src = state.videoUrl;
+  refs.video.load();
+  setAppState('loaded');
+  render();
 }
 
 function setMode(mode) {
@@ -198,34 +231,8 @@ function setMode(mode) {
   if (mode === 'history') loadHistory();
 }
 
-function revokeVideoUrl() {
-  if (state.videoUrl) URL.revokeObjectURL(state.videoUrl);
-}
-
-function applyVideoFile(file) {
-  if (!file) return;
-  if (!file.type.startsWith('video/')) {
-    alert('Selecciona un archivo de vídeo válido.');
-    return;
-  }
-
-  revokeVideoUrl();
-  state.videoBlob = file;
-  state.videoUrl = URL.createObjectURL(file);
-  state.videoName = file.name || `swing-${new Date().toISOString().slice(0, 10)}.mp4`;
-  state.mode = 'capture';
-  state.phaseTimes = {};
-  state.checks = clone(defaultChecks);
-  state.currentPhaseId = 'address';
-  state.controlsVisible = true;
-  refs.video.src = state.videoUrl;
-  refs.video.load();
-  setAppState('loaded');
-  render();
-}
-
 function toggleControls() {
-  if (!state.videoUrl) return;
+  if (!state.videoUrl || state.drawingMode) return;
   state.controlsVisible = !state.controlsVisible;
   refs.app.classList.toggle('controls-hidden', !state.controlsVisible);
 }
@@ -234,57 +241,49 @@ function renderShell() {
   const hasVideo = Boolean(state.videoUrl);
   refs.emptyState.classList.toggle('hidden', hasVideo);
   refs.video.classList.toggle('hidden', !hasVideo);
-  refs.tapLayer.classList.toggle('hidden', !hasVideo);
+  refs.tapLayer.classList.toggle('hidden', !hasVideo || state.drawingMode);
   refs.scrimTop.classList.toggle('hidden', !hasVideo);
   refs.scrimBottom.classList.toggle('hidden', !hasVideo);
   refs.topHud.classList.toggle('hidden', !hasVideo);
   refs.rightRail.classList.toggle('hidden', !hasVideo);
   refs.bottomDock.classList.toggle('hidden', !hasVideo);
-  refs.phaseHud.classList.toggle('hidden', !hasVideo || state.mode !== 'phases');
+  refs.phaseHud.classList.toggle('hidden', !hasVideo || state.mode === 'history');
   refs.guideOverlay.classList.toggle('hidden', !hasVideo || !state.showGuides);
-  refs.cleanHint.classList.toggle('hidden', state.controlsVisible);
-  refs.video.classList.toggle('fit-contain', state.fitContain);
+  refs.cleanHint.classList.toggle('hidden', state.controlsVisible || !hasVideo);
   refs.app.classList.toggle('controls-hidden', hasVideo && !state.controlsVisible);
+  refs.playerStrip.classList.toggle('hidden', state.mode === 'history');
+  refs.drawingCanvas.classList.toggle('hidden', !hasVideo);
 }
 
 function renderRails() {
   refs.toggleGuidesBtn.querySelector('b').textContent = state.showGuides ? 'ON' : 'OFF';
   refs.switchModeBtn.querySelector('b').textContent = state.guideMode === 'dtl' ? 'DTL' : 'FO';
-  refs.fitBtn.querySelector('b').textContent = state.fitContain ? 'Fit' : 'Fill';
-  refs.speedBtn.querySelector('b').textContent = `${state.speed}x`;
+  refs.drawModeBtn.querySelector('b').textContent = state.drawingMode ? 'ON' : 'OFF';
+  refs.toggleDrawingsBtn.querySelector('b').textContent = state.showDrawings ? 'ON' : 'OFF';
+  refs.undoLineBtn.querySelector('b').textContent = String(state.lines.length);
   refs.dtlGuides.classList.toggle('hidden', state.guideMode !== 'dtl');
   refs.foGuides.classList.toggle('hidden', state.guideMode !== 'fo');
+
+  refs.drawModeBtn.classList.toggle('active', state.drawingMode);
+  refs.toggleDrawingsBtn.classList.toggle('active', state.showDrawings);
+  refs.undoLineBtn.disabled = state.lines.length === 0;
+  refs.clearLinesBtn.disabled = state.lines.length === 0;
+  refs.drawingCanvas.classList.toggle('drawing-enabled', state.drawingMode);
 }
 
 function renderTabs() {
   const tabs = {
-    capture: refs.tabCapture,
     phases: refs.tabPhases,
     analysis: refs.tabAnalysis,
     history: refs.tabHistory,
   };
   const panels = {
-    capture: refs.capturePanel,
     phases: refs.phasesPanel,
     analysis: refs.analysisPanel,
     history: refs.historyPanel,
   };
   Object.entries(tabs).forEach(([mode, el]) => el.classList.toggle('active', state.mode === mode));
   Object.entries(panels).forEach(([mode, el]) => el.classList.toggle('hidden', state.mode !== mode));
-}
-
-function renderChecklist() {
-  refs.checklist.innerHTML = '';
-  state.checks.forEach((item) => {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = `check-item ${item.ok === true ? 'good' : item.ok === false ? 'bad' : ''}`;
-    const icon = item.ok === true ? '✓' : item.ok === false ? '!' : '·';
-    button.innerHTML = `<span class="check-icon">${icon}</span><span>${item.label}</span>`;
-    button.addEventListener('click', () => toggleCheck(item.id));
-    refs.checklist.appendChild(button);
-  });
-  refs.qualityScore.textContent = `Quality ${qualityScore()}%`;
 }
 
 function renderPhaseChips() {
@@ -299,111 +298,113 @@ function renderPhaseChips() {
   });
 }
 
-function renderPhaseHud() {
-  const phase = currentPhase();
-  const markedTime = state.phaseTimes[phase.id];
-  refs.activePhaseName.textContent = phase.label;
-  refs.markStatus.textContent = markedTime == null ? 'Sin marcar' : `Marcado ${formatTime(markedTime)}`;
-  refs.markStatus.classList.toggle('done', markedTime != null);
-  refs.timeReadout.textContent = `${formatTime(refs.video.currentTime || 0)} · frame ${frameNumber()}`;
-  refs.markPhaseBtn.textContent = markedTime == null ? `Marcar ${phase.label}` : `Actualizar ${phase.label}`;
-  refs.markPhaseBtn.classList.toggle('marked', markedTime != null);
-}
-
 function renderPhaseSummary() {
   refs.phaseSummary.innerHTML = '';
   phases.forEach((phase) => {
     const cell = document.createElement('div');
     cell.className = 'summary-cell';
-    const time = state.phaseTimes[phase.id];
-    cell.innerHTML = `<b>${phase.short}</b><span>${time == null ? '—' : formatTime(time)}</span>`;
+    cell.innerHTML = `<b>${phase.short}</b><span>${state.phaseTimes[phase.id] != null ? formatTime(state.phaseTimes[phase.id]) : '--'}</span>`;
     refs.phaseSummary.appendChild(cell);
   });
 }
 
+function renderReadouts() {
+  const phase = currentPhase();
+  const time = refs.video.currentTime || 0;
+  const currentMarked = state.phaseTimes[phase.id] != null;
+  refs.activePhaseName.textContent = phase.label;
+  refs.markStatus.textContent = currentMarked ? 'Marcada' : 'Sin marcar';
+  refs.markStatus.classList.toggle('done', currentMarked);
+  refs.timeReadout.textContent = `${formatTime(time)} · frame ${frameNumber(time)}`;
+  refs.playerReadout.textContent = `${formatTime(time)} · frame ${frameNumber(time)}`;
+  refs.playerPhaseReadout.textContent = `Fase: ${phase.label}`;
+  refs.markPhaseBtn.textContent = currentMarked ? 'Actualizar' : 'Marcar';
+  refs.markPhaseBtn.classList.toggle('marked', currentMarked);
+}
+
 function renderTimeline() {
-  const duration = refs.video.duration || 0;
-  const current = refs.video.currentTime || 0;
-  if (!state.isSeekingWithSlider) {
-    refs.timeline.value = duration > 0 ? String(Math.round((current / duration) * 1000)) : '0';
-  }
+  if (!state.videoUrl || state.isSeekingWithSlider || !Number.isFinite(refs.video.duration) || refs.video.duration <= 0) return;
+  refs.timeline.value = String(Math.round((refs.video.currentTime / refs.video.duration) * 1000));
+}
+
+function renderCapturesGrid() {
+  refs.capturesGrid.innerHTML = '';
+  const available = phases.filter((phase) => state.phaseCaptures[phase.id]);
+  if (!available.length) return;
+  available.forEach((phase) => {
+    const time = state.phaseTimes[phase.id];
+    const card = document.createElement('div');
+    card.className = 'capture-card';
+    card.innerHTML = `
+      <img src="${state.phaseCaptures[phase.id]}" alt="${phase.label}" />
+      <b>${phase.label}</b>
+      <span>${time != null ? `${formatTime(time)} · frame ${frameNumber(time)}` : 'Sin tiempo'}</span>`;
+    refs.capturesGrid.appendChild(card);
+  });
+}
+
+function renderRecommendations() {
+  const recs = buildRecommendations();
+  refs.recommendations.innerHTML = recs.map((rec) => `<div class="rec">${rec}</div>`).join('');
 }
 
 function render() {
   renderShell();
   renderRails();
   renderTabs();
-  renderChecklist();
   renderPhaseChips();
-  renderPhaseHud();
   renderPhaseSummary();
+  renderReadouts();
   renderTimeline();
+  renderCapturesGrid();
+  drawAllLines();
 }
 
-function toggleCheck(id) {
-  state.checks = state.checks.map((item) => {
-    if (item.id !== id) return item;
-    if (item.ok === null) return { ...item, ok: true };
-    if (item.ok === true) return { ...item, ok: false };
-    return { ...item, ok: null };
-  });
-  renderChecklist();
-}
 
-function jumpToPhase(id) {
-  const phase = phases.find((item) => item.id === id) || phases[0];
-  state.currentPhaseId = phase.id;
-  if (state.videoUrl && Number.isFinite(refs.video.duration)) {
-    refs.video.pause();
-    const target = state.phaseTimes[phase.id] ?? refs.video.duration * phase.pct;
-    refs.video.currentTime = Math.min(Math.max(target, 0), refs.video.duration || target);
+function jumpToPhase(phaseId) {
+  state.currentPhaseId = phaseId;
+  const time = state.phaseTimes[phaseId];
+  if (time != null) {
+    refs.video.currentTime = time;
+  } else if (Number.isFinite(refs.video.duration) && refs.video.duration > 0) {
+    const phase = phases.find((item) => item.id === phaseId) || phases[0];
+    refs.video.currentTime = refs.video.duration * phase.pct;
   }
-  setMode('phases');
+  refs.video.pause();
+  refs.playBtn.textContent = 'Play';
+  render();
 }
 
-async function togglePlay() {
+function togglePlay() {
   if (!state.videoUrl) return;
-  try {
-    if (refs.video.paused) {
-      refs.video.playbackRate = state.speed;
-      await refs.video.play();
-      refs.playBtn.textContent = 'Pause';
-    } else {
-      refs.video.pause();
-      refs.playBtn.textContent = 'Play';
-    }
-  } catch (error) {
-    console.warn(error);
-    alert('El navegador ha bloqueado la reproducción. Pulsa de nuevo Play.');
+  if (refs.video.paused) {
+    refs.video.play().catch(console.warn);
+  } else {
+    refs.video.pause();
   }
+}
+
+function cycleSpeed() {
+  state.speed = state.speed === 1 ? 0.5 : state.speed === 0.5 ? 0.25 : 1;
+  refs.video.playbackRate = state.speed;
+  refs.speedBtn.textContent = `${state.speed}x`;
 }
 
 function stepFrame(direction) {
   if (!state.videoUrl) return;
   refs.video.pause();
   refs.playBtn.textContent = 'Play';
-  const duration = refs.video.duration || Number.POSITIVE_INFINITY;
-  const next = Math.min(Math.max(0, (refs.video.currentTime || 0) + direction / ASSUMED_FPS), duration);
+  const step = 1 / ASSUMED_FPS;
+  const duration = Number.isFinite(refs.video.duration) ? refs.video.duration : Number.MAX_SAFE_INTEGER;
+  const next = Math.min(Math.max((refs.video.currentTime || 0) + (direction * step), 0), duration);
   refs.video.currentTime = next;
-  renderPhaseHud();
-  renderTimeline();
-}
-
-function cycleSpeed() {
-  const values = [1, 0.5, 0.25];
-  const index = values.indexOf(state.speed);
-  state.speed = values[(index + 1) % values.length];
-  refs.video.playbackRate = state.speed;
-  renderRails();
 }
 
 function markCurrentPhase() {
   if (!state.videoUrl) return;
   const phase = currentPhase();
   state.phaseTimes[phase.id] = refs.video.currentTime || 0;
-  renderPhaseChips();
-  renderPhaseHud();
-  renderPhaseSummary();
+  render();
 }
 
 function updateTimelineFromInput() {
@@ -412,79 +413,107 @@ function updateTimelineFromInput() {
   refs.video.pause();
   refs.playBtn.textContent = 'Play';
   refs.video.currentTime = refs.video.duration * pct;
-  renderPhaseHud();
+  renderReadouts();
 }
 
 function buildRecommendations() {
+  const marked = markedCount();
+  const missing = phases.filter((phase) => state.phaseTimes[phase.id] == null).map((phase) => phase.label);
   const recs = [];
-  const marked = Object.keys(state.phaseTimes).length;
-  const missingChecks = state.checks.filter((item) => item.ok !== true).map((item) => item.label.toLowerCase());
 
   if (marked < phases.length) {
-    recs.push(`Faltan ${phases.length - marked} fases por marcar. Para esta versión, lo más importante es tener Address, Top e Impact bien marcados.`);
+    recs.push(`Has marcado ${marked}/${phases.length} fases. Para que el análisis sea útil, intenta completar sobre todo Address, Top, Impact y Finish.`);
   } else {
-    recs.push('Todas las fases principales están marcadas. Ya se puede comparar el swing fase por fase.');
+    recs.push('Todas las fases están marcadas. Ya tienes una base limpia para revisar el swing fase a fase.');
   }
 
-  if (missingChecks.length) {
-    recs.push(`Antes de sacar conclusiones fuertes, revisa la captura: ${missingChecks.slice(0, 3).join(', ')}${missingChecks.length > 3 ? '…' : '.'}`);
-  } else {
-    recs.push('La calidad de captura es buena para un análisis inicial.');
+  if (missing.length) {
+    recs.push(`Fases pendientes: ${missing.join(', ')}.`);
   }
+
+  recs.push('Usa el modo dibujo para trazar líneas simples sobre postura, plano del palo o eje corporal. Puedes ocultarlas, deshacer una a una o borrarlas todas.');
 
   if (state.guideMode === 'dtl') {
-    recs.push('En DTL, usa las líneas inclinadas como referencia visual del plano del palo y observa si el downswing vuelve por una zona consistente hacia impacto.');
+    recs.push('En DTL, fíjate en si la subida y la bajada se mueven por una zona parecida respecto a las guías inclinadas.');
   } else {
-    recs.push('En Face-On, revisa desplazamiento lateral, estabilidad de cabeza y posición de manos respecto a la bola en impacto.');
+    recs.push('En Face-On, revisa estabilidad de cabeza, transferencia de peso y posición de manos en impacto.');
   }
 
-  recs.push('Siguiente mejora recomendada: añadir ajuste fino de guías y comparación lado a lado entre dos sesiones.');
+  if (Object.keys(state.phaseCaptures).length) {
+    recs.push('Las capturas de fases ya están guardadas dentro de la sesión, lo que facilita revisar y recuperar el análisis después.');
+  }
+
   return recs;
 }
 
-function analyze() {
+function seekVideoTo(time) {
+  return new Promise((resolve) => {
+    const safeTime = Math.max(0, Math.min(time, Number.isFinite(refs.video.duration) ? refs.video.duration : time));
+    if (Math.abs((refs.video.currentTime || 0) - safeTime) < 0.03) return resolve();
+    const onSeeked = () => resolve();
+    refs.video.addEventListener('seeked', onSeeked, { once: true });
+    refs.video.currentTime = safeTime;
+  });
+}
+
+async function captureFrameAt(time) {
+  const video = refs.video;
+  if (!state.videoUrl || !video.videoWidth || !video.videoHeight) return null;
+  const canvas = refs.captureCanvas;
+  const maxWidth = Math.min(video.videoWidth, 1440);
+  const scale = maxWidth / video.videoWidth;
+  const width = Math.max(1, Math.round(video.videoWidth * scale));
+  const height = Math.max(1, Math.round(video.videoHeight * scale));
+
+  await seekVideoTo(time);
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, width, height);
+  ctx.drawImage(video, 0, 0, width, height);
+  return canvas.toDataURL('image/jpeg', 0.92);
+}
+
+async function generatePhaseCaptures() {
+  if (!state.videoUrl) return {};
+  const originalTime = refs.video.currentTime || 0;
+  refs.video.pause();
+  refs.playBtn.textContent = 'Play';
+
+  const results = {};
+  for (const phase of phases) {
+    const time = state.phaseTimes[phase.id];
+    if (time == null) continue;
+    const image = await captureFrameAt(time);
+    if (image) results[phase.id] = image;
+  }
+
+  await seekVideoTo(originalTime);
+  renderReadouts();
+  renderTimeline();
+  return results;
+}
+
+async function analyze() {
   if (!state.videoUrl) return;
   setMode('analysis');
   setAppState('analyzing');
-  refs.analysisStatus.textContent = 'Analizando calidad, guías y fases marcadas…';
+  refs.analysisStatus.textContent = 'Generando capturas de las fases marcadas…';
   refs.recommendations.innerHTML = '';
-  setTimeout(() => {
-    const marked = Object.keys(state.phaseTimes).length;
-    refs.analysisStatus.textContent = `Resultado inicial: Quality ${qualityScore()}% · ${marked}/${phases.length} fases marcadas.`;
-    refs.recommendations.innerHTML = buildRecommendations().map((rec) => `<div class="rec">${rec}</div>`).join('');
+  refs.capturesGrid.innerHTML = '';
+
+  try {
+    state.phaseCaptures = await generatePhaseCaptures();
+    const capturesCount = Object.keys(state.phaseCaptures).length;
+    refs.analysisStatus.textContent = `Listo: ${capturesCount} capturas generadas · ${markedCount()}/${phases.length} fases marcadas.`;
+    renderRecommendations();
+    renderCapturesGrid();
     setAppState('completed');
-  }, 450);
-}
-
-function captureThumbnailAt(time = null) {
-  return new Promise((resolve) => {
-    const video = refs.video;
-    if (!state.videoUrl || !video.videoWidth || !video.videoHeight) return resolve(null);
-    const original = video.currentTime || 0;
-    const target = time == null ? original : Math.min(Math.max(time, 0), video.duration || original);
-    const canvas = refs.thumbCanvas;
-    const width = 220;
-    const height = Math.round(width * (video.videoHeight / video.videoWidth));
-    canvas.width = width;
-    canvas.height = height;
-
-    const draw = () => {
-      try {
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(video, 0, 0, width, height);
-        const data = canvas.toDataURL('image/jpeg', 0.72);
-        if (time != null && Math.abs(video.currentTime - original) > 0.03) video.currentTime = original;
-        resolve(data);
-      } catch (error) {
-        console.warn(error);
-        resolve(null);
-      }
-    };
-
-    if (time == null || Math.abs(video.currentTime - target) < 0.03) return draw();
-    video.addEventListener('seeked', draw, { once: true });
-    video.currentTime = target;
-  });
+  } catch (error) {
+    console.error(error);
+    refs.analysisStatus.textContent = 'No se pudieron generar las capturas.';
+    setAppState('error');
+  }
 }
 
 async function saveSession() {
@@ -493,8 +522,10 @@ async function saveSession() {
     return;
   }
   try {
-    const thumbTime = state.phaseTimes.address ?? Object.values(state.phaseTimes)[0] ?? 0;
-    const thumbnail = await captureThumbnailAt(thumbTime);
+    if (!Object.keys(state.phaseCaptures).length && markedCount()) {
+      state.phaseCaptures = await generatePhaseCaptures();
+    }
+    const previewCapture = state.phaseCaptures.address || Object.values(state.phaseCaptures)[0] || null;
     await dbPut({
       id: uid(),
       createdAt: new Date().toISOString(),
@@ -503,10 +534,10 @@ async function saveSession() {
       videoBlob: state.videoBlob,
       duration: refs.video.duration || null,
       guideMode: state.guideMode,
-      checks: state.checks,
-      qualityScore: qualityScore(),
-      phaseTimes: state.phaseTimes,
-      thumbnail,
+      phaseTimes: clone(state.phaseTimes),
+      phaseCaptures: clone(state.phaseCaptures),
+      lines: clone(state.lines),
+      thumbnail: previewCapture,
     });
     setAppState('saved');
     await loadHistory();
@@ -514,7 +545,7 @@ async function saveSession() {
   } catch (error) {
     console.error(error);
     setAppState('error');
-    alert('No se pudo guardar la sesión. Puede faltar espacio o estar bloqueado el almacenamiento privado del navegador.');
+    alert('No se pudo guardar la sesión. Puede faltar espacio o estar bloqueado el almacenamiento del navegador.');
   }
 }
 
@@ -530,11 +561,12 @@ async function loadHistory() {
     item.className = 'history-item';
     item.type = 'button';
     const date = new Date(session.createdAt).toLocaleString('es-ES', { dateStyle: 'short', timeStyle: 'short' });
+    const capturesCount = Object.keys(session.phaseCaptures || {}).length;
     item.innerHTML = `
       <img class="history-thumb" src="${session.thumbnail || 'icons/icon-192.png'}" alt="Miniatura" />
       <div>
         <div class="history-title">${session.videoName || 'Swing guardado'}</div>
-        <div class="history-meta">${date} · Quality ${session.qualityScore ?? 0}% · ${Object.keys(session.phaseTimes || {}).length}/${phases.length} fases</div>
+        <div class="history-meta">${date} · ${capturesCount} capturas · ${Object.keys(session.phaseTimes || {}).length}/${phases.length} fases</div>
       </div>`;
     item.addEventListener('click', () => restoreSession(session));
     refs.historyList.appendChild(item);
@@ -542,23 +574,35 @@ async function loadHistory() {
 }
 
 function restoreSession(session) {
-  if (!session.videoBlob) {
-    alert('Esta sesión no tiene vídeo guardado.');
-    return;
-  }
   revokeVideoUrl();
-  state.videoBlob = session.videoBlob;
-  state.videoUrl = URL.createObjectURL(session.videoBlob);
+  resetSessionState();
+  state.videoBlob = session.videoBlob || null;
   state.videoName = session.videoName || 'Swing guardado';
   state.phaseTimes = session.phaseTimes || {};
-  state.checks = session.checks || clone(defaultChecks);
+  state.phaseCaptures = session.phaseCaptures || {};
+  state.lines = session.lines || [];
   state.guideMode = session.guideMode || 'dtl';
-  state.currentPhaseId = 'address';
-  state.mode = 'capture';
+  state.mode = Object.keys(state.phaseCaptures).length ? 'analysis' : 'phases';
   state.controlsVisible = true;
-  refs.video.src = state.videoUrl;
-  refs.video.load();
-  setAppState('loaded');
+
+  if (Object.keys(state.phaseCaptures).length) {
+    refs.analysisStatus.textContent = `Sesión restaurada: ${Object.keys(state.phaseCaptures).length} capturas disponibles.`;
+    renderRecommendations();
+  } else {
+    refs.analysisStatus.textContent = 'Marca las fases y genera las capturas.';
+    refs.recommendations.innerHTML = '';
+  }
+
+  if (session.videoBlob) {
+    state.videoUrl = URL.createObjectURL(session.videoBlob);
+    refs.video.src = state.videoUrl;
+    refs.video.load();
+    setAppState('loaded');
+  } else {
+    state.videoUrl = null;
+    setAppState('error');
+    alert('La sesión no tiene vídeo embebido, pero sí conserva las capturas y las líneas.');
+  }
   render();
 }
 
@@ -566,6 +610,102 @@ async function clearHistory() {
   if (!confirm('¿Borrar todas las sesiones guardadas en este dispositivo?')) return;
   await dbClear();
   await loadHistory();
+}
+
+function resizeDrawingCanvas() {
+  const canvas = refs.drawingCanvas;
+  const rect = canvas.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = Math.max(1, Math.round(rect.width * dpr));
+  canvas.height = Math.max(1, Math.round(rect.height * dpr));
+  drawAllLines();
+}
+
+function getCanvasCssSize() {
+  const rect = refs.drawingCanvas.getBoundingClientRect();
+  return { width: rect.width || 1, height: rect.height || 1 };
+}
+
+function toNormalized(clientX, clientY) {
+  const rect = refs.drawingCanvas.getBoundingClientRect();
+  return {
+    x: Math.min(Math.max((clientX - rect.left) / rect.width, 0), 1),
+    y: Math.min(Math.max((clientY - rect.top) / rect.height, 0), 1),
+  };
+}
+
+function drawLine(ctx, line, cssWidth, cssHeight, dpr, dashed = false) {
+  ctx.save();
+  ctx.scale(dpr, dpr);
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 2.5;
+  if (dashed) ctx.setLineDash([8, 6]);
+  ctx.beginPath();
+  ctx.moveTo(line.x1 * cssWidth, line.y1 * cssHeight);
+  ctx.lineTo(line.x2 * cssWidth, line.y2 * cssHeight);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawAllLines() {
+  const canvas = refs.drawingCanvas;
+  if (!canvas.width || !canvas.height) return;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const dpr = window.devicePixelRatio || 1;
+  const { width, height } = getCanvasCssSize();
+
+  if (state.showDrawings) {
+    state.lines.forEach((line) => drawLine(ctx, line, width, height, dpr, false));
+  }
+  if (state.previewLine) {
+    drawLine(ctx, state.previewLine, width, height, dpr, true);
+  }
+}
+
+function toggleDrawingMode() {
+  state.drawingMode = !state.drawingMode;
+  if (state.drawingMode) state.controlsVisible = true;
+  state.previewLine = null;
+  state.pointerDown = false;
+  render();
+}
+
+function handleCanvasPointerDown(event) {
+  if (!state.drawingMode) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const point = toNormalized(event.clientX, event.clientY);
+  state.pointerDown = true;
+  state.previewLine = { x1: point.x, y1: point.y, x2: point.x, y2: point.y };
+  refs.drawingCanvas.setPointerCapture?.(event.pointerId);
+  drawAllLines();
+}
+
+function handleCanvasPointerMove(event) {
+  if (!state.drawingMode || !state.pointerDown || !state.previewLine) return;
+  event.preventDefault();
+  const point = toNormalized(event.clientX, event.clientY);
+  state.previewLine.x2 = point.x;
+  state.previewLine.y2 = point.y;
+  drawAllLines();
+}
+
+function handleCanvasPointerUp(event) {
+  if (!state.drawingMode || !state.pointerDown || !state.previewLine) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const line = state.previewLine;
+  state.pointerDown = false;
+  state.previewLine = null;
+  const dx = line.x2 - line.x1;
+  const dy = line.y2 - line.y1;
+  const length = Math.sqrt(dx * dx + dy * dy);
+  if (length > 0.01) state.lines.push(line);
+  drawAllLines();
+  renderRails();
 }
 
 function bindEvents() {
@@ -576,29 +716,32 @@ function bindEvents() {
   refs.cameraInput.addEventListener('change', (event) => applyVideoFile(event.target.files?.[0]));
 
   refs.tapLayer.addEventListener('click', toggleControls);
-  refs.playBtn.addEventListener('click', togglePlay);
   refs.video.addEventListener('click', toggleControls);
-  refs.video.addEventListener('timeupdate', () => { renderPhaseHud(); renderTimeline(); });
-  refs.video.addEventListener('seeked', () => { renderPhaseHud(); renderTimeline(); });
+  refs.playBtn.addEventListener('click', togglePlay);
+  refs.video.addEventListener('timeupdate', () => { renderReadouts(); renderTimeline(); });
+  refs.video.addEventListener('seeked', () => { renderReadouts(); renderTimeline(); });
   refs.video.addEventListener('play', () => { refs.playBtn.textContent = 'Pause'; });
   refs.video.addEventListener('pause', () => { refs.playBtn.textContent = 'Play'; });
   refs.video.addEventListener('loadedmetadata', () => {
     refs.video.playbackRate = state.speed;
-    const isVertical = refs.video.videoHeight >= refs.video.videoWidth;
-    state.checks = state.checks.map((check) => check.id === 'vertical' ? { ...check, ok: isVertical } : check);
+    resizeDrawingCanvas();
+    if (state.phaseTimes[currentPhase().id] == null && Number.isFinite(refs.video.duration) && refs.video.duration > 0) {
+      refs.video.currentTime = refs.video.duration * currentPhase().pct;
+    }
     render();
   });
 
   refs.toggleGuidesBtn.addEventListener('click', () => { state.showGuides = !state.showGuides; render(); });
   refs.switchModeBtn.addEventListener('click', () => { state.guideMode = state.guideMode === 'dtl' ? 'fo' : 'dtl'; render(); });
-  refs.fitBtn.addEventListener('click', () => { state.fitContain = !state.fitContain; render(); });
-  refs.speedBtn.addEventListener('click', cycleSpeed);
+  refs.drawModeBtn.addEventListener('click', toggleDrawingMode);
+  refs.toggleDrawingsBtn.addEventListener('click', () => { state.showDrawings = !state.showDrawings; drawAllLines(); renderRails(); });
+  refs.undoLineBtn.addEventListener('click', () => { state.lines.pop(); drawAllLines(); renderRails(); });
+  refs.clearLinesBtn.addEventListener('click', () => { state.lines = []; drawAllLines(); renderRails(); });
 
-  refs.tabCapture.addEventListener('click', () => setMode('capture'));
   refs.tabPhases.addEventListener('click', () => setMode('phases'));
   refs.tabAnalysis.addEventListener('click', () => setMode('analysis'));
   refs.tabHistory.addEventListener('click', () => setMode('history'));
-  refs.goPhasesBtn.addEventListener('click', () => setMode('phases'));
+  refs.speedBtn.addEventListener('click', cycleSpeed);
 
   refs.timeline.addEventListener('input', () => {
     state.isSeekingWithSlider = true;
@@ -614,6 +757,12 @@ function bindEvents() {
   refs.analyzeBtn.addEventListener('click', analyze);
   refs.saveSessionBtn.addEventListener('click', saveSession);
   refs.clearHistoryBtn.addEventListener('click', clearHistory);
+
+  refs.drawingCanvas.addEventListener('pointerdown', handleCanvasPointerDown);
+  refs.drawingCanvas.addEventListener('pointermove', handleCanvasPointerMove);
+  refs.drawingCanvas.addEventListener('pointerup', handleCanvasPointerUp);
+  refs.drawingCanvas.addEventListener('pointercancel', handleCanvasPointerUp);
+  window.addEventListener('resize', resizeDrawingCanvas);
 
   window.addEventListener('beforeinstallprompt', (event) => {
     event.preventDefault();
