@@ -1,5 +1,6 @@
 # Swing Lab PWA v0.2 - Fullscreen Shorts Workflow
 
+https://volinga14.github.io/Golf-Swing/
 Esta versión corrige la usabilidad móvil de la v0.1. El objetivo es que la app se use como un Short de YouTube: vídeo a pantalla completa, controles mínimos y marcado claro de fases.
 
 ## Cambios principales v0.2
