@@ -1,4 +1,4 @@
-const CACHE_NAME = 'swing-lab-v03-polish';
+const CACHE_NAME = 'swing-lab-v04-clean-controls';
 const APP_ASSETS = [
   './',
   './index.html',

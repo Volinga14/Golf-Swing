@@ -1,29 +1,27 @@
-# Swing Lab PWA v0.3
+# Swing Lab PWA v0.4
 
-PWA móvil tipo short para análisis simple de swing de golf.
+PWA móvil tipo short para análisis visual simple de swing de golf.
 
-## Mejoras de esta versión
-- Vídeo fullscreen tipo Shorts.
-- Flujo empieza directamente en **Fases**.
-- Controlador de vídeo siempre visible dentro del dock: timeline, play/pause, velocidad y frame stepping.
-- Modo de **dibujo simple** con líneas rectas.
-- Deshacer línea a línea, ocultar/mostrar líneas y borrar todas.
-- Generación de **capturas de fases** en la etapa de Análisis.
-- Guardado local de sesión con:
-  - vídeo,
-  - fases marcadas,
-  - líneas dibujadas,
-  - capturas de cada fase.
+## Mejoras v0.4
+- Al tocar el vídeo entra en **modo clean**: se ocultan las partes pesadas, pero se mantienen:
+  - controles laterales,
+  - play/pause,
+  - velocidad,
+  - frame actual,
+  - barra de desplazamiento,
+  - botones -1f / +1f.
+- La zona de fases ocupa menos pantalla.
+- Autoavance a la siguiente fase al pulsar **Marcar**.
+- Capturas de análisis mejor presentadas en carrusel horizontal.
+- Las sesiones guardadas ya no guardan el vídeo completo: guardan solo capturas, fases y líneas.
 
 ## Uso
-1. Subir o grabar un vídeo.
-2. Marcar fases en la pestaña **Fases**.
-3. Si quieres, dibujar líneas sobre el vídeo.
-4. Ir a **Análisis** y pulsar **Generar**.
-5. Guardar la sesión en local.
-6. Recuperarla luego desde **Historial**.
+1. Subir o grabar vídeo.
+2. Marcar fases.
+3. Opcional: dibujar líneas simples.
+4. Ir a Análisis y generar capturas.
+5. Guardar sesión local.
+6. Recuperar capturas desde Historial.
 
-## Notas
-- Para instalarla como PWA real, usa HTTPS o localhost.
-- Funciona sin backend.
-- El número de frame se estima a 30 fps para simplificar esta versión.
+## Nota
+Para instalar como PWA real, usar HTTPS o localhost. El frame se estima a 30 fps en esta versión.

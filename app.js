@@ -2,7 +2,7 @@
 
 const $ = (id) => document.getElementById(id);
 const DB_NAME = 'swing-lab-db';
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 const STORE = 'sessions';
 const ASSUMED_FPS = 30;
 
@@ -18,6 +18,7 @@ const state = {
   videoUrl: null,
   videoBlob: null,
   videoName: '',
+  captureOnly: false,
   mode: 'phases',
   currentPhaseId: 'address',
   phaseTimes: {},
@@ -193,6 +194,7 @@ function revokeVideoUrl() {
 }
 
 function resetSessionState() {
+  state.captureOnly = false;
   state.mode = 'phases';
   state.currentPhaseId = 'address';
   state.phaseTimes = {};
@@ -239,19 +241,21 @@ function toggleControls() {
 
 function renderShell() {
   const hasVideo = Boolean(state.videoUrl);
-  refs.emptyState.classList.toggle('hidden', hasVideo);
+  const hasSession = hasVideo || state.captureOnly;
+  refs.emptyState.classList.toggle('hidden', hasSession);
   refs.video.classList.toggle('hidden', !hasVideo);
   refs.tapLayer.classList.toggle('hidden', !hasVideo || state.drawingMode);
   refs.scrimTop.classList.toggle('hidden', !hasVideo);
   refs.scrimBottom.classList.toggle('hidden', !hasVideo);
-  refs.topHud.classList.toggle('hidden', !hasVideo);
+  refs.topHud.classList.toggle('hidden', !hasSession);
   refs.rightRail.classList.toggle('hidden', !hasVideo);
-  refs.bottomDock.classList.toggle('hidden', !hasVideo);
+  refs.bottomDock.classList.toggle('hidden', !hasSession);
   refs.phaseHud.classList.toggle('hidden', !hasVideo || state.mode === 'history');
   refs.guideOverlay.classList.toggle('hidden', !hasVideo || !state.showGuides);
-  refs.cleanHint.classList.toggle('hidden', state.controlsVisible || !hasVideo);
+  refs.cleanHint.classList.add('hidden');
   refs.app.classList.toggle('controls-hidden', hasVideo && !state.controlsVisible);
-  refs.playerStrip.classList.toggle('hidden', state.mode === 'history');
+  refs.app.classList.toggle('capture-only', state.captureOnly);
+  refs.playerStrip.classList.toggle('hidden', state.mode === 'history' || state.captureOnly);
   refs.drawingCanvas.classList.toggle('hidden', !hasVideo);
 }
 
@@ -403,8 +407,14 @@ function stepFrame(direction) {
 function markCurrentPhase() {
   if (!state.videoUrl) return;
   const phase = currentPhase();
+  const currentIndex = phases.findIndex((item) => item.id === phase.id);
   state.phaseTimes[phase.id] = refs.video.currentTime || 0;
   render();
+
+  const nextPhase = phases[currentIndex + 1];
+  if (nextPhase) {
+    setTimeout(() => jumpToPhase(nextPhase.id), 90);
+  }
 }
 
 function updateTimelineFromInput() {
@@ -517,21 +527,19 @@ async function analyze() {
 }
 
 async function saveSession() {
-  if (!state.videoBlob) {
-    alert('No hay vídeo cargado para guardar.');
-    return;
-  }
   try {
-    if (!Object.keys(state.phaseCaptures).length && markedCount()) {
+    if (!Object.keys(state.phaseCaptures).length && state.videoUrl && markedCount()) {
       state.phaseCaptures = await generatePhaseCaptures();
+    }
+    if (!Object.keys(state.phaseCaptures).length) {
+      alert('Primero genera las capturas de las fases en la pestaña Análisis.');
+      return;
     }
     const previewCapture = state.phaseCaptures.address || Object.values(state.phaseCaptures)[0] || null;
     await dbPut({
       id: uid(),
       createdAt: new Date().toISOString(),
       videoName: state.videoName,
-      videoType: state.videoBlob.type,
-      videoBlob: state.videoBlob,
       duration: refs.video.duration || null,
       guideMode: state.guideMode,
       phaseTimes: clone(state.phaseTimes),
@@ -594,14 +602,18 @@ function restoreSession(session) {
   }
 
   if (session.videoBlob) {
+    state.captureOnly = false;
     state.videoUrl = URL.createObjectURL(session.videoBlob);
     refs.video.src = state.videoUrl;
     refs.video.load();
     setAppState('loaded');
   } else {
+    state.captureOnly = true;
     state.videoUrl = null;
-    setAppState('error');
-    alert('La sesión no tiene vídeo embebido, pero sí conserva las capturas y las líneas.');
+    state.videoBlob = null;
+    refs.video.removeAttribute('src');
+    refs.video.load();
+    setAppState('saved');
   }
   render();
 }
