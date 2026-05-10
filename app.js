@@ -34,6 +34,9 @@ const state = {
   showDrawings: true,
   lines: [],
   previewLine: null,
+  pendingLineStart: null,
+  pointerStart: null,
+  pointerMoved: false,
   pointerDown: false,
 };
 
@@ -51,6 +54,7 @@ const refs = {
   phaseHud: $('phaseHud'),
   bottomDock: $('bottomDock'),
   cleanHint: $('cleanHint'),
+  drawingHint: $('drawingHint'),
   guideOverlay: $('guideOverlay'),
   dtlGuides: $('dtlGuides'),
   foGuides: $('foGuides'),
@@ -58,6 +62,7 @@ const refs = {
   uploadBtn: $('uploadBtn'),
   pickVideoBtn: $('pickVideoBtn'),
   openCameraBtn: $('openCameraBtn'),
+  openHistoryStartBtn: $('openHistoryStartBtn'),
   videoInput: $('videoInput'),
   cameraInput: $('cameraInput'),
   installBtn: $('installBtn'),
@@ -93,6 +98,7 @@ const refs = {
   recommendations: $('recommendations'),
   capturesGrid: $('capturesGrid'),
   saveSessionBtn: $('saveSessionBtn'),
+  saveSessionTopBtn: $('saveSessionTopBtn'),
   clearHistoryBtn: $('clearHistoryBtn'),
   historyList: $('historyList'),
 };
@@ -201,6 +207,9 @@ function resetSessionState() {
   state.phaseCaptures = {};
   state.lines = [];
   state.previewLine = null;
+  state.pendingLineStart = null;
+  state.pointerStart = null;
+  state.pointerMoved = false;
   state.drawingMode = false;
   state.showDrawings = true;
   state.controlsVisible = true;
@@ -253,9 +262,14 @@ function renderShell() {
   refs.phaseHud.classList.toggle('hidden', !hasVideo || state.mode === 'history');
   refs.guideOverlay.classList.toggle('hidden', !hasVideo || !state.showGuides);
   refs.cleanHint.classList.add('hidden');
+  refs.drawingHint.classList.toggle('hidden', !hasVideo || !state.drawingMode);
   refs.app.classList.toggle('controls-hidden', hasVideo && !state.controlsVisible);
   refs.app.classList.toggle('capture-only', state.captureOnly);
-  refs.playerStrip.classList.toggle('hidden', state.mode === 'history' || state.captureOnly);
+  refs.app.classList.toggle('drawing-mode', hasVideo && state.drawingMode);
+  refs.bottomDock.classList.toggle('phases-mode', state.mode === 'phases');
+  refs.bottomDock.classList.toggle('analysis-mode', state.mode === 'analysis');
+  refs.bottomDock.classList.toggle('history-mode', state.mode === 'history');
+  refs.playerStrip.classList.toggle('hidden', state.mode !== 'phases' || state.captureOnly);
   refs.drawingCanvas.classList.toggle('hidden', !hasVideo);
 }
 
@@ -324,6 +338,9 @@ function renderReadouts() {
   refs.playerPhaseReadout.textContent = `Fase: ${phase.label}`;
   refs.markPhaseBtn.textContent = currentMarked ? 'Actualizar' : 'Marcar';
   refs.markPhaseBtn.classList.toggle('marked', currentMarked);
+  const canSave = Boolean(Object.keys(state.phaseCaptures).length || (state.videoUrl && markedCount()));
+  refs.saveSessionBtn.disabled = !canSave;
+  refs.saveSessionTopBtn.disabled = !canSave;
 }
 
 function renderTimeline() {
@@ -624,6 +641,22 @@ async function clearHistory() {
   await loadHistory();
 }
 
+function openHistoryFromStart() {
+  revokeVideoUrl();
+  resetSessionState();
+  state.captureOnly = true;
+  state.videoUrl = null;
+  state.videoBlob = null;
+  state.videoName = '';
+  state.mode = 'history';
+  state.controlsVisible = true;
+  refs.video.removeAttribute('src');
+  refs.video.load();
+  setAppState('saved');
+  render();
+  loadHistory();
+}
+
 function resizeDrawingCanvas() {
   const canvas = refs.drawingCanvas;
   const rect = canvas.getBoundingClientRect();
@@ -646,17 +679,35 @@ function toNormalized(clientX, clientY) {
   };
 }
 
+
 function drawLine(ctx, line, cssWidth, cssHeight, dpr, dashed = false) {
   ctx.save();
   ctx.scale(dpr, dpr);
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
   ctx.strokeStyle = '#ffffff';
-  ctx.lineWidth = 2.5;
+  ctx.lineWidth = 2.8;
+  ctx.shadowColor = 'rgba(0,0,0,.65)';
+  ctx.shadowBlur = 5;
   if (dashed) ctx.setLineDash([8, 6]);
   ctx.beginPath();
   ctx.moveTo(line.x1 * cssWidth, line.y1 * cssHeight);
   ctx.lineTo(line.x2 * cssWidth, line.y2 * cssHeight);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawPoint(ctx, point, cssWidth, cssHeight, dpr) {
+  ctx.save();
+  ctx.scale(dpr, dpr);
+  ctx.fillStyle = '#ffffff';
+  ctx.strokeStyle = 'rgba(0,0,0,.72)';
+  ctx.lineWidth = 2;
+  ctx.shadowColor = 'rgba(0,0,0,.55)';
+  ctx.shadowBlur = 6;
+  ctx.beginPath();
+  ctx.arc(point.x * cssWidth, point.y * cssHeight, 6, 0, Math.PI * 2);
+  ctx.fill();
   ctx.stroke();
   ctx.restore();
 }
@@ -672,6 +723,9 @@ function drawAllLines() {
   if (state.showDrawings) {
     state.lines.forEach((line) => drawLine(ctx, line, width, height, dpr, false));
   }
+  if (state.pendingLineStart) {
+    drawPoint(ctx, state.pendingLineStart, width, height, dpr);
+  }
   if (state.previewLine) {
     drawLine(ctx, state.previewLine, width, height, dpr, true);
   }
@@ -681,8 +735,40 @@ function toggleDrawingMode() {
   state.drawingMode = !state.drawingMode;
   if (state.drawingMode) state.controlsVisible = true;
   state.previewLine = null;
+  state.pendingLineStart = null;
+  state.pointerStart = null;
+  state.pointerMoved = false;
   state.pointerDown = false;
   render();
+}
+
+function distance(a, b) {
+  if (!a || !b) return 0;
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+function lineLength(line) {
+  if (!line) return 0;
+  return distance({ x: line.x1, y: line.y1 }, { x: line.x2, y: line.y2 });
+}
+
+function createLineFromPending(point) {
+  if (!state.pendingLineStart) return false;
+  const line = {
+    x1: state.pendingLineStart.x,
+    y1: state.pendingLineStart.y,
+    x2: point.x,
+    y2: point.y,
+  };
+  state.pendingLineStart = null;
+  state.previewLine = null;
+  if (lineLength(line) > 0.012) {
+    state.lines.push(line);
+    return true;
+  }
+  return false;
 }
 
 function handleCanvasPointerDown(event) {
@@ -691,7 +777,11 @@ function handleCanvasPointerDown(event) {
   event.stopPropagation();
   const point = toNormalized(event.clientX, event.clientY);
   state.pointerDown = true;
-  state.previewLine = { x1: point.x, y1: point.y, x2: point.x, y2: point.y };
+  state.pointerStart = point;
+  state.pointerMoved = false;
+  state.previewLine = state.pendingLineStart
+    ? { x1: state.pendingLineStart.x, y1: state.pendingLineStart.y, x2: point.x, y2: point.y }
+    : { x1: point.x, y1: point.y, x2: point.x, y2: point.y };
   refs.drawingCanvas.setPointerCapture?.(event.pointerId);
   drawAllLines();
 }
@@ -699,23 +789,48 @@ function handleCanvasPointerDown(event) {
 function handleCanvasPointerMove(event) {
   if (!state.drawingMode || !state.pointerDown || !state.previewLine) return;
   event.preventDefault();
+  event.stopPropagation();
   const point = toNormalized(event.clientX, event.clientY);
+  if (distance(state.pointerStart, point) > 0.006) state.pointerMoved = true;
   state.previewLine.x2 = point.x;
   state.previewLine.y2 = point.y;
   drawAllLines();
 }
 
 function handleCanvasPointerUp(event) {
-  if (!state.drawingMode || !state.pointerDown || !state.previewLine) return;
+  if (!state.drawingMode || !state.pointerDown) return;
   event.preventDefault();
   event.stopPropagation();
-  const line = state.previewLine;
+  const point = toNormalized(event.clientX, event.clientY);
+  const wasMoved = state.pointerMoved;
+  const draggedLine = state.previewLine;
   state.pointerDown = false;
+  state.pointerStart = null;
+  state.pointerMoved = false;
+
+  if (wasMoved && draggedLine && lineLength(draggedLine) > 0.012) {
+    state.lines.push(draggedLine);
+    state.pendingLineStart = null;
+    state.previewLine = null;
+  } else if (!state.pendingLineStart) {
+    state.pendingLineStart = point;
+    state.previewLine = null;
+  } else {
+    createLineFromPending(point);
+  }
+
+  refs.drawingCanvas.releasePointerCapture?.(event.pointerId);
+  drawAllLines();
+  renderRails();
+}
+
+function cancelCanvasPointer(event) {
+  if (!state.drawingMode) return;
+  state.pointerDown = false;
+  state.pointerStart = null;
+  state.pointerMoved = false;
   state.previewLine = null;
-  const dx = line.x2 - line.x1;
-  const dy = line.y2 - line.y1;
-  const length = Math.sqrt(dx * dx + dy * dy);
-  if (length > 0.01) state.lines.push(line);
+  try { refs.drawingCanvas.releasePointerCapture?.(event.pointerId); } catch (_) {}
   drawAllLines();
   renderRails();
 }
@@ -723,6 +838,7 @@ function handleCanvasPointerUp(event) {
 function bindEvents() {
   refs.pickVideoBtn.addEventListener('click', () => refs.videoInput.click());
   refs.openCameraBtn.addEventListener('click', () => refs.cameraInput.click());
+  refs.openHistoryStartBtn.addEventListener('click', openHistoryFromStart);
   refs.uploadBtn.addEventListener('click', () => refs.videoInput.click());
   refs.videoInput.addEventListener('change', (event) => applyVideoFile(event.target.files?.[0]));
   refs.cameraInput.addEventListener('change', (event) => applyVideoFile(event.target.files?.[0]));
@@ -768,12 +884,14 @@ function bindEvents() {
   refs.markPhaseBtn.addEventListener('click', markCurrentPhase);
   refs.analyzeBtn.addEventListener('click', analyze);
   refs.saveSessionBtn.addEventListener('click', saveSession);
+  refs.saveSessionTopBtn.addEventListener('click', saveSession);
   refs.clearHistoryBtn.addEventListener('click', clearHistory);
 
   refs.drawingCanvas.addEventListener('pointerdown', handleCanvasPointerDown);
   refs.drawingCanvas.addEventListener('pointermove', handleCanvasPointerMove);
   refs.drawingCanvas.addEventListener('pointerup', handleCanvasPointerUp);
-  refs.drawingCanvas.addEventListener('pointercancel', handleCanvasPointerUp);
+  refs.drawingCanvas.addEventListener('pointercancel', cancelCanvasPointer);
+  refs.drawingCanvas.addEventListener('lostpointercapture', cancelCanvasPointer);
   window.addEventListener('resize', resizeDrawingCanvas);
 
   window.addEventListener('beforeinstallprompt', (event) => {

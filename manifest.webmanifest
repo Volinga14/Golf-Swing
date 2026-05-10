@@ -1,7 +1,7 @@
 {
   "name": "Swing Lab",
   "short_name": "Swing Lab",
-  "description": "PWA fullscreen para revisar y marcar fases de un swing de golf en formato Shorts.",
+  "description": "PWA fullscreen para revisar swing de golf, marcar fases, guardar capturas y recuperar sesiones anteriores.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",

@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no" />
-  <title>Swing Lab</title>
-  <meta name="description" content="Swing Lab PWA - análisis de swing de golf en formato short fullscreen." />
+  <title>Swing Lab v0.5</title>
+  <meta name="description" content="Swing Lab PWA v0.5 - análisis de swing de golf con capturas, historial y dibujo táctil." />
   <meta name="theme-color" content="#000000" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -26,6 +26,7 @@
           <button id="pickVideoBtn" class="btn primary" type="button">Subir vídeo</button>
           <button id="openCameraBtn" class="btn secondary" type="button">Grabar con cámara</button>
         </div>
+        <button id="openHistoryStartBtn" class="history-empty-btn" type="button">Cargar sesión anterior</button>
         <button id="installBtnEmpty" class="install-empty hidden" type="button">Instalar PWA</button>
         <p class="empty-tip">Recomendado: móvil vertical, cuerpo completo, cámara quieta y buena luz.</p>
       </section>
@@ -126,11 +127,14 @@
               <h2>Análisis visual</h2>
               <p id="analysisStatus">Marca las fases y genera las capturas.</p>
             </div>
-            <button id="analyzeBtn" class="small-pill" type="button">Generar</button>
+            <div class="analysis-actions">
+              <button id="analyzeBtn" class="small-pill" type="button">Generar</button>
+              <button id="saveSessionTopBtn" class="small-pill save-pill" type="button">Guardar</button>
+            </div>
           </div>
           <div id="recommendations" class="recommendations"></div>
           <div id="capturesGrid" class="captures-grid"></div>
-          <button id="saveSessionBtn" class="wide-action" type="button">Guardar sesión local</button>
+          <button id="saveSessionBtn" class="wide-action primary-save" type="button">Guardar análisis</button>
         </div>
 
         <div id="historyPanel" class="dock-panel hidden">
@@ -146,6 +150,7 @@
       </section>
 
       <div id="cleanHint" class="clean-hint hidden">Toca el vídeo para mostrar controles</div>
+      <div id="drawingHint" class="drawing-hint hidden">Dibujo: toca 2 puntos o arrastra para crear una línea</div>
     </main>
 
     <input id="videoInput" type="file" accept="video/*" class="hidden" />
