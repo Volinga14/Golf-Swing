@@ -549,3 +549,21 @@ button:disabled { opacity: .42; cursor: not-allowed; }
 #clearLinesBtn:disabled {
   opacity: .38;
 }
+
+/* v0.8.2 clean initial load */
+.initial-clean .top-hud,
+.initial-clean .right-rail,
+.initial-clean .bottom-dock,
+.initial-clean .phase-hud,
+.initial-clean .scrim,
+.initial-clean .guide-overlay {
+  display: none !important;
+}
+.initial-clean .clean-hint {
+  display: block !important;
+  bottom: calc(34px + var(--safe-bottom));
+  background: rgba(0,0,0,.62);
+}
+.initial-clean .drawing-canvas {
+  pointer-events: none !important;
+}

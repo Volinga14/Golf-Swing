@@ -1,4 +1,4 @@
-const CACHE_NAME = 'swing-lab-v081-drawing-mobile-fix';
+const CACHE_NAME = 'swing-lab-v082-clean-load';
 const APP_ASSETS = [
   './',
   './index.html',

@@ -32,6 +32,7 @@ const state = {
   guideMode: 'dtl',
   speed: 1,
   controlsVisible: true,
+  initialVideoClean: false,
   isSeekingWithSlider: false,
   installPrompt: null,
   appState: 'empty',
@@ -240,7 +241,9 @@ function resetSessionState() {
   state.drawingMode = false;
   state.showDrawings = true;
   state.controlsVisible = true;
+  state.initialVideoClean = false;
 }
+
 
 function applyVideoFile(file) {
   if (!file) return;
@@ -250,6 +253,12 @@ function applyVideoFile(file) {
   }
   revokeVideoUrl();
   resetSessionState();
+  state.controlsVisible = false;
+  state.initialVideoClean = true;
+  state.showGuides = false;
+  refs.cleanHint.textContent = 'Toca el vídeo para abrir fases';
+  refs.video.pause();
+  refs.playBtn.textContent = 'Play';
   state.videoBlob = file;
   state.videoUrl = URL.createObjectURL(file);
   state.videoName = file.name || `swing-${new Date().toISOString().slice(0, 10)}.mp4`;
@@ -280,7 +289,15 @@ function setMode(mode) {
 
 function toggleControls() {
   if (!state.videoUrl || state.drawingMode) return;
+  if (state.initialVideoClean) {
+    state.initialVideoClean = false;
+    state.controlsVisible = true;
+    refs.cleanHint.textContent = 'Toca el vídeo para mostrar controles';
+    render();
+    return;
+  }
   state.controlsVisible = !state.controlsVisible;
+  refs.cleanHint.textContent = 'Toca el vídeo para mostrar controles';
   refs.app.classList.toggle('controls-hidden', !state.controlsVisible);
 }
 
@@ -304,7 +321,8 @@ function renderShell() {
   refs.guideOverlay.classList.toggle('hidden', !hasVideo || showingCapture || !state.showGuides);
   refs.cleanHint.classList.add('hidden');
   refs.drawingHint.classList.toggle('hidden', !hasSession || !state.drawingMode);
-  refs.app.classList.toggle('controls-hidden', hasSession && !state.controlsVisible && !state.drawingMode);
+  refs.app.classList.toggle('initial-clean', hasVideo && state.initialVideoClean && !state.drawingMode && !showingCapture);
+  refs.app.classList.toggle('controls-hidden', hasSession && !state.controlsVisible && !state.drawingMode && !state.initialVideoClean);
   refs.app.classList.toggle('capture-only', state.captureOnly || (showingCapture && !hasVideo));
   refs.app.classList.toggle('capture-viewing', showingCapture);
   refs.app.classList.toggle('drawing-mode', hasSession && state.drawingMode);
@@ -1443,9 +1461,13 @@ function bindEvents() {
   refs.video.addEventListener('play', () => { refs.playBtn.textContent = 'Pause'; });
   refs.video.addEventListener('pause', () => { refs.playBtn.textContent = 'Play'; });
   refs.video.addEventListener('loadedmetadata', () => {
+    refs.video.pause();
+    refs.playBtn.textContent = 'Play';
     refs.video.playbackRate = state.speed;
     resizeDrawingCanvas();
-    if (state.phaseTimes[currentPhase().id] == null && Number.isFinite(refs.video.duration) && refs.video.duration > 0) {
+    if (state.initialVideoClean) {
+      refs.video.currentTime = 0;
+    } else if (state.phaseTimes[currentPhase().id] == null && Number.isFinite(refs.video.duration) && refs.video.duration > 0) {
       refs.video.currentTime = refs.video.duration * currentPhase().pct;
     }
     render();
