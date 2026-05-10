@@ -1200,6 +1200,51 @@ function toggleDrawingMode() {
   render();
 }
 
+
+function distance(a, b) {
+  if (!a || !b) return Infinity;
+  const dx = (a.x || 0) - (b.x || 0);
+  const dy = (a.y || 0) - (b.y || 0);
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+function lineLength(line) {
+  if (!line) return 0;
+  return distance({ x: line.x1, y: line.y1 }, { x: line.x2, y: line.y2 });
+}
+
+function createLineFromPending(point) {
+  if (!state.pendingLineStart || !point) return false;
+  let line = {
+    x1: state.pendingLineStart.x,
+    y1: state.pendingLineStart.y,
+    x2: point.x,
+    y2: point.y,
+  };
+  line = snapLineIfNeeded(line);
+  if (lineLength(line) <= 0.012) {
+    state.previewLine = null;
+    return false;
+  }
+  state.lines.push(line);
+  state.selectedLineIndex = state.lines.length - 1;
+  state.pendingLineStart = null;
+  state.previewLine = null;
+  state.pointerDown = false;
+  state.pointerStart = null;
+  state.pointerMoved = false;
+  state.lockAxisMode = false;
+  if (state.longPressTimer) clearTimeout(state.longPressTimer);
+  state.longPressTimer = null;
+  refs.drawingHint.textContent = 'Línea creada';
+  window.setTimeout(() => {
+    if (state.drawingMode) refs.drawingHint.textContent = 'Dibujo: toca 2 puntos, arrastra, o mueve una línea existente';
+  }, 900);
+  drawAllLines();
+  renderRails();
+  return true;
+}
+
 function pointToSegmentDistance(point, line) {
   const ax = line.x1;
   const ay = line.y1;
@@ -1256,6 +1301,22 @@ function handleCanvasPointerDown(event) {
   event.preventDefault();
   event.stopPropagation();
   const point = toNormalized(event.clientX, event.clientY);
+
+  // Mobile two-tap mode: if a first point already exists, the next tap must
+  // immediately confirm the line. Do not wait for pointerup, because some
+  // mobile browsers lose/cancel the pointer capture before pointerup fires.
+  if (state.pendingLineStart && !state.pointerDown) {
+    const created = createLineFromPending(point);
+    if (!created) {
+      state.pendingLineStart = point;
+      state.previewLine = null;
+      state.selectedLineIndex = -1;
+      drawAllLines();
+      renderRails();
+    }
+    return;
+  }
+
   state.pointerDown = true;
   state.pointerStart = point;
   state.pointerMoved = false;
@@ -1350,7 +1411,7 @@ function handleCanvasPointerUp(event) {
 }
 
 function cancelCanvasPointer(event) {
-  if (!state.drawingMode) return;
+  if (!state.drawingMode || !state.pointerDown) return;
   state.pointerDown = false;
   state.pointerStart = null;
   state.pointerMoved = false;
