@@ -2,7 +2,7 @@
 
 const $ = (id) => document.getElementById(id);
 const DB_NAME = 'swing-lab-db';
-const DB_VERSION = 7;
+const DB_VERSION = 8;
 const STORE = 'sessions';
 const ASSUMED_FPS = 30;
 
