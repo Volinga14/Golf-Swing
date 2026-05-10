@@ -2,7 +2,7 @@
 
 const $ = (id) => document.getElementById(id);
 const DB_NAME = 'swing-lab-db';
-const DB_VERSION = 5;
+const DB_VERSION = 6;
 const STORE = 'sessions';
 const ASSUMED_FPS = 30;
 
@@ -23,6 +23,11 @@ const state = {
   currentPhaseId: 'address',
   phaseTimes: {},
   phaseCaptures: {},
+  analysisMetrics: null,
+  autoDetection: { status: 'idle', confidence: 0, method: '', samples: 0, motionPeakTime: null },
+  viewingCapture: false,
+  activeCaptureIndex: 0,
+  captureSwipeStart: null,
   showGuides: true,
   guideMode: 'dtl',
   speed: 1,
@@ -44,6 +49,8 @@ const refs = {
   app: $('app'),
   emptyState: $('emptyState'),
   video: $('video'),
+  captureViewer: $('captureViewer'),
+  captureBadge: $('captureBadge'),
   drawingCanvas: $('drawingCanvas'),
   captureCanvas: $('captureCanvas'),
   tapLayer: $('tapLayer'),
@@ -166,6 +173,8 @@ function setAppState(next) {
   const map = {
     empty: 'Sin vídeo',
     loaded: 'Vídeo cargado',
+    detecting: 'Detectando fases',
+    detected: 'Fases detectadas',
     marking: 'Marcando fases',
     analyzing: 'Generando capturas',
     completed: 'Análisis listo',
@@ -205,6 +214,11 @@ function resetSessionState() {
   state.currentPhaseId = 'address';
   state.phaseTimes = {};
   state.phaseCaptures = {};
+  state.analysisMetrics = null;
+  state.autoDetection = { status: 'idle', confidence: 0, method: '', samples: 0, motionPeakTime: null };
+  state.viewingCapture = false;
+  state.activeCaptureIndex = 0;
+  state.captureSwipeStart = null;
   state.lines = [];
   state.previewLine = null;
   state.pendingLineStart = null;
@@ -226,18 +240,27 @@ function applyVideoFile(file) {
   state.videoBlob = file;
   state.videoUrl = URL.createObjectURL(file);
   state.videoName = file.name || `swing-${new Date().toISOString().slice(0, 10)}.mp4`;
-  refs.analysisStatus.textContent = 'Marca las fases y genera las capturas.';
+  refs.analysisStatus.textContent = 'Detectando fases automáticamente… podrás corregirlas manualmente.';
   refs.recommendations.innerHTML = '';
   refs.capturesGrid.innerHTML = '';
   refs.video.src = state.videoUrl;
   refs.video.load();
+  state.autoDetection = { status: 'queued', confidence: 0, method: 'motion-profile', samples: 0, motionPeakTime: null };
   setAppState('loaded');
   render();
 }
 
 function setMode(mode) {
   state.mode = mode;
-  if (mode === 'phases') setAppState('marking');
+  if (mode === 'phases') {
+    if (state.videoUrl) state.viewingCapture = false;
+    setAppState(markedCount() ? 'detected' : 'marking');
+  }
+  if (mode === 'analysis') {
+    state.drawingMode = false;
+    state.pendingLineStart = null;
+    state.previewLine = null;
+  }
   render();
   if (mode === 'history') loadHistory();
 }
@@ -250,27 +273,33 @@ function toggleControls() {
 
 function renderShell() {
   const hasVideo = Boolean(state.videoUrl);
-  const hasSession = hasVideo || state.captureOnly;
+  const hasCaptures = captureList().length > 0;
+  const showingCapture = state.viewingCapture || (state.captureOnly && hasCaptures);
+  const hasSession = hasVideo || state.captureOnly || hasCaptures;
+
   refs.emptyState.classList.toggle('hidden', hasSession);
-  refs.video.classList.toggle('hidden', !hasVideo);
-  refs.tapLayer.classList.toggle('hidden', !hasVideo || state.drawingMode);
-  refs.scrimTop.classList.toggle('hidden', !hasVideo);
-  refs.scrimBottom.classList.toggle('hidden', !hasVideo);
-  refs.topHud.classList.toggle('hidden', !hasSession);
+  refs.video.classList.toggle('hidden', !hasVideo || showingCapture);
+  refs.captureViewer.classList.toggle('hidden', !showingCapture);
+  refs.captureBadge.classList.toggle('hidden', !showingCapture);
+  refs.tapLayer.classList.toggle('hidden', !hasVideo || showingCapture || state.drawingMode);
+  refs.scrimTop.classList.toggle('hidden', !hasVideo || showingCapture);
+  refs.scrimBottom.classList.toggle('hidden', !hasVideo || showingCapture);
+  refs.topHud.classList.toggle('hidden', !hasSession || state.drawingMode);
   refs.rightRail.classList.toggle('hidden', !hasVideo);
-  refs.bottomDock.classList.toggle('hidden', !hasSession);
-  refs.phaseHud.classList.toggle('hidden', !hasVideo || state.mode === 'history');
-  refs.guideOverlay.classList.toggle('hidden', !hasVideo || !state.showGuides);
+  refs.bottomDock.classList.toggle('hidden', !hasSession || state.drawingMode);
+  refs.phaseHud.classList.toggle('hidden', !hasVideo || showingCapture || state.mode === 'history' || state.drawingMode);
+  refs.guideOverlay.classList.toggle('hidden', !hasVideo || showingCapture || !state.showGuides);
   refs.cleanHint.classList.add('hidden');
   refs.drawingHint.classList.toggle('hidden', !hasVideo || !state.drawingMode);
-  refs.app.classList.toggle('controls-hidden', hasVideo && !state.controlsVisible);
-  refs.app.classList.toggle('capture-only', state.captureOnly);
+  refs.app.classList.toggle('controls-hidden', hasVideo && !state.controlsVisible && !state.drawingMode);
+  refs.app.classList.toggle('capture-only', state.captureOnly || (showingCapture && !hasVideo));
+  refs.app.classList.toggle('capture-viewing', showingCapture);
   refs.app.classList.toggle('drawing-mode', hasVideo && state.drawingMode);
   refs.bottomDock.classList.toggle('phases-mode', state.mode === 'phases');
   refs.bottomDock.classList.toggle('analysis-mode', state.mode === 'analysis');
   refs.bottomDock.classList.toggle('history-mode', state.mode === 'history');
-  refs.playerStrip.classList.toggle('hidden', state.mode !== 'phases' || state.captureOnly);
-  refs.drawingCanvas.classList.toggle('hidden', !hasVideo);
+  refs.playerStrip.classList.toggle('hidden', state.mode !== 'phases' || state.captureOnly || showingCapture);
+  refs.drawingCanvas.classList.toggle('hidden', !hasVideo || showingCapture);
 }
 
 function renderRails() {
@@ -350,16 +379,18 @@ function renderTimeline() {
 
 function renderCapturesGrid() {
   refs.capturesGrid.innerHTML = '';
-  const available = phases.filter((phase) => state.phaseCaptures[phase.id]);
+  const available = captureList();
   if (!available.length) return;
-  available.forEach((phase) => {
+  available.forEach(({ phase, src }, index) => {
     const time = state.phaseTimes[phase.id];
-    const card = document.createElement('div');
-    card.className = 'capture-card';
+    const card = document.createElement('button');
+    card.type = 'button';
+    card.className = `capture-card ${index === state.activeCaptureIndex && (state.viewingCapture || state.captureOnly) ? 'active' : ''}`;
     card.innerHTML = `
-      <img src="${state.phaseCaptures[phase.id]}" alt="${phase.label}" />
+      <img src="${src}" alt="${phase.label}" />
       <b>${phase.label}</b>
-      <span>${time != null ? `${formatTime(time)} · frame ${frameNumber(time)}` : 'Sin tiempo'}</span>`;
+      <span>${time != null ? `${formatTime(time)} · frame ${frameNumber(time)}` : 'Captura guardada'}</span>`;
+    card.addEventListener('click', () => openCaptureViewer(phase.id));
     refs.capturesGrid.appendChild(card);
   });
 }
@@ -378,18 +409,23 @@ function render() {
   renderReadouts();
   renderTimeline();
   renderCapturesGrid();
+  renderCaptureViewer();
   drawAllLines();
 }
 
 
 function jumpToPhase(phaseId) {
   state.currentPhaseId = phaseId;
+  if (state.videoUrl) state.viewingCapture = false;
   const time = state.phaseTimes[phaseId];
-  if (time != null) {
+  if (state.videoUrl && time != null) {
     refs.video.currentTime = time;
-  } else if (Number.isFinite(refs.video.duration) && refs.video.duration > 0) {
+  } else if (state.videoUrl && Number.isFinite(refs.video.duration) && refs.video.duration > 0) {
     const phase = phases.find((item) => item.id === phaseId) || phases[0];
     refs.video.currentTime = refs.video.duration * phase.pct;
+  } else if (!state.videoUrl && state.phaseCaptures[phaseId]) {
+    openCaptureViewer(phaseId);
+    return;
   }
   refs.video.pause();
   refs.playBtn.textContent = 'Play';
@@ -446,31 +482,280 @@ function updateTimelineFromInput() {
 function buildRecommendations() {
   const marked = markedCount();
   const missing = phases.filter((phase) => state.phaseTimes[phase.id] == null).map((phase) => phase.label);
+  const metrics = state.analysisMetrics || computeAnalysisMetrics();
+  state.analysisMetrics = metrics;
   const recs = [];
 
+  if (state.autoDetection.status === 'done') {
+    recs.push(`Detección automática aplicada con confianza aproximada ${Math.round((state.autoDetection.confidence || 0) * 100)}%. Revisa y corrige manualmente cualquier fase antes de guardar.`);
+  } else if (state.autoDetection.status === 'failed') {
+    recs.push('No se pudo detectar automáticamente con suficiente fiabilidad. Usa el marcado manual de fases.');
+  }
+
   if (marked < phases.length) {
-    recs.push(`Has marcado ${marked}/${phases.length} fases. Para que el análisis sea útil, intenta completar sobre todo Address, Top, Impact y Finish.`);
+    recs.push(`Fases marcadas: ${marked}/${phases.length}. Pendientes: ${missing.join(', ') || 'ninguna'}.`);
   } else {
-    recs.push('Todas las fases están marcadas. Ya tienes una base limpia para revisar el swing fase a fase.');
+    recs.push('Todas las fases principales están marcadas. El análisis de tempo y capturas ya es consistente.');
   }
 
-  if (missing.length) {
-    recs.push(`Fases pendientes: ${missing.join(', ')}.`);
+  if (metrics?.tempoRatio) {
+    recs.push(`Tempo estimado backswing/downswing: <b>${metrics.tempoRatio.toFixed(2)}:1</b>. Backswing: ${metrics.backswing.toFixed(2)} s · Downswing: ${metrics.downswing.toFixed(2)} s · Total analizado: ${metrics.total.toFixed(2)} s.`);
   }
 
-  recs.push('Usa el modo dibujo para trazar líneas simples sobre postura, plano del palo o eje corporal. Puedes ocultarlas, deshacer una a una o borrarlas todas.');
+  if (metrics?.transitionPause != null) {
+    recs.push(`Transición Top → Impact: ${metrics.downswing.toFixed(2)} s. Si esta fase parece demasiado corta/larga, revisa que Top e Impact estén bien colocados.`);
+  }
+
+  if (metrics?.impactFrame != null) {
+    recs.push(`Impact estimado en frame ${metrics.impactFrame}. La app usa ${ASSUMED_FPS} fps como referencia práctica para navegar frame a frame.`);
+  }
 
   if (state.guideMode === 'dtl') {
-    recs.push('En DTL, fíjate en si la subida y la bajada se mueven por una zona parecida respecto a las guías inclinadas.');
+    recs.push('Vista DTL: usa las líneas para comparar plano de subida/bajada, eje corporal y desplazamiento lateral de cabeza/cadera.');
   } else {
-    recs.push('En Face-On, revisa estabilidad de cabeza, transferencia de peso y posición de manos en impacto.');
+    recs.push('Vista Face-On: revisa estabilidad de cabeza, transferencia de peso, manos en impacto y finish equilibrado.');
   }
 
   if (Object.keys(state.phaseCaptures).length) {
-    recs.push('Las capturas de fases ya están guardadas dentro de la sesión, lo que facilita revisar y recuperar el análisis después.');
+    recs.push('Toca cualquier captura para verla grande sobre la pantalla y desliza a derecha/izquierda entre fases.');
   }
 
   return recs;
+}
+
+
+function captureList() {
+  return phases
+    .map((phase) => ({ phase, src: state.phaseCaptures[phase.id] }))
+    .filter((item) => Boolean(item.src));
+}
+
+function openCaptureViewer(phaseId) {
+  const list = captureList();
+  if (!list.length) return;
+  const index = Math.max(0, list.findIndex((item) => item.phase.id === phaseId));
+  state.activeCaptureIndex = index >= 0 ? index : 0;
+  state.viewingCapture = true;
+  if (list[state.activeCaptureIndex]) state.currentPhaseId = list[state.activeCaptureIndex].phase.id;
+  if (state.videoUrl) {
+    refs.video.pause();
+    refs.playBtn.textContent = 'Play';
+  }
+  render();
+}
+
+function closeCaptureViewerToVideo() {
+  if (!state.videoUrl) return;
+  state.viewingCapture = false;
+  render();
+}
+
+function moveCapture(delta) {
+  const list = captureList();
+  if (!list.length) return;
+  const next = Math.min(Math.max(state.activeCaptureIndex + delta, 0), list.length - 1);
+  state.activeCaptureIndex = next;
+  state.currentPhaseId = list[next].phase.id;
+  state.viewingCapture = true;
+  renderCaptureViewer();
+  renderCapturesGrid();
+}
+
+function renderCaptureViewer() {
+  const list = captureList();
+  if (!list.length) {
+    refs.captureViewer.classList.add('hidden');
+    refs.captureBadge.classList.add('hidden');
+    return;
+  }
+  if (state.activeCaptureIndex >= list.length) state.activeCaptureIndex = list.length - 1;
+  if (state.activeCaptureIndex < 0) state.activeCaptureIndex = 0;
+  const item = list[state.activeCaptureIndex];
+  const showing = state.viewingCapture || state.captureOnly;
+  refs.captureViewer.classList.toggle('hidden', !showing);
+  refs.captureBadge.classList.toggle('hidden', !showing);
+  if (!showing || !item) return;
+  refs.captureViewer.src = item.src;
+  const time = state.phaseTimes[item.phase.id];
+  refs.captureBadge.textContent = `${item.phase.label} · ${state.activeCaptureIndex + 1}/${list.length}${time != null ? ` · ${formatTime(time)}` : ''}`;
+}
+
+function computeAnalysisMetrics() {
+  const t = state.phaseTimes;
+  const has = (id) => Number.isFinite(t[id]);
+  const metrics = {
+    marked: markedCount(),
+    assumedFps: ASSUMED_FPS,
+    duration: Number.isFinite(refs.video.duration) ? refs.video.duration : null,
+    confidence: state.autoDetection.confidence || 0,
+  };
+
+  if (has('top') && has('impact')) {
+    metrics.downswing = Math.max(0, t.impact - t.top);
+  }
+  if (has('address') && has('top')) {
+    metrics.backswing = Math.max(0, t.top - t.address);
+  } else if (has('takeaway') && has('top')) {
+    metrics.backswing = Math.max(0, t.top - t.takeaway);
+  }
+  if (has('address') && has('finish')) {
+    metrics.total = Math.max(0, t.finish - t.address);
+  }
+  if (metrics.backswing && metrics.downswing) {
+    metrics.tempoRatio = metrics.backswing / Math.max(metrics.downswing, 0.001);
+  }
+  if (has('top') && has('impact')) {
+    metrics.transitionPause = Math.max(0, t.impact - t.top);
+  }
+  if (has('impact')) metrics.impactFrame = frameNumber(t.impact);
+
+  metrics.intervals = [];
+  for (let i = 0; i < phases.length - 1; i += 1) {
+    const a = phases[i];
+    const b = phases[i + 1];
+    if (has(a.id) && has(b.id)) {
+      metrics.intervals.push({ from: a.label, to: b.label, seconds: Math.max(0, t[b.id] - t[a.id]) });
+    }
+  }
+  return metrics;
+}
+
+function fallbackPhaseTimes(duration) {
+  const safe = Number.isFinite(duration) && duration > 0 ? duration : 2;
+  return Object.fromEntries(phases.map((phase) => [phase.id, Math.max(0, Math.min(safe, safe * phase.pct))]));
+}
+
+function enforceIncreasing(times, duration) {
+  const safeDuration = Number.isFinite(duration) && duration > 0 ? duration : 2;
+  const minGap = Math.max(0.035, safeDuration * 0.025);
+  let last = 0;
+  const output = {};
+  phases.forEach((phase, index) => {
+    let value = Number.isFinite(times[phase.id]) ? times[phase.id] : safeDuration * phase.pct;
+    if (index === 0) value = Math.max(0, Math.min(value, safeDuration - minGap * (phases.length - 1)));
+    else value = Math.max(value, last + minGap);
+    value = Math.min(value, safeDuration - minGap * (phases.length - 1 - index));
+    output[phase.id] = Math.max(0, Math.min(safeDuration, value));
+    last = output[phase.id];
+  });
+  return output;
+}
+
+async function sampleMotionProfile() {
+  const video = refs.video;
+  const duration = video.duration;
+  if (!state.videoUrl || !Number.isFinite(duration) || duration <= 0.25) return null;
+  const originalTime = video.currentTime || 0;
+  const samples = Math.min(36, Math.max(20, Math.round(duration * 9)));
+  const canvas = refs.captureCanvas;
+  const w = 72;
+  const h = 128;
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  let previous = null;
+  const profile = [];
+
+  for (let i = 0; i < samples; i += 1) {
+    const t = duration * (i / (samples - 1));
+    await seekVideoTo(t);
+    ctx.drawImage(video, 0, 0, w, h);
+    const data = ctx.getImageData(0, 0, w, h).data;
+    let diff = 0;
+    let count = 0;
+    if (previous) {
+      for (let px = 0; px < data.length; px += 16) {
+        const lum = (data[px] + data[px + 1] + data[px + 2]) / 3;
+        diff += Math.abs(lum - previous[count]);
+        previous[count] = lum;
+        count += 1;
+      }
+      profile.push({ time: t, score: diff / Math.max(1, count) });
+    } else {
+      previous = [];
+      for (let px = 0; px < data.length; px += 16) {
+        previous.push((data[px] + data[px + 1] + data[px + 2]) / 3);
+      }
+      profile.push({ time: t, score: 0 });
+    }
+  }
+
+  await seekVideoTo(originalTime);
+  return profile;
+}
+
+function detectTimesFromMotion(profile, duration) {
+  if (!profile || profile.length < 8) return { times: fallbackPhaseTimes(duration), confidence: 0.25, peakTime: null };
+  const maxScore = Math.max(...profile.map((p) => p.score));
+  const avgScore = profile.reduce((sum, p) => sum + p.score, 0) / profile.length;
+  const threshold = Math.max(avgScore * 1.15, maxScore * 0.22);
+  const active = profile.map((p, i) => ({ ...p, i })).filter((p, i) => i > 1 && p.score >= threshold);
+
+  if (!active.length || maxScore < 1) {
+    return { times: fallbackPhaseTimes(duration), confidence: 0.2, peakTime: null };
+  }
+
+  const firstActive = active[0].i;
+  const lastActive = active[active.length - 1].i;
+  const impactCandidates = profile
+    .map((p, i) => ({ ...p, i }))
+    .filter((p) => p.time >= duration * 0.35 && p.time <= duration * 0.78);
+  const impact = (impactCandidates.length ? impactCandidates : profile).reduce((best, p) => p.score > best.score ? p : best, { score: -1, time: duration * 0.62, i: Math.round(profile.length * 0.62) });
+
+  const topWindow = profile
+    .map((p, i) => ({ ...p, i }))
+    .filter((p) => p.i > firstActive + 1 && p.i < impact.i && p.time >= duration * 0.22 && p.time <= duration * 0.58);
+  const top = topWindow.length
+    ? topWindow.reduce((best, p) => p.score < best.score ? p : best)
+    : { time: duration * 0.38, i: Math.round(profile.length * 0.38), score: avgScore };
+
+  const times = enforceIncreasing({
+    address: profile[Math.max(0, firstActive - 2)]?.time ?? duration * 0.05,
+    takeaway: profile[Math.max(0, firstActive)]?.time ?? duration * 0.18,
+    top: top.time,
+    impact: impact.time,
+    finish: profile[Math.min(profile.length - 1, lastActive + 2)]?.time ?? duration * 0.9,
+  }, duration);
+
+  const spread = Math.min(1, maxScore / Math.max(avgScore * 3, 1));
+  const orderOk = times.address < times.takeaway && times.takeaway < times.top && times.top < times.impact && times.impact < times.finish;
+  const confidence = Math.max(0.35, Math.min(0.88, 0.42 + spread * 0.32 + (orderOk ? 0.14 : 0)));
+  return { times, confidence, peakTime: impact.time };
+}
+
+async function autoDetectPhases() {
+  if (!state.videoUrl || state.autoDetection.status === 'running' || state.autoDetection.status === 'done') return;
+  setAppState('detecting');
+  state.autoDetection.status = 'running';
+  refs.analysisStatus.textContent = 'Detectando fases automáticamente mediante perfil de movimiento…';
+  render();
+  try {
+    const duration = refs.video.duration;
+    const profile = await sampleMotionProfile();
+    const result = detectTimesFromMotion(profile, duration);
+    state.phaseTimes = result.times;
+    state.autoDetection = {
+      status: 'done',
+      confidence: result.confidence,
+      method: 'motion-profile-local',
+      samples: profile?.length || 0,
+      motionPeakTime: result.peakTime,
+    };
+    state.analysisMetrics = computeAnalysisMetrics();
+    state.currentPhaseId = 'address';
+    await seekVideoTo(state.phaseTimes.address || 0);
+    setAppState('detected');
+    refs.analysisStatus.textContent = `Fases detectadas automáticamente (${Math.round(result.confidence * 100)}% confianza). Corrige manualmente si hace falta y genera el análisis.`;
+    render();
+  } catch (error) {
+    console.warn('Auto detection failed', error);
+    state.phaseTimes = fallbackPhaseTimes(refs.video.duration);
+    state.autoDetection = { status: 'failed', confidence: 0.2, method: 'fallback-percentages', samples: 0, motionPeakTime: null };
+    state.analysisMetrics = computeAnalysisMetrics();
+    setAppState('marking');
+    refs.analysisStatus.textContent = 'No se pudo detectar con fiabilidad. Se han colocado fases estimadas por porcentaje para que puedas corregirlas.';
+    render();
+  }
 }
 
 function seekVideoTo(time) {
@@ -525,17 +810,19 @@ async function analyze() {
   if (!state.videoUrl) return;
   setMode('analysis');
   setAppState('analyzing');
-  refs.analysisStatus.textContent = 'Generando capturas de las fases marcadas…';
+  refs.analysisStatus.textContent = 'Generando capturas y métricas del swing…';
   refs.recommendations.innerHTML = '';
   refs.capturesGrid.innerHTML = '';
 
   try {
     state.phaseCaptures = await generatePhaseCaptures();
+    state.analysisMetrics = computeAnalysisMetrics();
     const capturesCount = Object.keys(state.phaseCaptures).length;
-    refs.analysisStatus.textContent = `Listo: ${capturesCount} capturas generadas · ${markedCount()}/${phases.length} fases marcadas.`;
+    refs.analysisStatus.textContent = `Listo: ${capturesCount} capturas · ${markedCount()}/${phases.length} fases · tempo ${state.analysisMetrics?.tempoRatio ? state.analysisMetrics.tempoRatio.toFixed(2) + ':1' : 'pendiente'}.`;
     renderRecommendations();
     renderCapturesGrid();
     setAppState('completed');
+    render();
   } catch (error) {
     console.error(error);
     refs.analysisStatus.textContent = 'No se pudieron generar las capturas.';
@@ -557,10 +844,12 @@ async function saveSession() {
       id: uid(),
       createdAt: new Date().toISOString(),
       videoName: state.videoName,
-      duration: refs.video.duration || null,
+      duration: Number.isFinite(refs.video.duration) ? refs.video.duration : null,
       guideMode: state.guideMode,
       phaseTimes: clone(state.phaseTimes),
       phaseCaptures: clone(state.phaseCaptures),
+      analysisMetrics: clone(state.analysisMetrics || computeAnalysisMetrics()),
+      autoDetection: clone(state.autoDetection),
       lines: clone(state.lines),
       thumbnail: previewCapture,
     });
@@ -605,15 +894,20 @@ function restoreSession(session) {
   state.videoName = session.videoName || 'Swing guardado';
   state.phaseTimes = session.phaseTimes || {};
   state.phaseCaptures = session.phaseCaptures || {};
+  state.analysisMetrics = session.analysisMetrics || null;
+  state.autoDetection = session.autoDetection || { status: 'idle', confidence: 0, method: '', samples: 0, motionPeakTime: null };
   state.lines = session.lines || [];
   state.guideMode = session.guideMode || 'dtl';
   state.mode = Object.keys(state.phaseCaptures).length ? 'analysis' : 'phases';
   state.controlsVisible = true;
+  state.activeCaptureIndex = 0;
 
   if (Object.keys(state.phaseCaptures).length) {
-    refs.analysisStatus.textContent = `Sesión restaurada: ${Object.keys(state.phaseCaptures).length} capturas disponibles.`;
+    state.viewingCapture = true;
+    refs.analysisStatus.textContent = `Sesión restaurada: ${Object.keys(state.phaseCaptures).length} capturas disponibles. Desliza para revisar fases.`;
     renderRecommendations();
   } else {
+    state.viewingCapture = false;
     refs.analysisStatus.textContent = 'Marca las fases y genera las capturas.';
     refs.recommendations.innerHTML = '';
   }
@@ -649,6 +943,7 @@ function openHistoryFromStart() {
   state.videoBlob = null;
   state.videoName = '';
   state.mode = 'history';
+  state.viewingCapture = false;
   state.controlsVisible = true;
   refs.video.removeAttribute('src');
   refs.video.load();
@@ -732,8 +1027,15 @@ function drawAllLines() {
 }
 
 function toggleDrawingMode() {
+  if (!state.videoUrl) return;
   state.drawingMode = !state.drawingMode;
-  if (state.drawingMode) state.controlsVisible = true;
+  if (state.drawingMode) {
+    state.controlsVisible = true;
+    state.mode = 'phases';
+    state.viewingCapture = false;
+    refs.video.pause();
+    refs.playBtn.textContent = 'Play';
+  }
   state.previewLine = null;
   state.pendingLineStart = null;
   state.pointerStart = null;
@@ -857,6 +1159,9 @@ function bindEvents() {
       refs.video.currentTime = refs.video.duration * currentPhase().pct;
     }
     render();
+    if (state.autoDetection.status === 'queued') {
+      window.setTimeout(() => autoDetectPhases(), 220);
+    }
   });
 
   refs.toggleGuidesBtn.addEventListener('click', () => { state.showGuides = !state.showGuides; render(); });
@@ -892,6 +1197,19 @@ function bindEvents() {
   refs.drawingCanvas.addEventListener('pointerup', handleCanvasPointerUp);
   refs.drawingCanvas.addEventListener('pointercancel', cancelCanvasPointer);
   refs.drawingCanvas.addEventListener('lostpointercapture', cancelCanvasPointer);
+  refs.captureViewer.addEventListener('pointerdown', (event) => {
+    state.captureSwipeStart = { x: event.clientX, y: event.clientY };
+  });
+  refs.captureViewer.addEventListener('pointerup', (event) => {
+    if (!state.captureSwipeStart) return;
+    const dx = event.clientX - state.captureSwipeStart.x;
+    const dy = event.clientY - state.captureSwipeStart.y;
+    state.captureSwipeStart = null;
+    if (Math.abs(dx) > 38 && Math.abs(dx) > Math.abs(dy)) {
+      moveCapture(dx < 0 ? 1 : -1);
+    }
+  });
+  refs.captureViewer.addEventListener('dblclick', closeCaptureViewerToVideo);
   window.addEventListener('resize', resizeDrawingCanvas);
 
   window.addEventListener('beforeinstallprompt', (event) => {

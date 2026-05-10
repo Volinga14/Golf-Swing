@@ -1,4 +1,4 @@
-const CACHE_NAME = 'swing-lab-v05-mobile-history-save';
+const CACHE_NAME = 'swing-lab-v06-intelligent-flow';
 const APP_ASSETS = [
   './',
   './index.html',

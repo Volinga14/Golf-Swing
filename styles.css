@@ -426,3 +426,95 @@ button:disabled { opacity: .42; cursor: not-allowed; }
   .bottom-dock.analysis-mode .dock-panel { max-height: calc(66dvh - 42px - var(--safe-bottom)); }
   .drawing-hint { right: 68px; font-size: 11px; padding: 8px 10px; }
 }
+
+/* v0.6 intelligent flow */
+.capture-viewer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+  z-index: 15;
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.capture-badge {
+  position: absolute;
+  z-index: 37;
+  left: 12px;
+  right: 78px;
+  top: calc(60px + var(--safe-top));
+  border-radius: 999px;
+  padding: 8px 12px;
+  background: rgba(0,0,0,.58);
+  color: rgba(255,255,255,.9);
+  font-size: 12px;
+  font-weight: 850;
+  text-align: center;
+  backdrop-filter: blur(14px);
+  box-shadow: 0 12px 28px rgba(0,0,0,.26);
+}
+.capture-viewing .guide-overlay,
+.capture-viewing .drawing-canvas,
+.capture-viewing .tap-layer {
+  display: none !important;
+}
+.capture-card {
+  border: 1px solid transparent;
+  color: #fff;
+  text-align: left;
+}
+.capture-card.active {
+  border-color: rgba(255,255,255,.78);
+  background: rgba(255,255,255,.14);
+}
+.capture-card:active { transform: scale(.99); }
+.rec b { color: #fff; }
+.drawing-mode .bottom-dock,
+.drawing-mode .phase-hud,
+.drawing-mode .top-hud,
+.drawing-mode .mode-tabs,
+.drawing-mode .dock-panel {
+  display: none !important;
+}
+.drawing-mode .right-rail {
+  top: calc(58px + var(--safe-top));
+}
+.drawing-mode .rail-btn {
+  background: rgba(0,0,0,.58);
+}
+.drawing-mode #drawModeBtn {
+  background: #fff;
+  color: #000;
+}
+.drawing-mode #drawModeBtn span { color: rgba(0,0,0,.58); }
+.bottom-dock.analysis-mode .recommendations {
+  margin-bottom: 10px;
+}
+.bottom-dock.analysis-mode .rec:first-child {
+  background: rgba(255,255,255,.14);
+}
+.capture-only .capture-viewer {
+  object-fit: contain;
+}
+.capture-only .capture-badge {
+  top: calc(18px + var(--safe-top));
+  right: 12px;
+}
+.capture-only .bottom-dock.analysis-mode,
+.capture-only .bottom-dock.history-mode {
+  max-height: 44dvh;
+}
+.capture-only .bottom-dock.analysis-mode .dock-panel,
+.capture-only .bottom-dock.history-mode .dock-panel {
+  max-height: calc(44dvh - 44px - var(--safe-bottom));
+}
+@media (max-height: 720px) {
+  .capture-badge { top: calc(50px + var(--safe-top)); font-size: 11px; padding: 7px 10px; }
+  .capture-only .bottom-dock.analysis-mode,
+  .capture-only .bottom-dock.history-mode { max-height: 48dvh; }
+  .capture-only .bottom-dock.analysis-mode .dock-panel,
+  .capture-only .bottom-dock.history-mode .dock-panel { max-height: calc(48dvh - 42px - var(--safe-bottom)); }
+}
