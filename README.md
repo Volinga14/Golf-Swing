@@ -1,8 +1,8 @@
-# Swing Lab PWA v0.6 Intelligent Flow
+# Swing Lab PWA v0.7 Intelligent Flow
 
 PWA móvil tipo short para análisis simple e inteligente de swing de golf.
 
-## Novedades v0.6
+## Novedades v0.7
 - Detección automática inicial al importar vídeo mediante perfil local de movimiento.
 - Autoavance inteligente de fases al marcar: avanza a la siguiente fase detectada o estimada.
 - Análisis de tempo más profundo:
@@ -29,3 +29,12 @@ PWA móvil tipo short para análisis simple e inteligente de swing de golf.
 - La detección automática es una heurística local, no un modelo IA pesado.
 - El frame se estima a 30 fps para navegación práctica.
 - Para instalar como PWA real usa HTTPS o localhost.
+
+
+## v0.7
+- Guías desactivadas por defecto al cargar vídeo.
+- Dibujo disponible también al abrir sesiones del historial con solo capturas.
+- Al tocar una captura en Análisis, la foto se muestra limpia a pantalla completa; toca de nuevo para recuperar controles.
+- Dibujo mejorado: seleccionar y mover líneas existentes; mantener pulsado durante el trazado bloquea horizontal/vertical.
+- Detección automática reforzada mediante perfil de movimiento suavizado, contraste, ventana de impacto y validaciones de tempo.
+- Comentarios de análisis más accionables sobre tempo, intervalos, consistencia y revisión de fases.

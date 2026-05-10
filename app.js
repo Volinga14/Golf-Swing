@@ -2,7 +2,7 @@
 
 const $ = (id) => document.getElementById(id);
 const DB_NAME = 'swing-lab-db';
-const DB_VERSION = 6;
+const DB_VERSION = 7;
 const STORE = 'sessions';
 const ASSUMED_FPS = 30;
 
@@ -28,7 +28,7 @@ const state = {
   viewingCapture: false,
   activeCaptureIndex: 0,
   captureSwipeStart: null,
-  showGuides: true,
+  showGuides: false,
   guideMode: 'dtl',
   speed: 1,
   controlsVisible: true,
@@ -43,6 +43,12 @@ const state = {
   pointerStart: null,
   pointerMoved: false,
   pointerDown: false,
+  selectedLineIndex: -1,
+  dragLineIndex: -1,
+  dragStartPoint: null,
+  dragOriginalLine: null,
+  longPressTimer: null,
+  lockAxisMode: false,
 };
 
 const refs = {
@@ -221,6 +227,13 @@ function resetSessionState() {
   state.captureSwipeStart = null;
   state.lines = [];
   state.previewLine = null;
+  state.selectedLineIndex = -1;
+  state.dragLineIndex = -1;
+  state.dragStartPoint = null;
+  state.dragOriginalLine = null;
+  state.lockAxisMode = false;
+  if (state.longPressTimer) clearTimeout(state.longPressTimer);
+  state.longPressTimer = null;
   state.pendingLineStart = null;
   state.pointerStart = null;
   state.pointerMoved = false;
@@ -285,21 +298,21 @@ function renderShell() {
   refs.scrimTop.classList.toggle('hidden', !hasVideo || showingCapture);
   refs.scrimBottom.classList.toggle('hidden', !hasVideo || showingCapture);
   refs.topHud.classList.toggle('hidden', !hasSession || state.drawingMode);
-  refs.rightRail.classList.toggle('hidden', !hasVideo);
+  refs.rightRail.classList.toggle('hidden', !(hasVideo || hasCaptures));
   refs.bottomDock.classList.toggle('hidden', !hasSession || state.drawingMode);
   refs.phaseHud.classList.toggle('hidden', !hasVideo || showingCapture || state.mode === 'history' || state.drawingMode);
   refs.guideOverlay.classList.toggle('hidden', !hasVideo || showingCapture || !state.showGuides);
   refs.cleanHint.classList.add('hidden');
-  refs.drawingHint.classList.toggle('hidden', !hasVideo || !state.drawingMode);
-  refs.app.classList.toggle('controls-hidden', hasVideo && !state.controlsVisible && !state.drawingMode);
+  refs.drawingHint.classList.toggle('hidden', !hasSession || !state.drawingMode);
+  refs.app.classList.toggle('controls-hidden', hasSession && !state.controlsVisible && !state.drawingMode);
   refs.app.classList.toggle('capture-only', state.captureOnly || (showingCapture && !hasVideo));
   refs.app.classList.toggle('capture-viewing', showingCapture);
-  refs.app.classList.toggle('drawing-mode', hasVideo && state.drawingMode);
+  refs.app.classList.toggle('drawing-mode', hasSession && state.drawingMode);
   refs.bottomDock.classList.toggle('phases-mode', state.mode === 'phases');
   refs.bottomDock.classList.toggle('analysis-mode', state.mode === 'analysis');
   refs.bottomDock.classList.toggle('history-mode', state.mode === 'history');
   refs.playerStrip.classList.toggle('hidden', state.mode !== 'phases' || state.captureOnly || showingCapture);
-  refs.drawingCanvas.classList.toggle('hidden', !hasVideo || showingCapture);
+  refs.drawingCanvas.classList.toggle('hidden', !hasSession);
 }
 
 function renderRails() {
@@ -307,7 +320,7 @@ function renderRails() {
   refs.switchModeBtn.querySelector('b').textContent = state.guideMode === 'dtl' ? 'DTL' : 'FO';
   refs.drawModeBtn.querySelector('b').textContent = state.drawingMode ? 'ON' : 'OFF';
   refs.toggleDrawingsBtn.querySelector('b').textContent = state.showDrawings ? 'ON' : 'OFF';
-  refs.undoLineBtn.querySelector('b').textContent = String(state.lines.length);
+  refs.undoLineBtn.querySelector('b').textContent = state.selectedLineIndex >= 0 ? 'Sel' : String(state.lines.length);
   refs.dtlGuides.classList.toggle('hidden', state.guideMode !== 'dtl');
   refs.foGuides.classList.toggle('hidden', state.guideMode !== 'fo');
 
@@ -315,6 +328,7 @@ function renderRails() {
   refs.toggleDrawingsBtn.classList.toggle('active', state.showDrawings);
   refs.undoLineBtn.disabled = state.lines.length === 0;
   refs.clearLinesBtn.disabled = state.lines.length === 0;
+  refs.toggleDrawingsBtn.disabled = state.lines.length === 0;
   refs.drawingCanvas.classList.toggle('drawing-enabled', state.drawingMode);
 }
 
@@ -486,43 +500,56 @@ function buildRecommendations() {
   state.analysisMetrics = metrics;
   const recs = [];
 
+  const confidence = Math.round((state.autoDetection.confidence || 0) * 100);
   if (state.autoDetection.status === 'done') {
-    recs.push(`Detección automática aplicada con confianza aproximada ${Math.round((state.autoDetection.confidence || 0) * 100)}%. Revisa y corrige manualmente cualquier fase antes de guardar.`);
+    recs.push(`<b>Detección automática:</b> ${confidence}% de confianza. Úsala como pre-marcado: si Top o Impact no caen exactamente en el frame correcto, corrígelos antes de guardar.`);
   } else if (state.autoDetection.status === 'failed') {
-    recs.push('No se pudo detectar automáticamente con suficiente fiabilidad. Usa el marcado manual de fases.');
+    recs.push('<b>Detección automática:</b> baja confianza. Se han colocado fases estimadas y conviene revisarlas manualmente.');
+  } else if (state.captureOnly) {
+    recs.push('<b>Sesión recuperada:</b> estás viendo capturas guardadas. Puedes activar dibujo y añadir líneas sobre las imágenes aunque no esté cargado el vídeo original.');
   }
 
   if (marked < phases.length) {
-    recs.push(`Fases marcadas: ${marked}/${phases.length}. Pendientes: ${missing.join(', ') || 'ninguna'}.`);
+    recs.push(`<b>Fases:</b> ${marked}/${phases.length} marcadas. Pendientes: ${missing.join(', ') || 'ninguna'}. El análisis mejora mucho cuando Address, Top, Impact y Finish están bien ajustadas.`);
   } else {
-    recs.push('Todas las fases principales están marcadas. El análisis de tempo y capturas ya es consistente.');
+    recs.push('<b>Fases completas:</b> las cinco posiciones principales están disponibles para revisar tempo, capturas y consistencia del swing.');
   }
 
   if (metrics?.tempoRatio) {
-    recs.push(`Tempo estimado backswing/downswing: <b>${metrics.tempoRatio.toFixed(2)}:1</b>. Backswing: ${metrics.backswing.toFixed(2)} s · Downswing: ${metrics.downswing.toFixed(2)} s · Total analizado: ${metrics.total.toFixed(2)} s.`);
+    const tempo = metrics.tempoRatio;
+    const tempoComment = tempo < 2.2
+      ? 'tempo muy rápido de backswing respecto al downswing; revisa si Top está marcado demasiado tarde o Impact demasiado pronto.'
+      : tempo > 4.2
+        ? 'tempo lento de backswing respecto al downswing; revisa si Address está demasiado pronto o Top demasiado tarde.'
+        : 'tempo dentro de un rango razonable para un swing completo.';
+    recs.push(`<b>Tempo:</b> ${tempo.toFixed(2)}:1 · backswing ${metrics.backswing.toFixed(2)} s · downswing ${metrics.downswing.toFixed(2)} s. ${tempoComment}`);
   }
 
-  if (metrics?.transitionPause != null) {
-    recs.push(`Transición Top → Impact: ${metrics.downswing.toFixed(2)} s. Si esta fase parece demasiado corta/larga, revisa que Top e Impact estén bien colocados.`);
+  if (metrics?.phasePercentages?.length) {
+    const parts = metrics.phasePercentages.map((p) => `${p.label} ${p.percent}%`).join(' · ');
+    recs.push(`<b>Distribución temporal:</b> ${parts}. Útil para detectar si alguna fase ha quedado desplazada por error de marcado.`);
   }
 
   if (metrics?.impactFrame != null) {
-    recs.push(`Impact estimado en frame ${metrics.impactFrame}. La app usa ${ASSUMED_FPS} fps como referencia práctica para navegar frame a frame.`);
+    recs.push(`<b>Impact:</b> frame estimado ${metrics.impactFrame}. Revisa esta fase frame a frame; es la captura más importante para manos, eje de cabeza/cadera y posición del palo.`);
+  }
+
+  if (metrics?.consistencyWarnings?.length) {
+    recs.push(`<b>Revisión recomendada:</b> ${metrics.consistencyWarnings.join(' ')}`);
   }
 
   if (state.guideMode === 'dtl') {
-    recs.push('Vista DTL: usa las líneas para comparar plano de subida/bajada, eje corporal y desplazamiento lateral de cabeza/cadera.');
+    recs.push('<b>DTL:</b> prioriza líneas de plano del palo, línea de pies/target y eje corporal. No hace falta llenar la pantalla: 2–3 líneas suelen ser suficientes.');
   } else {
-    recs.push('Vista Face-On: revisa estabilidad de cabeza, transferencia de peso, manos en impacto y finish equilibrado.');
+    recs.push('<b>Face-On:</b> prioriza línea vertical de cabeza, línea de cadera y posición de manos en impacto.');
   }
 
   if (Object.keys(state.phaseCaptures).length) {
-    recs.push('Toca cualquier captura para verla grande sobre la pantalla y desliza a derecha/izquierda entre fases.');
+    recs.push('<b>Capturas:</b> toca una imagen para verla grande, desliza entre fases y activa Dibujo para añadir o mover líneas directamente sobre la captura.');
   }
 
   return recs;
 }
-
 
 function captureList() {
   return phases
@@ -536,6 +563,7 @@ function openCaptureViewer(phaseId) {
   const index = Math.max(0, list.findIndex((item) => item.phase.id === phaseId));
   state.activeCaptureIndex = index >= 0 ? index : 0;
   state.viewingCapture = true;
+  state.controlsVisible = false;
   if (list[state.activeCaptureIndex]) state.currentPhaseId = list[state.activeCaptureIndex].phase.id;
   if (state.videoUrl) {
     refs.video.pause();
@@ -547,6 +575,7 @@ function openCaptureViewer(phaseId) {
 function closeCaptureViewerToVideo() {
   if (!state.videoUrl) return;
   state.viewingCapture = false;
+  state.controlsVisible = true;
   render();
 }
 
@@ -557,8 +586,8 @@ function moveCapture(delta) {
   state.activeCaptureIndex = next;
   state.currentPhaseId = list[next].phase.id;
   state.viewingCapture = true;
-  renderCaptureViewer();
-  renderCapturesGrid();
+  state.controlsVisible = false;
+  render();
 }
 
 function renderCaptureViewer() {
@@ -583,11 +612,13 @@ function renderCaptureViewer() {
 function computeAnalysisMetrics() {
   const t = state.phaseTimes;
   const has = (id) => Number.isFinite(t[id]);
+  const safeDuration = Number.isFinite(refs.video.duration) ? refs.video.duration : null;
   const metrics = {
     marked: markedCount(),
     assumedFps: ASSUMED_FPS,
-    duration: Number.isFinite(refs.video.duration) ? refs.video.duration : null,
+    duration: safeDuration,
     confidence: state.autoDetection.confidence || 0,
+    consistencyWarnings: [],
   };
 
   if (has('top') && has('impact')) {
@@ -604,9 +635,6 @@ function computeAnalysisMetrics() {
   if (metrics.backswing && metrics.downswing) {
     metrics.tempoRatio = metrics.backswing / Math.max(metrics.downswing, 0.001);
   }
-  if (has('top') && has('impact')) {
-    metrics.transitionPause = Math.max(0, t.impact - t.top);
-  }
   if (has('impact')) metrics.impactFrame = frameNumber(t.impact);
 
   metrics.intervals = [];
@@ -616,6 +644,26 @@ function computeAnalysisMetrics() {
     if (has(a.id) && has(b.id)) {
       metrics.intervals.push({ from: a.label, to: b.label, seconds: Math.max(0, t[b.id] - t[a.id]) });
     }
+  }
+
+  if (metrics.total && metrics.intervals.length) {
+    metrics.phasePercentages = metrics.intervals.map((item) => ({
+      label: `${item.from}→${item.to}`,
+      percent: Math.round((item.seconds / Math.max(metrics.total, 0.001)) * 100),
+    }));
+  }
+
+  if (metrics.downswing != null && metrics.downswing < 0.08) {
+    metrics.consistencyWarnings.push('Top→Impact parece demasiado corto; comprueba ambos frames.');
+  }
+  if (metrics.backswing != null && metrics.backswing < 0.20) {
+    metrics.consistencyWarnings.push('Backswing parece demasiado corto; revisa Address/Top.');
+  }
+  if (has('finish') && has('impact') && (t.finish - t.impact) < 0.12) {
+    metrics.consistencyWarnings.push('Finish está muy cerca de Impact; quizá el finish real está más tarde.');
+  }
+  if (metrics.tempoRatio && (metrics.tempoRatio < 1.5 || metrics.tempoRatio > 5.5)) {
+    metrics.consistencyWarnings.push('El tempo sale fuera de rango habitual; probablemente alguna fase necesita ajuste manual.');
   }
   return metrics;
 }
@@ -646,15 +694,15 @@ async function sampleMotionProfile() {
   const duration = video.duration;
   if (!state.videoUrl || !Number.isFinite(duration) || duration <= 0.25) return null;
   const originalTime = video.currentTime || 0;
-  const samples = Math.min(36, Math.max(20, Math.round(duration * 9)));
+  const samples = Math.min(84, Math.max(36, Math.round(duration * 14)));
   const canvas = refs.captureCanvas;
-  const w = 72;
-  const h = 128;
+  const w = 96;
+  const h = 160;
   canvas.width = w;
   canvas.height = h;
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   let previous = null;
-  const profile = [];
+  const raw = [];
 
   for (let i = 0; i < samples; i += 1) {
     const t = duration * (i / (samples - 1));
@@ -662,65 +710,161 @@ async function sampleMotionProfile() {
     ctx.drawImage(video, 0, 0, w, h);
     const data = ctx.getImageData(0, 0, w, h).data;
     let diff = 0;
+    let upper = 0;
+    let lower = 0;
+    let xMoment = 0;
+    let yMoment = 0;
+    let motionMass = 0;
     let count = 0;
+
     if (previous) {
-      for (let px = 0; px < data.length; px += 16) {
-        const lum = (data[px] + data[px + 1] + data[px + 2]) / 3;
-        diff += Math.abs(lum - previous[count]);
-        previous[count] = lum;
-        count += 1;
+      for (let y = 0; y < h; y += 4) {
+        for (let x = 0; x < w; x += 4) {
+          const px = ((y * w) + x) * 4;
+          const lum = (data[px] + data[px + 1] + data[px + 2]) / 3;
+          const d = Math.abs(lum - previous[count]);
+          previous[count] = lum;
+          diff += d;
+          if (y < h * 0.52) upper += d; else lower += d;
+          xMoment += d * (x / w);
+          yMoment += d * (y / h);
+          motionMass += d;
+          count += 1;
+        }
       }
-      profile.push({ time: t, score: diff / Math.max(1, count) });
+      raw.push({
+        time: t,
+        score: diff / Math.max(1, count),
+        upper: upper / Math.max(1, count),
+        lower: lower / Math.max(1, count),
+        cx: motionMass ? xMoment / motionMass : 0.5,
+        cy: motionMass ? yMoment / motionMass : 0.5,
+      });
     } else {
       previous = [];
-      for (let px = 0; px < data.length; px += 16) {
-        previous.push((data[px] + data[px + 1] + data[px + 2]) / 3);
+      for (let y = 0; y < h; y += 4) {
+        for (let x = 0; x < w; x += 4) {
+          const px = ((y * w) + x) * 4;
+          previous.push((data[px] + data[px + 1] + data[px + 2]) / 3);
+        }
       }
-      profile.push({ time: t, score: 0 });
+      raw.push({ time: t, score: 0, upper: 0, lower: 0, cx: 0.5, cy: 0.5 });
     }
   }
 
   await seekVideoTo(originalTime);
-  return profile;
+  return smoothMotionProfile(raw);
+}
+
+function smoothMotionProfile(raw) {
+  if (!raw || raw.length < 3) return raw || [];
+  return raw.map((p, i) => {
+    const items = raw.slice(Math.max(0, i - 2), Math.min(raw.length, i + 3));
+    const avg = (key) => items.reduce((sum, item) => sum + item[key], 0) / items.length;
+    return { ...p, score: avg('score'), upper: avg('upper'), lower: avg('lower'), cx: avg('cx'), cy: avg('cy') };
+  });
+}
+
+function percentile(values, q) {
+  const sorted = values.filter(Number.isFinite).slice().sort((a, b) => a - b);
+  if (!sorted.length) return 0;
+  const pos = (sorted.length - 1) * q;
+  const base = Math.floor(pos);
+  const rest = pos - base;
+  return sorted[base + 1] != null ? sorted[base] + rest * (sorted[base + 1] - sorted[base]) : sorted[base];
+}
+
+function indexAtTime(profile, time) {
+  let best = 0;
+  let bestDiff = Infinity;
+  profile.forEach((p, index) => {
+    const d = Math.abs(p.time - time);
+    if (d < bestDiff) { best = index; bestDiff = d; }
+  });
+  return best;
+}
+
+function localMinimum(profile, startIndex, endIndex, fallbackIndex) {
+  const start = Math.max(0, Math.min(profile.length - 1, startIndex));
+  const end = Math.max(0, Math.min(profile.length - 1, endIndex));
+  if (start > end) return profile[Math.max(0, Math.min(profile.length - 1, fallbackIndex))] || profile[0];
+  let best = profile[Math.max(start, Math.min(end, fallbackIndex))] || profile[0];
+  for (let i = start; i <= end; i += 1) {
+    if (profile[i].score < best.score) best = profile[i];
+  }
+  return best;
+}
+
+function localMaximum(profile, startIndex, endIndex, fallbackIndex) {
+  const start = Math.max(0, Math.min(profile.length - 1, startIndex));
+  const end = Math.max(0, Math.min(profile.length - 1, endIndex));
+  if (start > end) return profile[Math.max(0, Math.min(profile.length - 1, fallbackIndex))] || profile[profile.length - 1];
+  let best = profile[Math.max(start, Math.min(end, fallbackIndex))] || profile[profile.length - 1];
+  for (let i = start; i <= end; i += 1) {
+    if (profile[i].score > best.score) best = profile[i];
+  }
+  return best;
 }
 
 function detectTimesFromMotion(profile, duration) {
-  if (!profile || profile.length < 8) return { times: fallbackPhaseTimes(duration), confidence: 0.25, peakTime: null };
-  const maxScore = Math.max(...profile.map((p) => p.score));
-  const avgScore = profile.reduce((sum, p) => sum + p.score, 0) / profile.length;
-  const threshold = Math.max(avgScore * 1.15, maxScore * 0.22);
-  const active = profile.map((p, i) => ({ ...p, i })).filter((p, i) => i > 1 && p.score >= threshold);
+  if (!profile || profile.length < 10) return { times: fallbackPhaseTimes(duration), confidence: 0.22, peakTime: null };
+  const scores = profile.map((p) => p.score);
+  const maxScore = Math.max(...scores);
+  const median = percentile(scores, 0.5);
+  const p70 = percentile(scores, 0.70);
+  const p85 = percentile(scores, 0.85);
+  const p92 = percentile(scores, 0.92);
+  const noiseFloor = Math.max(median, 0.001);
+  const activeThreshold = Math.max(p70, noiseFloor * 1.65, maxScore * 0.18);
+  const strongThreshold = Math.max(p85, noiseFloor * 2.15, maxScore * 0.30);
+  const indexed = profile.map((p, i) => ({ ...p, i }));
+  const active = indexed.filter((p) => p.i > 1 && p.score >= activeThreshold);
 
-  if (!active.length || maxScore < 1) {
+  if (!active.length || maxScore < 0.65) {
     return { times: fallbackPhaseTimes(duration), confidence: 0.2, peakTime: null };
   }
 
   const firstActive = active[0].i;
   const lastActive = active[active.length - 1].i;
-  const impactCandidates = profile
-    .map((p, i) => ({ ...p, i }))
-    .filter((p) => p.time >= duration * 0.35 && p.time <= duration * 0.78);
-  const impact = (impactCandidates.length ? impactCandidates : profile).reduce((best, p) => p.score > best.score ? p : best, { score: -1, time: duration * 0.62, i: Math.round(profile.length * 0.62) });
+  const startTime = Math.max(0, profile[Math.max(0, firstActive - 2)]?.time ?? duration * 0.05);
 
-  const topWindow = profile
-    .map((p, i) => ({ ...p, i }))
-    .filter((p) => p.i > firstActive + 1 && p.i < impact.i && p.time >= duration * 0.22 && p.time <= duration * 0.58);
-  const top = topWindow.length
-    ? topWindow.reduce((best, p) => p.score < best.score ? p : best)
-    : { time: duration * 0.38, i: Math.round(profile.length * 0.38), score: avgScore };
+  const impactSearchStart = Math.max(indexAtTime(profile, duration * 0.38), firstActive + 3);
+  const impactSearchEnd = Math.min(indexAtTime(profile, duration * 0.86), profile.length - 1);
+  const impact = localMaximum(profile, impactSearchStart, impactSearchEnd, indexAtTime(profile, duration * 0.62));
+  const impactIndex = indexAtTime(profile, impact.time);
+
+  const topSearchStart = Math.max(firstActive + 2, indexAtTime(profile, duration * 0.18));
+  const topSearchEnd = Math.max(topSearchStart, Math.min(impactIndex - 2, indexAtTime(profile, duration * 0.60)));
+  let top = localMinimum(profile, topSearchStart, topSearchEnd, indexAtTime(profile, duration * 0.38));
+
+  // If the quietest point is too close to the start, use the last low-motion point before the downswing burst.
+  if (top.time < startTime + duration * 0.12 && topSearchEnd > topSearchStart + 2) {
+    const quietBeforeImpact = indexed
+      .filter((p) => p.i >= topSearchStart && p.i <= topSearchEnd && p.score <= Math.max(p70, strongThreshold * 0.78))
+      .pop();
+    if (quietBeforeImpact) top = quietBeforeImpact;
+  }
+
+  const topTime = top.time;
+  const takeawayWindowEnd = Math.max(indexAtTime(profile, topTime), firstActive + 1);
+  const takeaway = localMaximum(profile, firstActive, takeawayWindowEnd, Math.round((firstActive + takeawayWindowEnd) / 2));
+  const finishBase = profile[Math.min(profile.length - 1, lastActive + 2)]?.time ?? duration * 0.90;
+  const finishTime = Math.min(duration, Math.max(finishBase, impact.time + Math.max(0.18, duration * 0.10)));
 
   const times = enforceIncreasing({
-    address: profile[Math.max(0, firstActive - 2)]?.time ?? duration * 0.05,
-    takeaway: profile[Math.max(0, firstActive)]?.time ?? duration * 0.18,
-    top: top.time,
+    address: Math.max(0, startTime - Math.min(0.10, duration * 0.025)),
+    takeaway: Math.min(topTime - 0.035, Math.max(startTime + 0.05, takeaway.time)),
+    top: topTime,
     impact: impact.time,
-    finish: profile[Math.min(profile.length - 1, lastActive + 2)]?.time ?? duration * 0.9,
+    finish: finishTime,
   }, duration);
 
-  const spread = Math.min(1, maxScore / Math.max(avgScore * 3, 1));
+  const motionContrast = Math.min(1, (p92 - median) / Math.max(p92, 0.001));
+  const activeSpan = Math.min(1, Math.max(0, (profile[lastActive].time - profile[firstActive].time) / Math.max(duration, 0.001)));
   const orderOk = times.address < times.takeaway && times.takeaway < times.top && times.top < times.impact && times.impact < times.finish;
-  const confidence = Math.max(0.35, Math.min(0.88, 0.42 + spread * 0.32 + (orderOk ? 0.14 : 0)));
-  return { times, confidence, peakTime: impact.time };
+  const plausibleTempo = (times.impact - times.top) > 0.06 && (times.top - times.address) > 0.15;
+  const confidence = Math.max(0.28, Math.min(0.92, 0.34 + motionContrast * 0.30 + activeSpan * 0.16 + (orderOk ? 0.12 : 0) + (plausibleTempo ? 0.10 : 0)));
+  return { times, confidence, peakTime: impact.time, thresholds: { median, p70, p85, p92, activeThreshold, strongThreshold } };
 }
 
 async function autoDetectPhases() {
@@ -904,6 +1048,7 @@ function restoreSession(session) {
 
   if (Object.keys(state.phaseCaptures).length) {
     state.viewingCapture = true;
+    state.controlsVisible = false;
     refs.analysisStatus.textContent = `Sesión restaurada: ${Object.keys(state.phaseCaptures).length} capturas disponibles. Desliza para revisar fases.`;
     renderRecommendations();
   } else {
@@ -1016,7 +1161,7 @@ function drawAllLines() {
   const { width, height } = getCanvasCssSize();
 
   if (state.showDrawings) {
-    state.lines.forEach((line) => drawLine(ctx, line, width, height, dpr, false));
+    state.lines.forEach((line, index) => drawLine(ctx, line, width, height, dpr, index === state.selectedLineIndex));
   }
   if (state.pendingLineStart) {
     drawPoint(ctx, state.pendingLineStart, width, height, dpr);
@@ -1027,50 +1172,83 @@ function drawAllLines() {
 }
 
 function toggleDrawingMode() {
-  if (!state.videoUrl) return;
+  const hasCaptures = captureList().length > 0;
+  if (!state.videoUrl && !hasCaptures) return;
   state.drawingMode = !state.drawingMode;
   if (state.drawingMode) {
     state.controlsVisible = true;
-    state.mode = 'phases';
-    state.viewingCapture = false;
-    refs.video.pause();
-    refs.playBtn.textContent = 'Play';
+    if (state.videoUrl && !state.viewingCapture) {
+      state.mode = 'phases';
+      refs.video.pause();
+      refs.playBtn.textContent = 'Play';
+    } else if (hasCaptures) {
+      state.viewingCapture = true;
+      state.mode = state.mode === 'history' ? 'history' : 'analysis';
+    }
   }
   state.previewLine = null;
   state.pendingLineStart = null;
   state.pointerStart = null;
   state.pointerMoved = false;
   state.pointerDown = false;
+  state.dragLineIndex = -1;
+  state.dragStartPoint = null;
+  state.dragOriginalLine = null;
+  state.lockAxisMode = false;
+  if (state.longPressTimer) clearTimeout(state.longPressTimer);
+  state.longPressTimer = null;
   render();
 }
 
-function distance(a, b) {
-  if (!a || !b) return 0;
-  const dx = b.x - a.x;
-  const dy = b.y - a.y;
-  return Math.sqrt(dx * dx + dy * dy);
+function pointToSegmentDistance(point, line) {
+  const ax = line.x1;
+  const ay = line.y1;
+  const bx = line.x2;
+  const by = line.y2;
+  const dx = bx - ax;
+  const dy = by - ay;
+  const len2 = dx * dx + dy * dy;
+  if (!len2) return distance(point, { x: ax, y: ay });
+  const t = Math.max(0, Math.min(1, ((point.x - ax) * dx + (point.y - ay) * dy) / len2));
+  return distance(point, { x: ax + t * dx, y: ay + t * dy });
 }
 
-function lineLength(line) {
-  if (!line) return 0;
-  return distance({ x: line.x1, y: line.y1 }, { x: line.x2, y: line.y2 });
+function findLineNearPoint(point) {
+  if (!state.lines.length || !state.showDrawings) return -1;
+  let bestIndex = -1;
+  let bestDistance = Infinity;
+  state.lines.forEach((line, index) => {
+    const d = pointToSegmentDistance(point, line);
+    if (d < bestDistance) {
+      bestDistance = d;
+      bestIndex = index;
+    }
+  });
+  return bestDistance <= 0.035 ? bestIndex : -1;
 }
 
-function createLineFromPending(point) {
-  if (!state.pendingLineStart) return false;
-  const line = {
-    x1: state.pendingLineStart.x,
-    y1: state.pendingLineStart.y,
-    x2: point.x,
-    y2: point.y,
-  };
-  state.pendingLineStart = null;
-  state.previewLine = null;
-  if (lineLength(line) > 0.012) {
-    state.lines.push(line);
-    return true;
+function snapLineIfNeeded(line) {
+  if (!state.lockAxisMode) return line;
+  const dx = line.x2 - line.x1;
+  const dy = line.y2 - line.y1;
+  if (Math.abs(dx) >= Math.abs(dy)) {
+    return { ...line, y2: line.y1, lock: 'horizontal' };
   }
-  return false;
+  return { ...line, x2: line.x1, lock: 'vertical' };
+}
+
+function startLongPressAxisLock() {
+  if (state.longPressTimer) clearTimeout(state.longPressTimer);
+  state.longPressTimer = window.setTimeout(() => {
+    if (!state.pointerDown || state.dragLineIndex >= 0) return;
+    state.lockAxisMode = true;
+    if (state.previewLine) state.previewLine = snapLineIfNeeded(state.previewLine);
+    refs.drawingHint.textContent = 'Bloqueo ON: línea horizontal/vertical';
+    window.setTimeout(() => {
+      if (state.drawingMode) refs.drawingHint.textContent = 'Dibujo: toca 2 puntos, arrastra, o mueve una línea existente';
+    }, 1200);
+    drawAllLines();
+  }, 520);
 }
 
 function handleCanvasPointerDown(event) {
@@ -1081,21 +1259,51 @@ function handleCanvasPointerDown(event) {
   state.pointerDown = true;
   state.pointerStart = point;
   state.pointerMoved = false;
-  state.previewLine = state.pendingLineStart
-    ? { x1: state.pendingLineStart.x, y1: state.pendingLineStart.y, x2: point.x, y2: point.y }
-    : { x1: point.x, y1: point.y, x2: point.x, y2: point.y };
+  state.lockAxisMode = false;
+
+  const lineIndex = findLineNearPoint(point);
+  if (lineIndex >= 0) {
+    state.selectedLineIndex = lineIndex;
+    state.dragLineIndex = lineIndex;
+    state.dragStartPoint = point;
+    state.dragOriginalLine = { ...state.lines[lineIndex] };
+    state.previewLine = null;
+    state.pendingLineStart = null;
+  } else {
+    state.dragLineIndex = -1;
+    state.dragStartPoint = null;
+    state.dragOriginalLine = null;
+    state.previewLine = state.pendingLineStart
+      ? { x1: state.pendingLineStart.x, y1: state.pendingLineStart.y, x2: point.x, y2: point.y }
+      : { x1: point.x, y1: point.y, x2: point.x, y2: point.y };
+    startLongPressAxisLock();
+  }
   refs.drawingCanvas.setPointerCapture?.(event.pointerId);
   drawAllLines();
 }
 
 function handleCanvasPointerMove(event) {
-  if (!state.drawingMode || !state.pointerDown || !state.previewLine) return;
+  if (!state.drawingMode || !state.pointerDown) return;
   event.preventDefault();
   event.stopPropagation();
   const point = toNormalized(event.clientX, event.clientY);
   if (distance(state.pointerStart, point) > 0.006) state.pointerMoved = true;
-  state.previewLine.x2 = point.x;
-  state.previewLine.y2 = point.y;
+
+  if (state.dragLineIndex >= 0 && state.dragOriginalLine && state.dragStartPoint) {
+    const dx = point.x - state.dragStartPoint.x;
+    const dy = point.y - state.dragStartPoint.y;
+    state.lines[state.dragLineIndex] = {
+      ...state.dragOriginalLine,
+      x1: Math.min(Math.max(state.dragOriginalLine.x1 + dx, 0), 1),
+      y1: Math.min(Math.max(state.dragOriginalLine.y1 + dy, 0), 1),
+      x2: Math.min(Math.max(state.dragOriginalLine.x2 + dx, 0), 1),
+      y2: Math.min(Math.max(state.dragOriginalLine.y2 + dy, 0), 1),
+    };
+  } else if (state.previewLine) {
+    state.previewLine.x2 = point.x;
+    state.previewLine.y2 = point.y;
+    state.previewLine = snapLineIfNeeded(state.previewLine);
+  }
   drawAllLines();
 }
 
@@ -1105,22 +1313,37 @@ function handleCanvasPointerUp(event) {
   event.stopPropagation();
   const point = toNormalized(event.clientX, event.clientY);
   const wasMoved = state.pointerMoved;
-  const draggedLine = state.previewLine;
+  let draggedLine = state.previewLine ? snapLineIfNeeded(state.previewLine) : null;
+  const wasMovingLine = state.dragLineIndex >= 0;
+
+  if (state.longPressTimer) clearTimeout(state.longPressTimer);
+  state.longPressTimer = null;
   state.pointerDown = false;
   state.pointerStart = null;
   state.pointerMoved = false;
 
-  if (wasMoved && draggedLine && lineLength(draggedLine) > 0.012) {
+  if (wasMovingLine) {
+    state.selectedLineIndex = state.dragLineIndex;
+    state.dragLineIndex = -1;
+    state.dragStartPoint = null;
+    state.dragOriginalLine = null;
+    state.previewLine = null;
+  } else if (wasMoved && draggedLine && lineLength(draggedLine) > 0.012) {
     state.lines.push(draggedLine);
+    state.selectedLineIndex = state.lines.length - 1;
     state.pendingLineStart = null;
     state.previewLine = null;
   } else if (!state.pendingLineStart) {
     state.pendingLineStart = point;
     state.previewLine = null;
+    state.selectedLineIndex = -1;
   } else {
+    const before = state.lines.length;
     createLineFromPending(point);
+    if (state.lines.length > before) state.selectedLineIndex = state.lines.length - 1;
   }
 
+  state.lockAxisMode = false;
   refs.drawingCanvas.releasePointerCapture?.(event.pointerId);
   drawAllLines();
   renderRails();
@@ -1132,6 +1355,12 @@ function cancelCanvasPointer(event) {
   state.pointerStart = null;
   state.pointerMoved = false;
   state.previewLine = null;
+  state.dragLineIndex = -1;
+  state.dragStartPoint = null;
+  state.dragOriginalLine = null;
+  state.lockAxisMode = false;
+  if (state.longPressTimer) clearTimeout(state.longPressTimer);
+  state.longPressTimer = null;
   try { refs.drawingCanvas.releasePointerCapture?.(event.pointerId); } catch (_) {}
   drawAllLines();
   renderRails();
@@ -1168,8 +1397,8 @@ function bindEvents() {
   refs.switchModeBtn.addEventListener('click', () => { state.guideMode = state.guideMode === 'dtl' ? 'fo' : 'dtl'; render(); });
   refs.drawModeBtn.addEventListener('click', toggleDrawingMode);
   refs.toggleDrawingsBtn.addEventListener('click', () => { state.showDrawings = !state.showDrawings; drawAllLines(); renderRails(); });
-  refs.undoLineBtn.addEventListener('click', () => { state.lines.pop(); drawAllLines(); renderRails(); });
-  refs.clearLinesBtn.addEventListener('click', () => { state.lines = []; drawAllLines(); renderRails(); });
+  refs.undoLineBtn.addEventListener('click', () => { if (state.selectedLineIndex >= 0) { state.lines.splice(state.selectedLineIndex, 1); state.selectedLineIndex = -1; } else { state.lines.pop(); } drawAllLines(); renderRails(); });
+  refs.clearLinesBtn.addEventListener('click', () => { state.lines = []; state.selectedLineIndex = -1; state.pendingLineStart = null; state.previewLine = null; drawAllLines(); renderRails(); });
 
   refs.tabPhases.addEventListener('click', () => setMode('phases'));
   refs.tabAnalysis.addEventListener('click', () => setMode('analysis'));
@@ -1201,12 +1430,15 @@ function bindEvents() {
     state.captureSwipeStart = { x: event.clientX, y: event.clientY };
   });
   refs.captureViewer.addEventListener('pointerup', (event) => {
-    if (!state.captureSwipeStart) return;
+    if (!state.captureSwipeStart || state.drawingMode) return;
     const dx = event.clientX - state.captureSwipeStart.x;
     const dy = event.clientY - state.captureSwipeStart.y;
     state.captureSwipeStart = null;
     if (Math.abs(dx) > 38 && Math.abs(dx) > Math.abs(dy)) {
       moveCapture(dx < 0 ? 1 : -1);
+    } else if (Math.abs(dx) < 10 && Math.abs(dy) < 10) {
+      state.controlsVisible = !state.controlsVisible;
+      render();
     }
   });
   refs.captureViewer.addEventListener('dblclick', closeCaptureViewerToVideo);

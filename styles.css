@@ -38,6 +38,7 @@ button { border: 0; cursor: pointer; }
   height: 100%;
   z-index: 19;
   pointer-events: none;
+  touch-action: none;
 }
 .drawing-canvas.drawing-enabled { pointer-events: auto; }
 .tap-layer {
@@ -457,7 +458,6 @@ button:disabled { opacity: .42; cursor: not-allowed; }
   box-shadow: 0 12px 28px rgba(0,0,0,.26);
 }
 .capture-viewing .guide-overlay,
-.capture-viewing .drawing-canvas,
 .capture-viewing .tap-layer {
   display: none !important;
 }
@@ -517,4 +517,35 @@ button:disabled { opacity: .42; cursor: not-allowed; }
   .capture-only .bottom-dock.history-mode { max-height: 48dvh; }
   .capture-only .bottom-dock.analysis-mode .dock-panel,
   .capture-only .bottom-dock.history-mode .dock-panel { max-height: calc(48dvh - 42px - var(--safe-bottom)); }
+}
+
+
+/* v0.7 review/edit polish */
+.capture-viewing.controls-hidden .bottom-dock.analysis-mode,
+.capture-viewing.controls-hidden .bottom-dock.history-mode,
+.capture-only.controls-hidden .bottom-dock.analysis-mode,
+.capture-only.controls-hidden .bottom-dock.history-mode {
+  display: none !important;
+}
+.capture-viewing.controls-hidden .right-rail,
+.capture-only.controls-hidden .right-rail {
+  display: grid !important;
+}
+.capture-viewing .drawing-canvas,
+.capture-only .drawing-canvas {
+  z-index: 21;
+}
+.drawing-mode .capture-viewer {
+  touch-action: none;
+}
+.drawing-mode .capture-badge {
+  opacity: .72;
+}
+.drawing-mode .drawing-hint::after {
+  content: ' · pulsa una línea para moverla · mantén pulsado para H/V';
+}
+#toggleDrawingsBtn:disabled,
+#undoLineBtn:disabled,
+#clearLinesBtn:disabled {
+  opacity: .38;
 }

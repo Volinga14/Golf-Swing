@@ -1,4 +1,4 @@
-const CACHE_NAME = 'swing-lab-v06-intelligent-flow';
+const CACHE_NAME = 'swing-lab-v07-review-edit';
 const APP_ASSETS = [
   './',
   './index.html',
