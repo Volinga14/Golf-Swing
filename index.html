@@ -2,10 +2,10 @@
 <html lang="es">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no" />
-  <title>Swing Lab v0.7</title>
-  <meta name="description" content="Swing Lab PWA v0.7 - revisión inteligente con capturas editables, dibujo sobre historial y guías limpias por defecto." />
-  <meta name="theme-color" content="#000000" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Swing Lab Smart v0.9</title>
+  <meta name="description" content="Swing Lab Smart v0.9 - análisis inteligente 2D de swing: fases automáticas, capturas, scoring, dashboard y reporte técnico." />
+  <meta name="theme-color" content="#071522" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -13,152 +13,48 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icons/icon-192.png" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
-  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="styles-smart.css" />
 </head>
 <body>
-  <div id="app" class="app-shell">
-    <main class="short-stage">
-      <section id="emptyState" class="empty-state">
-        <div class="empty-logo">⛳</div>
-        <h1>Swing Lab</h1>
-        <p>Sube o graba un swing. La app se abre como un short: vídeo a pantalla completa, marcado claro de fases y análisis visual muy simple.</p>
-        <div class="empty-actions">
+  <div id="app" class="app is-empty">
+    <section id="emptyState" class="empty-state">
+      <div class="empty-card">
+        <div class="logo-mark">⛳</div>
+        <p class="eyebrow">Swing Lab Smart v0.9</p>
+        <h1>Análisis inteligente de swing</h1>
+        <p class="intro">Sube o graba un vídeo. La app detecta la ventana activa, propone fases, genera capturas, calcula tempo y prepara un reporte técnico tipo Swing Lab.</p>
+        <div class="actions-grid">
           <button id="pickVideoBtn" class="btn primary" type="button">Subir vídeo</button>
-          <button id="openCameraBtn" class="btn secondary" type="button">Grabar con cámara</button>
+          <button id="recordVideoBtn" class="btn secondary" type="button">Grabar swing</button>
         </div>
-        <button id="openHistoryStartBtn" class="history-empty-btn" type="button">Cargar sesión anterior</button>
-        <button id="installBtnEmpty" class="install-empty hidden" type="button">Instalar PWA</button>
-        <p class="empty-tip">Recomendado: móvil vertical, cuerpo completo, cámara quieta y buena luz.</p>
-      </section>
-
-      <video id="video" class="video hidden" playsinline preload="metadata"></video>
-      <img id="captureViewer" class="capture-viewer hidden" alt="Captura de fase" />
-      <div id="captureBadge" class="capture-badge hidden">Captura</div>
-      <canvas id="drawingCanvas" class="drawing-canvas hidden"></canvas>
-      <canvas id="captureCanvas" class="hidden"></canvas>
-
-      <div id="tapLayer" class="tap-layer hidden" aria-label="Tocar para mostrar u ocultar controles"></div>
-      <div id="scrimTop" class="scrim top hidden"></div>
-      <div id="scrimBottom" class="scrim bottom hidden"></div>
-
-      <div id="guideOverlay" class="guide-overlay hidden" aria-hidden="true">
-        <div class="guide body-box"></div>
-        <div class="guide center-line"></div>
-        <div class="guide shoulder-line"></div>
-        <div class="guide hip-line"></div>
-        <div class="guide feet-line"></div>
-        <div id="dtlGuides" class="mode-guides">
-          <div class="guide plane plane-low"></div>
-          <div class="guide plane plane-high"></div>
-        </div>
-        <div id="foGuides" class="mode-guides hidden">
-          <div class="guide posture left-posture"></div>
-          <div class="guide posture right-posture"></div>
-        </div>
+        <button id="openLastBtn" class="text-btn" type="button">Abrir última sesión guardada</button>
+        <div class="capture-advice"><b>Captura recomendada</b><span>Vertical · cuerpo completo · cámara fija · DTL o face-on · 120/240 fps si es posible.</span></div>
       </div>
-
-      <header id="topHud" class="top-hud hidden">
-        <div>
-          <div class="brand">Swing Lab</div>
-          <div id="stateText" class="state-text">Vídeo cargado</div>
-        </div>
-        <div class="hud-actions">
-          <button id="installBtn" class="hud-btn hidden" type="button">Instalar</button>
-          <button id="uploadBtn" class="hud-btn" type="button">Subir</button>
-        </div>
-      </header>
-
-      <aside id="rightRail" class="right-rail hidden">
-        <button id="toggleGuidesBtn" class="rail-btn" type="button"><span>Guías</span><b>OFF</b></button>
-        <button id="switchModeBtn" class="rail-btn" type="button"><span>Vista</span><b>DTL</b></button>
-        <button id="drawModeBtn" class="rail-btn" type="button"><span>Dib.</span><b>OFF</b></button>
-        <button id="toggleDrawingsBtn" class="rail-btn" type="button"><span>Líneas</span><b>ON</b></button>
-        <button id="undoLineBtn" class="rail-btn" type="button"><span>Undo</span><b>1</b></button>
-        <button id="clearLinesBtn" class="rail-btn rail-danger" type="button"><span>Borrar</span><b>All</b></button>
-      </aside>
-
-      <section id="phaseHud" class="phase-hud hidden">
-        <div class="phase-hud-top">
-          <div>
-            <div class="phase-label-small">Fase activa</div>
-            <div id="activePhaseName" class="active-phase-name">Address</div>
-          </div>
-          <div id="markStatus" class="mark-status">Sin marcar</div>
-        </div>
-        <div id="timeReadout" class="time-readout">0:00.00 · frame 0</div>
+    </section>
+    <main id="workspace" class="workspace hidden">
+      <section class="viewer-wrap">
+        <video id="video" class="video" playsinline preload="metadata"></video>
+        <canvas id="drawCanvas" class="draw-canvas"></canvas>
+        <canvas id="analysisCanvas" class="hidden"></canvas>
+        <div id="cleanTapLayer" class="clean-tap-layer"></div>
+        <div id="smartOverlay" class="smart-overlay hidden"><div class="axis vertical"></div><div class="axis address"></div><div class="axis ball"></div><div class="plane low"></div><div class="plane high"></div></div>
+        <header id="topBar" class="top-bar hidden"><div><div class="brand">Swing Lab</div><div id="stateLabel" class="state-label">Vídeo cargado</div></div><div class="top-actions"><button id="replaceVideoBtn" class="mini-btn" type="button">Cambiar</button><button id="installBtn" class="mini-btn hidden" type="button">Instalar</button></div></header>
+        <aside id="rail" class="rail hidden"><button id="toggleGuidesBtn" class="rail-btn" type="button"><span>Guías</span><b>OFF</b></button><button id="toggleDrawBtn" class="rail-btn" type="button"><span>Dib.</span><b>OFF</b></button><button id="undoBtn" class="rail-btn" type="button"><span>Undo</span><b>0</b></button><button id="clearDrawBtn" class="rail-btn danger" type="button"><span>Borrar</span><b>All</b></button></aside>
+        <div id="cleanHint" class="clean-hint">Toca el vídeo para abrir el análisis</div>
       </section>
-
-      <section id="bottomDock" class="bottom-dock hidden">
-        <div id="playerStrip" class="player-strip">
-          <div class="player-main-row">
-            <div class="player-readout">
-              <div id="playerReadout" class="player-readout-value">0:00.00 · frame 0</div>
-              <div id="playerPhaseReadout" class="player-phase-readout">Fase: Address</div>
-            </div>
-            <button id="speedBtn" class="small-pill" type="button">1x</button>
-          </div>
-          <input id="timeline" class="timeline" type="range" min="0" max="1000" value="0" step="1" aria-label="Timeline del vídeo" />
-          <div class="marking-controls player-controls">
-            <button id="backFrameBtn" class="frame-btn" type="button">−1f</button>
-            <button id="playBtn" class="play-btn" type="button">Play</button>
-            <button id="forwardFrameBtn" class="frame-btn" type="button">+1f</button>
-            <button id="markPhaseBtn" class="mark-btn" type="button">Marcar</button>
-          </div>
-        </div>
-
-        <nav class="mode-tabs" aria-label="Modo de trabajo">
-          <button id="tabPhases" class="mode-tab active" type="button">Fases</button>
-          <button id="tabAnalysis" class="mode-tab" type="button">Análisis</button>
-          <button id="tabHistory" class="mode-tab" type="button">Historial</button>
-        </nav>
-
-        <div id="phasesPanel" class="dock-panel">
-          <div class="dock-title-row compact-title-row">
-            <div>
-              <h2>Marcado de fases</h2>
-              <p>Selecciona una fase, coloca el frame y pulsa marcar.</p>
-            </div>
-          </div>
-          <div id="phaseChips" class="phase-chips"></div>
-          <div id="phaseSummary" class="phase-summary"></div>
-        </div>
-
-        <div id="analysisPanel" class="dock-panel hidden">
-          <div class="dock-title-row">
-            <div>
-              <h2>Análisis visual</h2>
-              <p id="analysisStatus">Marca las fases y genera las capturas.</p>
-            </div>
-            <div class="analysis-actions">
-              <button id="analyzeBtn" class="small-pill" type="button">Generar</button>
-              <button id="saveSessionTopBtn" class="small-pill save-pill" type="button">Guardar</button>
-            </div>
-          </div>
-          <div id="recommendations" class="recommendations"></div>
-          <div id="capturesGrid" class="captures-grid"></div>
-          <button id="saveSessionBtn" class="wide-action primary-save" type="button">Guardar análisis</button>
-        </div>
-
-        <div id="historyPanel" class="dock-panel hidden">
-          <div class="dock-title-row">
-            <div>
-              <h2>Historial local</h2>
-              <p>Sesiones guardadas en este dispositivo.</p>
-            </div>
-            <button id="clearHistoryBtn" class="small-pill danger" type="button">Borrar</button>
-          </div>
-          <div id="historyList" class="history-list"></div>
-        </div>
+      <section id="dock" class="dock hidden">
+        <div class="player-card"><div class="readout-row"><div><div id="timeReadout" class="time-readout">0:00.00 · frame 0</div><div id="phaseReadout" class="phase-readout">Fase: Address</div></div><button id="speedBtn" class="pill" type="button">1x</button></div><input id="timeline" class="timeline" type="range" min="0" max="1000" value="0" step="1" /><div class="transport-row"><button id="backFrameBtn" class="control-btn" type="button">−1f</button><button id="playBtn" class="control-btn play" type="button">Play</button><button id="forwardFrameBtn" class="control-btn" type="button">+1f</button><button id="markPhaseBtn" class="control-btn mark" type="button">Marcar</button></div></div>
+        <nav class="tabs"><button id="tabSmart" class="tab active" type="button">Smart</button><button id="tabPhases" class="tab" type="button">Fases</button><button id="tabReport" class="tab" type="button">Informe</button><button id="tabHistory" class="tab" type="button">Historial</button></nav>
+        <section id="smartPanel" class="panel"><div class="panel-head"><div><h2>Análisis inteligente</h2><p id="smartStatus">Listo para detectar fases y generar dashboard.</p></div><button id="runSmartBtn" class="pill primary" type="button">Analizar</button></div><div id="qualityBox" class="quality-box"></div><div id="scoreCards" class="score-cards"></div><div id="insights" class="insights"></div></section>
+        <section id="phasesPanel" class="panel hidden"><div class="panel-head"><div><h2>Fases del swing</h2><p>Revisa las fases propuestas. Ajusta frame a frame y actualiza cuando sea necesario.</p></div><button id="captureAllBtn" class="pill" type="button">Capturas</button></div><div id="phaseChips" class="phase-chips"></div><div id="phaseTable" class="phase-table"></div><div id="capturesGrid" class="captures-grid"></div></section>
+        <section id="reportPanel" class="panel hidden"><div class="panel-head"><div><h2>Informe técnico</h2><p>Resumen ejecutivo, dashboard numérico y plan de mejora exportable.</p></div><button id="printReportBtn" class="pill primary" type="button">Exportar</button></div><div id="reportPreview" class="report-preview"></div><div class="report-actions"><button id="saveSessionBtn" class="wide-btn" type="button">Guardar sesión</button><button id="downloadJsonBtn" class="wide-btn secondary" type="button">Descargar JSON</button></div></section>
+        <section id="historyPanel" class="panel hidden"><div class="panel-head"><div><h2>Historial local</h2><p>Sesiones guardadas en este dispositivo.</p></div><button id="clearHistoryBtn" class="pill danger" type="button">Borrar</button></div><div id="historyList" class="history-list"></div></section>
       </section>
-
-      <div id="cleanHint" class="clean-hint hidden">Toca el vídeo para mostrar controles</div>
-      <div id="drawingHint" class="drawing-hint hidden">Dibujo: toca 2 puntos o arrastra para crear una línea</div>
     </main>
-
-    <input id="videoInput" type="file" accept="video/*" class="hidden" />
-    <input id="cameraInput" type="file" accept="video/*" capture="environment" class="hidden" />
+    <input id="videoInput" type="file" class="hidden" accept="video/*" />
+    <input id="recordInput" type="file" class="hidden" accept="video/*" capture="environment" />
   </div>
-
-  <script src="app.js" defer></script>
+  <template id="reportTemplate"><article class="print-report"><section class="report-page hero-page"><div class="report-topline"><b>Informe profesional de swing</b><span>Swing Lab Smart · pág. 1</span></div><h1>Análisis profesional del swing</h1><p class="report-subtitle">Análisis visual 2D desde vídeo completo, detección automática de fases y revisión manual auditable.</p><div class="hero-grid"><div class="sequence-card report-card"><h3>Secuencia del swing</h3><div data-report="sequence" class="report-sequence"></div></div><div class="summary-stack"><div class="rating-card report-card"><span>Evaluación global</span><strong data-report="rating">-- / 10</strong><small data-report="ratingText">Pendiente</small></div><div class="report-card"><h3>Datos del vídeo</h3><div data-report="videoData" class="kv-list"></div></div></div></div><div data-report="keyBoxes" class="key-boxes"></div></section><section class="report-page"><div class="report-topline"><b>01 | Secuencia del swing</b><span>Swing Lab Smart · pág. 2</span></div><h2>Secuencia estándar del swing</h2><p class="report-subtitle">Ventana activa, fases clave, tempo y estabilidad final.</p><div class="report-card"><div data-report="sequenceLarge" class="report-sequence large"></div></div><div class="two-col"><div data-report="phaseRows" class="report-card"></div><div data-report="temporal" class="report-card"></div></div></section><section class="report-page"><div class="report-topline"><b>02 | Dashboard numérico</b><span>Swing Lab Smart · pág. 3</span></div><h2>Dashboard numérico y scoring</h2><p class="report-subtitle">Métricas visuales estimadas. Rango prudente para comparar sesiones futuras.</p><div class="two-col wide-left"><div data-report="metricTable" class="report-card"></div><div data-report="scoreProfile" class="report-card"></div></div></section><section class="report-page"><div class="report-topline"><b>03 | Resumen y plan</b><span>Swing Lab Smart · pág. 4</span></div><h2>Resumen técnico y plan de mejora</h2><p class="report-subtitle">Pocas prioridades, drills vinculados al diagnóstico y recomendaciones para la próxima captura.</p><div data-report="plan" class="plan-grid"></div><div class="conclusion"><b>Conclusión</b><span data-report="conclusion">Pendiente.</span></div></section></article></template>
+  <script src="app-smart.js" defer></script>
 </body>
 </html>
