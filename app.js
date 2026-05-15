@@ -2,9 +2,22 @@
 
 const $ = (id) => document.getElementById(id);
 const DB_NAME = 'swing-lab-db';
-const DB_VERSION = 9;
+const DB_VERSION = 10;
 const STORE = 'sessions';
 const ASSUMED_FPS = 30;
+
+// Reference model calibrated from the standard Swing Lab report structure.
+// These are not hard rules: they are used as soft priors to stabilise phase detection.
+const SWING_REFERENCE = {
+  tempoIdealLow: 2.4,
+  tempoIdealHigh: 3.1,
+  downSwingMin: 0.12,
+  downSwingIdealLow: 0.20,
+  downSwingIdealHigh: 0.34,
+  downSwingMax: 0.62,
+  finishHoldIdeal: 0.45,
+  activeRatios: { address: 0.00, takeaway: 0.13, top: 0.50, impact: 0.70, finish: 1.00 },
+};
 
 const phases = [
   { id: 'address', label: 'Address', short: 'Addr', pct: 0.05, hint: 'Setup inicial: pies, bola, manos y postura.' },
@@ -50,6 +63,10 @@ const state = {
   dragOriginalLine: null,
   longPressTimer: null,
   lockAxisMode: false,
+  sheetExpanded: false,
+  sheetDragStartY: null,
+  historySelectionMode: false,
+  selectedSessionIds: new Set(),
 };
 
 const refs = {
@@ -67,6 +84,7 @@ const refs = {
   rightRail: $('rightRail'),
   phaseHud: $('phaseHud'),
   bottomDock: $('bottomDock'),
+  sheetHandle: $('sheetHandle'),
   cleanHint: $('cleanHint'),
   drawingHint: $('drawingHint'),
   guideOverlay: $('guideOverlay'),
@@ -113,6 +131,8 @@ const refs = {
   capturesGrid: $('capturesGrid'),
   saveSessionBtn: $('saveSessionBtn'),
   saveSessionTopBtn: $('saveSessionTopBtn'),
+  historySelectBtn: $('historySelectBtn'),
+  deleteSelectedHistoryBtn: $('deleteSelectedHistoryBtn'),
   clearHistoryBtn: $('clearHistoryBtn'),
   historyList: $('historyList'),
 };
@@ -163,6 +183,28 @@ async function dbAll() {
     console.warn(error);
     return [];
   }
+}
+
+
+async function dbDelete(id) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, 'readwrite');
+    tx.objectStore(STORE).delete(id);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function dbDeleteMany(ids) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, 'readwrite');
+    const store = tx.objectStore(STORE);
+    ids.forEach((id) => store.delete(id));
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
 }
 
 async function dbClear() {
@@ -225,6 +267,9 @@ function resetSessionState() {
   state.autoDetection = { status: 'idle', confidence: 0, method: '', samples: 0, motionPeakTime: null, phaseConfidence: {}, extendedTimes: {}, diagnostics: {} };
   state.viewingCapture = false;
   state.activeCaptureIndex = 0;
+  state.sheetExpanded = false;
+  state.historySelectionMode = false;
+  state.selectedSessionIds.clear();
   state.captureSwipeStart = null;
   state.lines = [];
   state.previewLine = null;
@@ -242,7 +287,10 @@ function resetSessionState() {
   state.showDrawings = true;
   state.controlsVisible = true;
   state.initialVideoClean = false;
+  state.sheetExpanded = false;
+  state.sheetDragStartY = null;
 }
+
 
 
 function applyVideoFile(file) {
@@ -262,12 +310,12 @@ function applyVideoFile(file) {
   state.videoBlob = file;
   state.videoUrl = URL.createObjectURL(file);
   state.videoName = file.name || `swing-${new Date().toISOString().slice(0, 10)}.mp4`;
-  refs.analysisStatus.textContent = 'Detectando fases automáticamente con SwingEngine v2.2… podrás corregirlas manualmente.';
+  refs.analysisStatus.textContent = 'Detectando fases automáticamente con modelo temporal + referencia Swing Lab… podrás corregirlas manualmente.';
   refs.recommendations.innerHTML = '';
   refs.capturesGrid.innerHTML = '';
   refs.video.src = state.videoUrl;
   refs.video.load();
-  state.autoDetection = { status: 'queued', confidence: 0, method: 'SwingEngine v2.2', samples: 0, motionPeakTime: null, phaseConfidence: {}, extendedTimes: {}, diagnostics: {} };
+  state.autoDetection = { status: 'queued', confidence: 0, method: 'Smart Phases v0.8.4', samples: 0, motionPeakTime: null, phaseConfidence: {}, extendedTimes: {}, diagnostics: {} };
   setAppState('loaded');
   render();
 }
@@ -275,6 +323,7 @@ function applyVideoFile(file) {
 function setMode(mode) {
   state.mode = mode;
   if (mode === 'phases') {
+    state.sheetExpanded = false;
     if (state.videoUrl) state.viewingCapture = false;
     setAppState(markedCount() ? 'detected' : 'marking');
   }
@@ -329,6 +378,7 @@ function renderShell() {
   refs.bottomDock.classList.toggle('phases-mode', state.mode === 'phases');
   refs.bottomDock.classList.toggle('analysis-mode', state.mode === 'analysis');
   refs.bottomDock.classList.toggle('history-mode', state.mode === 'history');
+  refs.bottomDock.classList.toggle('sheet-expanded', state.sheetExpanded && (state.mode === 'analysis' || state.mode === 'history'));
   refs.playerStrip.classList.toggle('hidden', state.mode !== 'phases' || state.captureOnly || showingCapture);
   refs.drawingCanvas.classList.toggle('hidden', !hasSession);
 }
@@ -405,7 +455,14 @@ function renderReadouts() {
   const canSave = Boolean(Object.keys(state.phaseCaptures).length || (state.videoUrl && markedCount()));
   refs.saveSessionBtn.disabled = !canSave;
   refs.saveSessionTopBtn.disabled = !canSave;
+  if (refs.historySelectBtn) refs.historySelectBtn.textContent = state.historySelectionMode ? 'Cancelar' : 'Seleccionar';
+  if (refs.deleteSelectedHistoryBtn) {
+    const count = state.selectedSessionIds?.size || 0;
+    refs.deleteSelectedHistoryBtn.textContent = count ? `Borrar ${count}` : 'Borrar selección';
+    refs.deleteSelectedHistoryBtn.disabled = !count;
+  }
 }
+
 
 function renderTimeline() {
   if (!state.videoUrl || state.isSeekingWithSlider || !Number.isFinite(refs.video.duration) || refs.video.duration <= 0) return;
@@ -531,7 +588,7 @@ function buildRecommendations() {
   const ext = metrics.extendedTimes || {};
 
   if (state.autoDetection.status === 'done') {
-    recs.push(`<b>Motor inteligente:</b> ${metrics.method || 'SwingEngine'} · ${confidence}% de confianza · ${state.autoDetection.samples || 0} muestras. El sistema primero detecta la ventana activa del swing y después ajusta Address, Takeaway, Top, Impact y Finish.`);
+    recs.push(`<b>Detección inteligente:</b> ${metrics.method || 'Smart Phases'} · ${confidence}% de confianza · ${state.autoDetection.samples || 0} muestras. Combina movimiento real del vídeo con un patrón temporal de referencia del informe Swing Lab para estabilizar Address, Top, Impact y Finish.`);
   } else if (state.autoDetection.status === 'failed') {
     recs.push('<b>Motor inteligente:</b> baja confianza. Se han colocado fases estimadas por porcentaje; conviene revisar todos los frames manualmente.');
   } else if (state.captureOnly) {
@@ -545,6 +602,7 @@ function buildRecommendations() {
       <div class="metric-card"><b>${scores.tempo}</b><span>Tempo</span></div>
       <div class="metric-card"><b>${scores.finish}</b><span>Finish</span></div>
     </div>`);
+    recs.push(`<b>Lectura técnica:</b> ${metrics.scoreLabels?.overall || 'pendiente'}. Setup/fases ${metrics.scoreLabels?.phaseQuality || 'pendiente'}, tempo ${metrics.scoreLabels?.tempo || 'pendiente'}, secuencia ${metrics.scoreLabels?.sequence || 'pendiente'}. Este bloque replica la lógica de dashboard del informe: score global + lectura accionable, no solo tiempos.`);
   }
 
   if (marked < phases.length) {
@@ -558,7 +616,7 @@ function buildRecommendations() {
     let tempoComment = 'tempo razonable para un swing completo.';
     if (tempo < 2.0) tempoComment = 'backswing demasiado corto respecto al downswing o Top marcado tarde; revisa Top con frame-by-frame.';
     else if (tempo > 4.3) tempoComment = 'backswing muy largo respecto al downswing o Impact marcado tarde; revisa Impact y Finish.';
-    recs.push(`<b>Tempo avanzado:</b> ${tempo.toFixed(2)}:1 · backswing ${fmtSec(metrics.backswing)} · downswing ${fmtSec(metrics.downswing)} · follow-through ${fmtSec(metrics.followThrough)}. ${tempoComment}`);
+    recs.push(`<b>Tempo avanzado:</b> ${tempo.toFixed(2)}:1 · referencia ${metrics.reference?.tempoBand || '2.4:1–3.1:1'} · backswing ${fmtSec(metrics.backswing)} · downswing ${fmtSec(metrics.downswing)} · follow-through ${fmtSec(metrics.followThrough)}. ${tempoComment}`);
   }
 
   if (metrics?.activeWindow) {
@@ -592,6 +650,11 @@ function buildRecommendations() {
     const contrastPct = Math.round(diagnostics.motionContrast * 100);
     const read = contrastPct < 25 ? 'bajo: revisa manualmente porque el fondo/luz dificulta separar el movimiento.' : contrastPct < 55 ? 'medio: detección útil pero Top/Impact deben auditarse.' : 'alto: el vídeo ofrece buena señal de movimiento para detectar fases.';
     recs.push(`<b>Calidad de señal:</b> contraste de movimiento ${contrastPct}% · ${read}`);
+  }
+
+  if (metrics.downswing) {
+    const downRead = metrics.downswing < SWING_REFERENCE.downSwingIdealLow ? 'demasiado rápida o Top tardío' : metrics.downswing > SWING_REFERENCE.downSwingIdealHigh ? 'lenta o Impact tardío' : 'dentro de rango de referencia';
+    recs.push(`<b>Delivery / Impact:</b> downswing ${fmtSec(metrics.downswing)} (${downRead}). Este tramo se usa para priorizar la revisión frame a frame del impacto.`);
   }
 
   if (metrics?.consistencyWarnings?.length) {
@@ -681,6 +744,47 @@ function scoreFromRange(value, min, idealLow, idealHigh, max) {
   return clamp((max - value) / Math.max(max - idealHigh, 0.001), 0, 1);
 }
 
+
+function lerp(a, b, weight) {
+  if (!Number.isFinite(a)) return b;
+  if (!Number.isFinite(b)) return a;
+  return a * (1 - weight) + b * weight;
+}
+
+function referencePhaseTimesFromImpact({ duration, segmentStart, segmentEnd, impactTime, detectedTopTime, topQuality = 0.45, segmentQuality = 0.45 }) {
+  const safeDuration = Number.isFinite(duration) && duration > 0 ? duration : 2;
+  const downFromDetected = Number.isFinite(detectedTopTime) ? Math.max(0.08, impactTime - detectedTopTime) : null;
+  const segmentSpan = Math.max(0.45, segmentEnd - segmentStart);
+  const referenceDown = clamp(downFromDetected || segmentSpan * 0.20, SWING_REFERENCE.downSwingMin, SWING_REFERENCE.downSwingMax);
+  const preferredDown = clamp(lerp(referenceDown, (SWING_REFERENCE.downSwingIdealLow + SWING_REFERENCE.downSwingIdealHigh) / 2, topQuality < 0.45 ? 0.45 : 0.18), 0.12, 0.55);
+  const referenceTempo = 2.65;
+  const backDur = clamp(preferredDown * referenceTempo, 0.34, Math.max(0.45, safeDuration * 0.55));
+  const top = clamp(impactTime - preferredDown, 0, safeDuration);
+  const address = clamp(top - backDur, 0, Math.max(0, top - 0.08));
+  const takeaway = clamp(address + (top - address) * 0.24, address + 0.035, top - 0.035);
+  const finish = clamp(impactTime + clamp(preferredDown * 1.45, 0.28, 1.35), impactTime + 0.16, safeDuration);
+  return { address, takeaway, top, impact: impactTime, finish };
+}
+
+function blendDetectedWithReference(detected, reference, confidenceWeight) {
+  const w = clamp(confidenceWeight, 0, 1);
+  return {
+    address: lerp(detected.address, reference.address, w),
+    takeaway: lerp(detected.takeaway, reference.takeaway, w * 0.85),
+    top: lerp(detected.top, reference.top, w),
+    impact: detected.impact,
+    finish: lerp(detected.finish, reference.finish, w * 0.72),
+  };
+}
+
+function scoreLabel(value) {
+  if (!Number.isFinite(value)) return 'pendiente';
+  if (value >= 82) return 'fuerte';
+  if (value >= 68) return 'correcto';
+  if (value >= 52) return 'revisar';
+  return 'crítico';
+}
+
 function computeAnalysisMetrics() {
   const t = state.phaseTimes;
   const has = (id) => Number.isFinite(t[id]);
@@ -708,7 +812,10 @@ function computeAnalysisMetrics() {
   if (has('address') && has('takeaway')) metrics.takeawayLoad = Math.max(0, t.takeaway - t.address);
   if (has('takeaway') && has('top')) metrics.lateBackswing = Math.max(0, t.top - t.takeaway);
   if (has('top') && has('impact')) metrics.transitionToStrike = Math.max(0, t.impact - t.top);
-  if (metrics.backswing && metrics.downswing) metrics.tempoRatio = metrics.backswing / Math.max(metrics.downswing, 0.001);
+  if (metrics.backswing && metrics.downswing) {
+    metrics.tempoRatio = metrics.backswing / Math.max(metrics.downswing, 0.001);
+    metrics.tempoDeviation = Math.min(1, Math.abs(metrics.tempoRatio - 2.65) / 2.65);
+  }
   if (metrics.total && metrics.downswing) metrics.accelerationIndex = metrics.downswing / Math.max(metrics.total, 0.001);
   if (has('impact')) metrics.impactFrame = frameNumber(t.impact);
   if (has('top')) metrics.topFrame = frameNumber(t.top);
@@ -738,8 +845,14 @@ function computeAnalysisMetrics() {
     }));
   }
 
-  const tempoScore = metrics.tempoRatio ? scoreFromRange(metrics.tempoRatio, 1.4, 2.4, 3.6, 5.4) : 0.55;
-  const downScore = metrics.downswing ? scoreFromRange(metrics.downswing, 0.06, 0.16, 0.42, 0.75) : 0.5;
+  metrics.reference = {
+    tempoBand: `${SWING_REFERENCE.tempoIdealLow}:1–${SWING_REFERENCE.tempoIdealHigh}:1`,
+    expectedDownswing: `${SWING_REFERENCE.downSwingIdealLow.toFixed(2)}–${SWING_REFERENCE.downSwingIdealHigh.toFixed(2)} s`,
+    source: 'patrón Swing Lab report',
+  };
+
+  const tempoScore = metrics.tempoRatio ? scoreFromRange(metrics.tempoRatio, 1.4, SWING_REFERENCE.tempoIdealLow, SWING_REFERENCE.tempoIdealHigh, 5.4) : 0.55;
+  const downScore = metrics.downswing ? scoreFromRange(metrics.downswing, 0.06, SWING_REFERENCE.downSwingIdealLow, SWING_REFERENCE.downSwingIdealHigh, 0.75) : 0.5;
   const totalScore = metrics.total ? scoreFromRange(metrics.total, 0.55, 0.9, 2.8, 4.5) : 0.5;
   const finishScore = metrics.followThrough ? scoreFromRange(metrics.followThrough, 0.10, 0.45, 2.2, 3.2) : 0.5;
   const detectionScore = metrics.confidence || 0.4;
@@ -759,6 +872,7 @@ function computeAnalysisMetrics() {
     (metrics.scores.sequence * 0.15) +
     (metrics.scores.finish * 0.10)
   );
+  metrics.scoreLabels = Object.fromEntries(Object.entries(metrics.scores).map(([key, value]) => [key, scoreLabel(value)]));
 
   if (metrics.downswing != null && metrics.downswing < 0.08) {
     metrics.consistencyWarnings.push('Top→Impact parece demasiado corto; comprueba ambos frames con +1f/−1f.');
@@ -774,6 +888,9 @@ function computeAnalysisMetrics() {
   }
   if (metrics.tempoRatio && metrics.tempoRatio > 5.0) {
     metrics.consistencyWarnings.push('Tempo excesivamente alto: Address/Top pueden estar demasiado separados o Impact tarde.');
+  }
+  if (metrics.downswing && (metrics.downswing < SWING_REFERENCE.downSwingIdealLow || metrics.downswing > SWING_REFERENCE.downSwingIdealHigh)) {
+    metrics.consistencyWarnings.push(`Downswing fuera del rango de referencia (${SWING_REFERENCE.downSwingIdealLow.toFixed(2)}–${SWING_REFERENCE.downSwingIdealHigh.toFixed(2)} s): revisa Top e Impact.`);
   }
   if (diagnostics?.motionContrast != null && diagnostics.motionContrast < 0.18) {
     metrics.consistencyWarnings.push('Contraste de movimiento bajo: vídeo con poca diferencia entre swing y fondo; revisa fases manualmente.');
@@ -1129,13 +1246,29 @@ function detectTimesFromMotion(profile, duration) {
   const stable = firstStableAfter(profile, stableStart, profile.length - 1, Math.max(p78, median * 1.65), 3);
   const rawFinishTime = stable?.time ?? Math.max(segEndTime, impact.time + Math.max(0.35, duration * 0.06));
 
-  const times = enforceIncreasing({
+  const detectedTimes = {
     address: addressTime,
     takeaway: Math.min(top.time - 0.035, Math.max(addressTime + 0.035, takeCandidate.time)),
     top: top.time,
     impact: impact.time,
     finish: Math.min(duration, Math.max(rawFinishTime, impact.time + 0.18)),
-  }, duration);
+  };
+  const referenceTimes = referencePhaseTimesFromImpact({
+    duration,
+    segmentStart: segStartTime,
+    segmentEnd: segEndTime,
+    impactTime: impact.time,
+    detectedTopTime: top.time,
+    topQuality: topCandidate.quality,
+    segmentQuality: segment.quality || 0.3,
+  });
+  const rawBack = detectedTimes.top - detectedTimes.address;
+  const rawDown = detectedTimes.impact - detectedTimes.top;
+  const rawTempo = rawBack / Math.max(rawDown, 0.001);
+  const implausible = !Number.isFinite(rawTempo) || rawTempo < 1.6 || rawTempo > 5.2 || rawDown < 0.07 || rawDown > 0.72;
+  const referenceWeight = clamp((implausible ? 0.48 : 0.20) + (1 - topCandidate.quality) * 0.22 + (1 - (segment.quality || 0.3)) * 0.10, 0.18, 0.62);
+  const blendedTimes = blendDetectedWithReference(detectedTimes, referenceTimes, referenceWeight);
+  const times = enforceIncreasing(blendedTimes, duration);
 
   // Derived internal checkpoints for richer analysis without adding more UI steps.
   const extendedTimes = {
@@ -1173,7 +1306,7 @@ function detectTimesFromMotion(profile, duration) {
   );
 
   const diagnostics = {
-    engine: 'SwingEngine v2.2',
+    engine: 'Smart Phases v0.8.4',
     maxScore,
     median,
     p92,
@@ -1186,6 +1319,9 @@ function detectTimesFromMotion(profile, duration) {
     impactProminence,
     topQuality,
     segmentQuality,
+    referenceWeight,
+    referenceTimes,
+    rawTempo,
   };
 
   return { times, confidence, peakTime: impact.time, thresholds, phaseConfidence, extendedTimes, diagnostics };
@@ -1195,7 +1331,7 @@ async function autoDetectPhases() {
   if (!state.videoUrl || state.autoDetection.status === 'running' || state.autoDetection.status === 'done') return;
   setAppState('detecting');
   state.autoDetection.status = 'running';
-  refs.analysisStatus.textContent = 'SwingEngine v2.2: localizando ventana activa, top e impacto…';
+  refs.analysisStatus.textContent = 'Smart Phases: localizando ventana activa, top e impacto con referencia temporal…';
   render();
   try {
     const duration = refs.video.duration;
@@ -1205,7 +1341,7 @@ async function autoDetectPhases() {
     state.autoDetection = {
       status: 'done',
       confidence: result.confidence,
-      method: 'SwingEngine v2.2 · motion segmentation + temporal model',
+      method: 'Smart Phases v0.8.4 · motion model + Swing Lab reference',
       samples: profile?.length || 0,
       motionPeakTime: result.peakTime,
       phaseConfidence: result.phaseConfidence || {},
@@ -1216,7 +1352,7 @@ async function autoDetectPhases() {
     state.currentPhaseId = 'address';
     await seekVideoTo(state.phaseTimes.address || 0);
     setAppState('detected');
-    refs.analysisStatus.textContent = `Fases detectadas con SwingEngine v2.2 (${Math.round(result.confidence * 100)}% confianza). Revisa especialmente Top e Impact.`;
+    refs.analysisStatus.textContent = `Fases detectadas con Smart Phases (${Math.round(result.confidence * 100)}% confianza). Revisa especialmente Top e Impact.`;
     render();
   } catch (error) {
     console.warn('Auto detection failed', error);
@@ -1334,14 +1470,54 @@ async function saveSession() {
   }
 }
 
+
+function toggleHistorySelectionMode() {
+  state.historySelectionMode = !state.historySelectionMode;
+  state.selectedSessionIds.clear();
+  renderReadouts();
+  loadHistory();
+}
+
+function toggleSessionSelection(id) {
+  if (state.selectedSessionIds.has(id)) state.selectedSessionIds.delete(id);
+  else state.selectedSessionIds.add(id);
+  renderReadouts();
+  loadHistory();
+}
+
+async function deleteSelectedSessions() {
+  const ids = Array.from(state.selectedSessionIds || []);
+  if (!ids.length) return;
+  if (!confirm(`¿Borrar ${ids.length} sesión(es) seleccionada(s)?`)) return;
+  await dbDeleteMany(ids);
+  state.selectedSessionIds.clear();
+  state.historySelectionMode = false;
+  await loadHistory();
+  renderReadouts();
+}
+
 async function loadHistory() {
   const sessions = (await dbAll()).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
   refs.historyList.innerHTML = '';
+  renderReadouts();
   if (!sessions.length) {
     refs.historyList.innerHTML = '<div class="status-box">Aún no hay sesiones guardadas.</div>';
     return;
   }
   sessions.forEach((session) => {
+    const row = document.createElement('div');
+    row.className = `history-row ${state.historySelectionMode ? 'selecting' : ''} ${state.selectedSessionIds.has(session.id) ? 'selected' : ''}`;
+
+    const checkbox = document.createElement('button');
+    checkbox.type = 'button';
+    checkbox.className = 'history-check';
+    checkbox.textContent = state.selectedSessionIds.has(session.id) ? '✓' : '';
+    checkbox.title = 'Seleccionar para borrar';
+    checkbox.addEventListener('click', (event) => {
+      event.stopPropagation();
+      toggleSessionSelection(session.id);
+    });
+
     const item = document.createElement('button');
     item.className = 'history-item';
     item.type = 'button';
@@ -1353,8 +1529,14 @@ async function loadHistory() {
         <div class="history-title">${session.videoName || 'Swing guardado'}</div>
         <div class="history-meta">${date} · ${capturesCount} capturas · ${Object.keys(session.phaseTimes || {}).length}/${phases.length} fases</div>
       </div>`;
-    item.addEventListener('click', () => restoreSession(session));
-    refs.historyList.appendChild(item);
+    item.addEventListener('click', () => {
+      if (state.historySelectionMode) toggleSessionSelection(session.id);
+      else restoreSession(session);
+    });
+
+    row.appendChild(checkbox);
+    row.appendChild(item);
+    refs.historyList.appendChild(row);
   });
 }
 
@@ -1372,6 +1554,9 @@ function restoreSession(session) {
   state.mode = Object.keys(state.phaseCaptures).length ? 'analysis' : 'phases';
   state.controlsVisible = true;
   state.activeCaptureIndex = 0;
+  state.sheetExpanded = false;
+  state.historySelectionMode = false;
+  state.selectedSessionIds.clear();
 
   if (Object.keys(state.phaseCaptures).length) {
     state.viewingCapture = true;
@@ -1404,8 +1589,11 @@ function restoreSession(session) {
 async function clearHistory() {
   if (!confirm('¿Borrar todas las sesiones guardadas en este dispositivo?')) return;
   await dbClear();
+  state.selectedSessionIds.clear();
+  state.historySelectionMode = false;
   await loadHistory();
 }
+
 
 function openHistoryFromStart() {
   revokeVideoUrl();
@@ -1811,7 +1999,25 @@ function bindEvents() {
   refs.analyzeBtn.addEventListener('click', analyze);
   refs.saveSessionBtn.addEventListener('click', saveSession);
   refs.saveSessionTopBtn.addEventListener('click', saveSession);
+  refs.historySelectBtn.addEventListener('click', toggleHistorySelectionMode);
+  refs.deleteSelectedHistoryBtn.addEventListener('click', deleteSelectedSessions);
   refs.clearHistoryBtn.addEventListener('click', clearHistory);
+
+  refs.sheetHandle.addEventListener('pointerdown', (event) => {
+    if (state.mode !== 'analysis' && state.mode !== 'history') return;
+    state.sheetDragStartY = event.clientY;
+    refs.sheetHandle.setPointerCapture?.(event.pointerId);
+  });
+  refs.sheetHandle.addEventListener('pointerup', (event) => {
+    if (state.mode !== 'analysis' && state.mode !== 'history') return;
+    const startY = state.sheetDragStartY;
+    state.sheetDragStartY = null;
+    const dy = Number.isFinite(startY) ? event.clientY - startY : 0;
+    if (Math.abs(dy) < 12) state.sheetExpanded = !state.sheetExpanded;
+    else if (dy < -28) state.sheetExpanded = true;
+    else if (dy > 28) state.sheetExpanded = false;
+    render();
+  });
 
   refs.drawingCanvas.addEventListener('pointerdown', handleCanvasPointerDown);
   refs.drawingCanvas.addEventListener('pointermove', handleCanvasPointerMove);

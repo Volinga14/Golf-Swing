@@ -1,4 +1,4 @@
-const CACHE_NAME = 'swing-lab-v083-smart-phases';
+const CACHE_NAME = 'swing-lab-v084-smart-review';
 const APP_ASSETS = [
   './',
   './index.html',

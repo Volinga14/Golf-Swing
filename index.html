@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no" />
-  <title>Swing Lab v0.8.3 Smart Phases</title>
-  <meta name="description" content="Swing Lab PWA v0.8.3 - Clean Load con SwingEngine v2.2 para detección de fases y métricas inteligentes." />
+  <title>Swing Lab v0.8.4 Smart Review</title>
+  <meta name="description" content="Swing Lab PWA v0.8.4 - Clean Load con detección inteligente incremental, análisis ampliado y sesiones editables." />
   <meta name="theme-color" content="#000000" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -89,6 +89,7 @@
       </section>
 
       <section id="bottomDock" class="bottom-dock hidden">
+        <div id="sheetHandle" class="sheet-handle" aria-label="Expandir o contraer panel"><span></span></div>
         <div id="playerStrip" class="player-strip">
           <div class="player-main-row">
             <div class="player-readout">
@@ -145,7 +146,7 @@
               <h2>Historial local</h2>
               <p>Sesiones guardadas en este dispositivo.</p>
             </div>
-            <button id="clearHistoryBtn" class="small-pill danger" type="button">Borrar</button>
+            <div class="history-actions"><button id="historySelectBtn" class="small-pill" type="button">Seleccionar</button><button id="deleteSelectedHistoryBtn" class="small-pill danger" type="button" disabled>Borrar selección</button><button id="clearHistoryBtn" class="small-pill danger" type="button">Borrar todo</button></div>
           </div>
           <div id="historyList" class="history-list"></div>
         </div>

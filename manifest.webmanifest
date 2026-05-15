@@ -1,7 +1,7 @@
 {
   "name": "Swing Lab",
   "short_name": "Swing Lab",
-  "description": "PWA fullscreen para revisar swing de golf con SwingEngine v2.2, detección automática de fases, tempo avanzado, capturas e historial ligero.",
+  "description": "PWA fullscreen para revisar swing de golf con detección inteligente incremental, referencias temporales Swing Lab, capturas e historial editable.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",

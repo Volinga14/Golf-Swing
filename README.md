@@ -1,4 +1,4 @@
-# Swing Lab PWA v0.8.3 Smart Phases
+# Swing Lab PWA v0.8.4 Smart Review
 
 Base: v0.8.2 Clean Load.
 
@@ -7,7 +7,7 @@ Esta versión mantiene la UX simple tipo short y añade una capa más inteligent
 - Carga limpia: el vídeo queda pausado y sin paneles hasta tocar la pantalla.
 - Guías OFF por defecto.
 - Dibujo móvil corregido con dos toques, arrastre, selección y movimiento de líneas.
-- SwingEngine v2.2 para detección automática de fases:
+- Smart Phases v0.8.4 para detección automática de fases:
   - segmentación de ventana activa del swing,
   - perfil de movimiento por frames muestreados,
   - detección de Address, Takeaway, Top, Impact y Finish,
@@ -27,3 +27,9 @@ Esta versión mantiene la UX simple tipo short y añade una capa más inteligent
 ## Limitaciones
 
 Sigue siendo análisis 2D local basado en vídeo y movimiento. No usa todavía pose real, detección robusta de palo ni calibración métrica. La detección automática debe usarse como pre-marcado y revisar manualmente Top e Impact antes de guardar.
+
+
+## v0.8.4
+- Modelo temporal más estable con referencia del informe Swing Lab.
+- Panel de análisis/historial expandible a pantalla casi completa.
+- Selección múltiple de sesiones guardadas para borrar solo las elegidas.

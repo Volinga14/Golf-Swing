@@ -604,3 +604,105 @@ button:disabled { opacity: .42; cursor: not-allowed; }
 @media (max-width: 360px) {
   .metric-grid { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* v0.8.4 Smart Review - expandable analysis sheet + selective history */
+.sheet-handle {
+  width: 100%;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  margin: -3px 0 2px;
+  touch-action: none;
+  cursor: ns-resize;
+}
+.sheet-handle span {
+  display: block;
+  width: 46px;
+  height: 5px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.34);
+}
+.bottom-dock.phases-mode .sheet-handle { display: none; }
+.bottom-dock.sheet-expanded {
+  max-height: calc(100dvh - var(--safe-top) - 10px) !important;
+  height: calc(100dvh - var(--safe-top) - 10px);
+  border-radius: 24px 24px 0 0;
+  background: rgba(0,0,0,.96);
+}
+.bottom-dock.sheet-expanded .dock-panel {
+  max-height: calc(100dvh - 110px - var(--safe-top) - var(--safe-bottom)) !important;
+}
+.bottom-dock.sheet-expanded.analysis-mode .dock-panel,
+.bottom-dock.sheet-expanded.history-mode .dock-panel {
+  max-height: calc(100dvh - 100px - var(--safe-top) - var(--safe-bottom)) !important;
+}
+.bottom-dock.sheet-expanded .captures-grid {
+  padding-bottom: 18px;
+}
+.bottom-dock.sheet-expanded .capture-card {
+  min-width: min(86vw, 360px);
+}
+.history-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  max-width: 210px;
+}
+.history-actions .small-pill {
+  min-height: 30px;
+  padding: 0 9px;
+  font-size: 11px;
+}
+.history-row {
+  display: grid;
+  grid-template-columns: 0 1fr;
+  gap: 0;
+  align-items: center;
+  transition: grid-template-columns .18s ease, gap .18s ease;
+}
+.history-row.selecting,
+.history-row.selected {
+  grid-template-columns: 34px 1fr;
+  gap: 8px;
+}
+.history-check {
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.10);
+  color: #000;
+  overflow: hidden;
+  font-weight: 950;
+  opacity: 0;
+  transform: scale(.9);
+  transition: opacity .18s ease, transform .18s ease, background .18s ease;
+}
+.history-row.selecting .history-check,
+.history-row.selected .history-check {
+  opacity: 1;
+  transform: scale(1);
+}
+.history-row.selected .history-check {
+  background: #fff;
+}
+.history-row.selected .history-item {
+  outline: 1px solid rgba(255,255,255,.65);
+  background: rgba(255,255,255,.14);
+}
+.metric-grid .metric-card small {
+  display: block;
+  margin-top: 2px;
+  color: rgba(255,255,255,.46);
+  font-size: 10px;
+}
+.rec ul {
+  margin: 6px 0 0 18px;
+  padding: 0;
+}
+.rec li { margin: 3px 0; }
+@media (max-height: 720px) {
+  .bottom-dock.sheet-expanded .dock-panel { max-height: calc(100dvh - 96px - var(--safe-top) - var(--safe-bottom)) !important; }
+  .history-actions { max-width: 190px; }
+  .history-actions .small-pill { font-size: 10px; padding: 0 7px; }
+}
