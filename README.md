@@ -1,45 +1,24 @@
-# Swing Lab PWA v0.8.2 Mobile Drawing Fix
+# Swing Lab Smart v0.9
 
-PWA móvil tipo short para análisis simple e inteligente de swing de golf.
+Nueva app PWA para análisis inteligente 2D de swing de golf.
 
-## Novedades v0.8.2
-- Detección automática inicial al importar vídeo mediante perfil local de movimiento.
-- Autoavance inteligente de fases al marcar: avanza a la siguiente fase detectada o estimada.
-- Análisis de tempo más profundo:
-  - backswing,
-  - downswing,
-  - ratio de tempo,
-  - intervalos entre fases,
-  - frame estimado de impacto,
-  - confianza aproximada de detección.
-- Modo dibujo más limpio: al activar dibujo se ocultan fases y controles inferiores para dejar el vídeo libre.
-- Capturas navegables: al tocar una captura se abre grande sustituyendo al vídeo y permite deslizar entre fases.
-- Historial sin vídeo: las sesiones guardadas cargan directamente las capturas y permiten deslizar.
-- Guardado ligero: capturas + fases + líneas + métricas, sin guardar el vídeo completo.
+## Qué hace
 
-## Flujo recomendado
-1. Importa o graba un vídeo.
-2. La app detecta fases automáticamente.
-3. Corrige manualmente si hace falta.
-4. Pulsa Generar en Análisis.
-5. Revisa capturas y métricas.
-6. Guarda el análisis.
+- Carga o graba un vídeo de swing.
+- Lee el vídeo completo sin reproducirlo entero al usuario.
+- Genera un perfil de movimiento por muestreo de frames.
+- Detecta ventana activa del swing y selecciona 8 fases: Address, Takeaway, Mid-backswing, Top, Transition, Pre-impact, Impact y Finish.
+- Captura frames clave y permite revisar/corregir tiempos.
+- Estima métricas visuales 2D: tempo, ventana activa, impacto, estabilidad del finish, drift visual y release/rotación.
+- Genera informe técnico imprimible con 6 páginas: resumen ejecutivo, secuencia, setup/backswing, impacto/finish, dashboard numérico y plan de mejora.
+- Exporta datos del análisis en JSON.
 
-## Notas
-- La detección automática es una heurística local, no un modelo IA pesado.
-- El frame se estima a 30 fps para navegación práctica.
-- Para instalar como PWA real usa HTTPS o localhost.
+## Limitaciones actuales
 
+- El análisis es 2D y sin calibración real de cámara.
+- No usa todavía un modelo de pose humana completo ni launch monitor.
+- Las métricas son estimadas y deben auditarse con revisión de frames.
 
-## v0.8.2
-- Guías desactivadas por defecto al cargar vídeo.
-- Dibujo disponible también al abrir sesiones del historial con solo capturas.
-- Al tocar una captura en Análisis, la foto se muestra limpia a pantalla completa; toca de nuevo para recuperar controles.
-- Dibujo mejorado: seleccionar y mover líneas existentes; mantener pulsado durante el trazado bloquea horizontal/vertical.
-- Detección automática reforzada mediante perfil de movimiento suavizado, contraste, ventana de impacto y validaciones de tempo.
-- Comentarios de análisis más accionables sobre tempo, intervalos, consistencia y revisión de fases.
+## Siguiente paso recomendado
 
-## Corrección v0.8.2 específica
-- Corregido el bug móvil por el que el primer punto de la línea aparecía, pero el segundo toque no confirmaba la línea.
-- El segundo toque ahora crea la línea inmediatamente en `pointerdown`, sin esperar a `pointerup`.
-- Añadidas funciones internas faltantes para calcular distancia, longitud de línea y confirmación de línea pendiente.
+Integrar un módulo de pose estimation en navegador o backend para calcular articulaciones, ángulos y desplazamientos corporales con mayor precisión.
