@@ -1,14 +1,25 @@
 {
-  "name": "Swing Lab Smart",
-  "short_name": "Swing Smart",
-  "description": "Análisis inteligente 2D de swing de golf con selección de frames, métricas estimadas e informe técnico imprimible.",
+  "name": "Swing Lab",
+  "short_name": "Swing Lab",
+  "description": "PWA fullscreen para revisar swing de golf con SwingEngine v2.2, detección automática de fases, tempo avanzado, capturas e historial ligero.",
   "start_url": "./index.html",
+  "scope": "./",
   "display": "standalone",
-  "background_color": "#eef4fb",
-  "theme_color": "#0d1b2a",
-  "orientation": "any",
+  "orientation": "portrait",
+  "background_color": "#000000",
+  "theme_color": "#000000",
   "icons": [
-    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" }
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
   ]
 }

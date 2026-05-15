@@ -1,238 +1,931 @@
 'use strict';
 
 const $ = (id) => document.getElementById(id);
+const DB_NAME = 'swing-lab-db';
+const DB_VERSION = 9;
+const STORE = 'sessions';
 const ASSUMED_FPS = 30;
-const MAX_CAPTURE_WIDTH = 980;
 
-const PHASES = [
-  { id: 'address', label: 'Address', reading: 'Setup inicial y referencia de postura' },
-  { id: 'takeaway', label: 'Takeaway', reading: 'Inicio del movimiento y anchura' },
-  { id: 'midBackswing', label: 'Mid-backswing', reading: 'Carga, secuencia y organización del palo' },
-  { id: 'top', label: 'Top', reading: 'Cambio de dirección y control del eje' },
-  { id: 'transition', label: 'Transition', reading: 'Inicio de aceleración hacia la bola' },
-  { id: 'preImpact', label: 'Pre-impact', reading: 'Entrega previa al strike' },
-  { id: 'impact', label: 'Impact', reading: 'Contacto aproximado / máxima energía visual' },
-  { id: 'finish', label: 'Finish', reading: 'Balance, rotación y estabilidad final' },
+const phases = [
+  { id: 'address', label: 'Address', short: 'Addr', pct: 0.05, hint: 'Setup inicial: pies, bola, manos y postura.' },
+  { id: 'takeaway', label: 'Takeaway', short: 'Take', pct: 0.18, hint: 'Primer movimiento del palo y conexión de brazos.' },
+  { id: 'top', label: 'Top', short: 'Top', pct: 0.38, hint: 'Parte alta: rotación, estabilidad y posición de manos.' },
+  { id: 'impact', label: 'Impact', short: 'Imp', pct: 0.62, hint: 'Impacto: manos, cadera, cabeza y línea del palo.' },
+  { id: 'finish', label: 'Finish', short: 'Fin', pct: 0.90, hint: 'Equilibrio final y rotación completa.' },
 ];
 
 const state = {
-  videoFile: null,
-  videoUrl: '',
+  videoUrl: null,
+  videoBlob: null,
   videoName: '',
-  options: { view: 'dtl', club: 'Hierro', hand: 'right' },
-  metadata: null,
-  profile: [],
-  detection: null,
+  captureOnly: false,
+  mode: 'phases',
+  currentPhaseId: 'address',
   phaseTimes: {},
-  captures: {},
-  metrics: null,
-  scores: null,
-  reportReady: false,
+  phaseCaptures: {},
+  analysisMetrics: null,
+  autoDetection: { status: 'idle', confidence: 0, method: '', samples: 0, motionPeakTime: null, phaseConfidence: {}, extendedTimes: {}, diagnostics: {} },
+  viewingCapture: false,
+  activeCaptureIndex: 0,
+  captureSwipeStart: null,
+  showGuides: false,
+  guideMode: 'dtl',
+  speed: 1,
+  controlsVisible: true,
+  initialVideoClean: false,
+  isSeekingWithSlider: false,
   installPrompt: null,
+  appState: 'empty',
+  drawingMode: false,
+  showDrawings: true,
+  lines: [],
+  previewLine: null,
+  pendingLineStart: null,
+  pointerStart: null,
+  pointerMoved: false,
+  pointerDown: false,
+  selectedLineIndex: -1,
+  dragLineIndex: -1,
+  dragStartPoint: null,
+  dragOriginalLine: null,
+  longPressTimer: null,
+  lockAxisMode: false,
 };
 
 const refs = {
-  landing: $('landing'), workspace: $('workspace'), reportRoot: $('reportRoot'),
-  video: $('video'), workCanvas: $('workCanvas'), videoInput: $('videoInput'), cameraInput: $('cameraInput'),
-  pickVideoBtn: $('pickVideoBtn'), cameraBtn: $('cameraBtn'), newVideoBtn: $('newVideoBtn'),
-  viewSelect: $('viewSelect'), clubSelect: $('clubSelect'), handSelect: $('handSelect'),
-  analyzeBtn: $('analyzeBtn'), regenerateBtn: $('regenerateBtn'), downloadJsonBtn: $('downloadJsonBtn'),
-  statusTitle: $('statusTitle'), statusText: $('statusText'), confidencePill: $('confidencePill'), motionBar: $('motionBar'),
-  videoName: $('videoName'), videoMeta: $('videoMeta'), phaseList: $('phaseList'),
-  tabPhases: $('tabPhases'), tabReport: $('tabReport'), tabNotes: $('tabNotes'),
-  phasesPanel: $('phasesPanel'), reportPanel: $('reportPanel'), notesPanel: $('notesPanel'),
-  reportMiniSummary: $('reportMiniSummary'), printBtn: $('printBtn'), printBtnTop: $('printBtnTop'), installBtn: $('installBtn'),
-  coachNotes: $('coachNotes'), externalData: $('externalData'),
+  app: $('app'),
+  emptyState: $('emptyState'),
+  video: $('video'),
+  captureViewer: $('captureViewer'),
+  captureBadge: $('captureBadge'),
+  drawingCanvas: $('drawingCanvas'),
+  captureCanvas: $('captureCanvas'),
+  tapLayer: $('tapLayer'),
+  scrimTop: $('scrimTop'),
+  scrimBottom: $('scrimBottom'),
+  topHud: $('topHud'),
+  rightRail: $('rightRail'),
+  phaseHud: $('phaseHud'),
+  bottomDock: $('bottomDock'),
+  cleanHint: $('cleanHint'),
+  drawingHint: $('drawingHint'),
+  guideOverlay: $('guideOverlay'),
+  dtlGuides: $('dtlGuides'),
+  foGuides: $('foGuides'),
+  stateText: $('stateText'),
+  uploadBtn: $('uploadBtn'),
+  pickVideoBtn: $('pickVideoBtn'),
+  openCameraBtn: $('openCameraBtn'),
+  openHistoryStartBtn: $('openHistoryStartBtn'),
+  videoInput: $('videoInput'),
+  cameraInput: $('cameraInput'),
+  installBtn: $('installBtn'),
+  installBtnEmpty: $('installBtnEmpty'),
+  toggleGuidesBtn: $('toggleGuidesBtn'),
+  switchModeBtn: $('switchModeBtn'),
+  drawModeBtn: $('drawModeBtn'),
+  toggleDrawingsBtn: $('toggleDrawingsBtn'),
+  undoLineBtn: $('undoLineBtn'),
+  clearLinesBtn: $('clearLinesBtn'),
+  activePhaseName: $('activePhaseName'),
+  markStatus: $('markStatus'),
+  timeReadout: $('timeReadout'),
+  playerStrip: $('playerStrip'),
+  playerReadout: $('playerReadout'),
+  playerPhaseReadout: $('playerPhaseReadout'),
+  speedBtn: $('speedBtn'),
+  tabPhases: $('tabPhases'),
+  tabAnalysis: $('tabAnalysis'),
+  tabHistory: $('tabHistory'),
+  phasesPanel: $('phasesPanel'),
+  analysisPanel: $('analysisPanel'),
+  historyPanel: $('historyPanel'),
+  phaseChips: $('phaseChips'),
+  timeline: $('timeline'),
+  backFrameBtn: $('backFrameBtn'),
+  forwardFrameBtn: $('forwardFrameBtn'),
+  playBtn: $('playBtn'),
+  markPhaseBtn: $('markPhaseBtn'),
+  phaseSummary: $('phaseSummary'),
+  analyzeBtn: $('analyzeBtn'),
+  analysisStatus: $('analysisStatus'),
+  recommendations: $('recommendations'),
+  capturesGrid: $('capturesGrid'),
+  saveSessionBtn: $('saveSessionBtn'),
+  saveSessionTopBtn: $('saveSessionTopBtn'),
+  clearHistoryBtn: $('clearHistoryBtn'),
+  historyList: $('historyList'),
 };
 
-function setStatus(title, text) {
-  refs.statusTitle.textContent = title;
-  refs.statusText.textContent = text;
+function clone(value) {
+  if (typeof structuredClone === 'function') return structuredClone(value);
+  return JSON.parse(JSON.stringify(value));
 }
+
+function uid() {
+  if (crypto?.randomUUID) return crypto.randomUUID();
+  return `session-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function openDb() {
+  return new Promise((resolve, reject) => {
+    if (!('indexedDB' in window)) return reject(new Error('IndexedDB no disponible'));
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: 'id' });
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function dbPut(session) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, 'readwrite');
+    tx.objectStore(STORE).put(session);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function dbAll() {
+  try {
+    const db = await openDb();
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE, 'readonly');
+      const req = tx.objectStore(STORE).getAll();
+      req.onsuccess = () => resolve(req.result || []);
+      req.onerror = () => reject(req.error);
+    });
+  } catch (error) {
+    console.warn(error);
+    return [];
+  }
+}
+
+async function dbClear() {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, 'readwrite');
+    tx.objectStore(STORE).clear();
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+function setAppState(next) {
+  state.appState = next;
+  const map = {
+    empty: 'Sin vídeo',
+    loaded: 'Vídeo cargado',
+    detecting: 'Detectando fases',
+    detected: 'Fases detectadas',
+    marking: 'Marcando fases',
+    analyzing: 'Generando capturas',
+    completed: 'Análisis listo',
+    saved: 'Sesión guardada',
+    error: 'Error',
+  };
+  refs.stateText.textContent = map[next] || next;
+}
+
+function currentPhase() {
+  return phases.find((phase) => phase.id === state.currentPhaseId) || phases[0];
+}
+
+function formatTime(seconds) {
+  if (!Number.isFinite(seconds)) return '0:00.00';
+  const safe = Math.max(0, seconds);
+  const mins = Math.floor(safe / 60);
+  const secs = (safe % 60).toFixed(2).padStart(5, '0');
+  return `${mins}:${secs}`;
+}
+
+function frameNumber(time = refs.video.currentTime || 0) {
+  return Math.max(0, Math.round(time * ASSUMED_FPS));
+}
+
+function markedCount() {
+  return Object.keys(state.phaseTimes).length;
+}
+
+function revokeVideoUrl() {
+  if (state.videoUrl) URL.revokeObjectURL(state.videoUrl);
+}
+
+function resetSessionState() {
+  state.captureOnly = false;
+  state.mode = 'phases';
+  state.currentPhaseId = 'address';
+  state.phaseTimes = {};
+  state.phaseCaptures = {};
+  state.analysisMetrics = null;
+  state.autoDetection = { status: 'idle', confidence: 0, method: '', samples: 0, motionPeakTime: null, phaseConfidence: {}, extendedTimes: {}, diagnostics: {} };
+  state.viewingCapture = false;
+  state.activeCaptureIndex = 0;
+  state.captureSwipeStart = null;
+  state.lines = [];
+  state.previewLine = null;
+  state.selectedLineIndex = -1;
+  state.dragLineIndex = -1;
+  state.dragStartPoint = null;
+  state.dragOriginalLine = null;
+  state.lockAxisMode = false;
+  if (state.longPressTimer) clearTimeout(state.longPressTimer);
+  state.longPressTimer = null;
+  state.pendingLineStart = null;
+  state.pointerStart = null;
+  state.pointerMoved = false;
+  state.drawingMode = false;
+  state.showDrawings = true;
+  state.controlsVisible = true;
+  state.initialVideoClean = false;
+}
+
+
+function applyVideoFile(file) {
+  if (!file) return;
+  if (!file.type.startsWith('video/')) {
+    alert('Selecciona un archivo de vídeo válido.');
+    return;
+  }
+  revokeVideoUrl();
+  resetSessionState();
+  state.controlsVisible = false;
+  state.initialVideoClean = true;
+  state.showGuides = false;
+  refs.cleanHint.textContent = 'Toca el vídeo para abrir fases';
+  refs.video.pause();
+  refs.playBtn.textContent = 'Play';
+  state.videoBlob = file;
+  state.videoUrl = URL.createObjectURL(file);
+  state.videoName = file.name || `swing-${new Date().toISOString().slice(0, 10)}.mp4`;
+  refs.analysisStatus.textContent = 'Detectando fases automáticamente con SwingEngine v2.2… podrás corregirlas manualmente.';
+  refs.recommendations.innerHTML = '';
+  refs.capturesGrid.innerHTML = '';
+  refs.video.src = state.videoUrl;
+  refs.video.load();
+  state.autoDetection = { status: 'queued', confidence: 0, method: 'SwingEngine v2.2', samples: 0, motionPeakTime: null, phaseConfidence: {}, extendedTimes: {}, diagnostics: {} };
+  setAppState('loaded');
+  render();
+}
+
+function setMode(mode) {
+  state.mode = mode;
+  if (mode === 'phases') {
+    if (state.videoUrl) state.viewingCapture = false;
+    setAppState(markedCount() ? 'detected' : 'marking');
+  }
+  if (mode === 'analysis') {
+    state.drawingMode = false;
+    state.pendingLineStart = null;
+    state.previewLine = null;
+  }
+  render();
+  if (mode === 'history') loadHistory();
+}
+
+function toggleControls() {
+  if (!state.videoUrl || state.drawingMode) return;
+  if (state.initialVideoClean) {
+    state.initialVideoClean = false;
+    state.controlsVisible = true;
+    refs.cleanHint.textContent = 'Toca el vídeo para mostrar controles';
+    render();
+    return;
+  }
+  state.controlsVisible = !state.controlsVisible;
+  refs.cleanHint.textContent = 'Toca el vídeo para mostrar controles';
+  refs.app.classList.toggle('controls-hidden', !state.controlsVisible);
+}
+
+function renderShell() {
+  const hasVideo = Boolean(state.videoUrl);
+  const hasCaptures = captureList().length > 0;
+  const showingCapture = state.viewingCapture || (state.captureOnly && hasCaptures);
+  const hasSession = hasVideo || state.captureOnly || hasCaptures;
+
+  refs.emptyState.classList.toggle('hidden', hasSession);
+  refs.video.classList.toggle('hidden', !hasVideo || showingCapture);
+  refs.captureViewer.classList.toggle('hidden', !showingCapture);
+  refs.captureBadge.classList.toggle('hidden', !showingCapture);
+  refs.tapLayer.classList.toggle('hidden', !hasVideo || showingCapture || state.drawingMode);
+  refs.scrimTop.classList.toggle('hidden', !hasVideo || showingCapture);
+  refs.scrimBottom.classList.toggle('hidden', !hasVideo || showingCapture);
+  refs.topHud.classList.toggle('hidden', !hasSession || state.drawingMode);
+  refs.rightRail.classList.toggle('hidden', !(hasVideo || hasCaptures));
+  refs.bottomDock.classList.toggle('hidden', !hasSession || state.drawingMode);
+  refs.phaseHud.classList.toggle('hidden', !hasVideo || showingCapture || state.mode === 'history' || state.drawingMode);
+  refs.guideOverlay.classList.toggle('hidden', !hasVideo || showingCapture || !state.showGuides);
+  refs.cleanHint.classList.add('hidden');
+  refs.drawingHint.classList.toggle('hidden', !hasSession || !state.drawingMode);
+  refs.app.classList.toggle('initial-clean', hasVideo && state.initialVideoClean && !state.drawingMode && !showingCapture);
+  refs.app.classList.toggle('controls-hidden', hasSession && !state.controlsVisible && !state.drawingMode && !state.initialVideoClean);
+  refs.app.classList.toggle('capture-only', state.captureOnly || (showingCapture && !hasVideo));
+  refs.app.classList.toggle('capture-viewing', showingCapture);
+  refs.app.classList.toggle('drawing-mode', hasSession && state.drawingMode);
+  refs.bottomDock.classList.toggle('phases-mode', state.mode === 'phases');
+  refs.bottomDock.classList.toggle('analysis-mode', state.mode === 'analysis');
+  refs.bottomDock.classList.toggle('history-mode', state.mode === 'history');
+  refs.playerStrip.classList.toggle('hidden', state.mode !== 'phases' || state.captureOnly || showingCapture);
+  refs.drawingCanvas.classList.toggle('hidden', !hasSession);
+}
+
+function renderRails() {
+  refs.toggleGuidesBtn.querySelector('b').textContent = state.showGuides ? 'ON' : 'OFF';
+  refs.switchModeBtn.querySelector('b').textContent = state.guideMode === 'dtl' ? 'DTL' : 'FO';
+  refs.drawModeBtn.querySelector('b').textContent = state.drawingMode ? 'ON' : 'OFF';
+  refs.toggleDrawingsBtn.querySelector('b').textContent = state.showDrawings ? 'ON' : 'OFF';
+  refs.undoLineBtn.querySelector('b').textContent = state.selectedLineIndex >= 0 ? 'Sel' : String(state.lines.length);
+  refs.dtlGuides.classList.toggle('hidden', state.guideMode !== 'dtl');
+  refs.foGuides.classList.toggle('hidden', state.guideMode !== 'fo');
+
+  refs.drawModeBtn.classList.toggle('active', state.drawingMode);
+  refs.toggleDrawingsBtn.classList.toggle('active', state.showDrawings);
+  refs.undoLineBtn.disabled = state.lines.length === 0;
+  refs.clearLinesBtn.disabled = state.lines.length === 0;
+  refs.toggleDrawingsBtn.disabled = state.lines.length === 0;
+  refs.drawingCanvas.classList.toggle('drawing-enabled', state.drawingMode);
+}
+
+function renderTabs() {
+  const tabs = {
+    phases: refs.tabPhases,
+    analysis: refs.tabAnalysis,
+    history: refs.tabHistory,
+  };
+  const panels = {
+    phases: refs.phasesPanel,
+    analysis: refs.analysisPanel,
+    history: refs.historyPanel,
+  };
+  Object.entries(tabs).forEach(([mode, el]) => el.classList.toggle('active', state.mode === mode));
+  Object.entries(panels).forEach(([mode, el]) => el.classList.toggle('hidden', state.mode !== mode));
+}
+
+function renderPhaseChips() {
+  refs.phaseChips.innerHTML = '';
+  phases.forEach((phase) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = `phase-chip ${phase.id === state.currentPhaseId ? 'active' : ''} ${state.phaseTimes[phase.id] != null ? 'marked' : ''}`;
+    button.innerHTML = `<span class="dot"></span>${phase.label}`;
+    button.addEventListener('click', () => jumpToPhase(phase.id));
+    refs.phaseChips.appendChild(button);
+  });
+}
+
+function renderPhaseSummary() {
+  refs.phaseSummary.innerHTML = '';
+  const conf = state.autoDetection?.phaseConfidence || {};
+  phases.forEach((phase) => {
+    const cell = document.createElement('div');
+    cell.className = 'summary-cell';
+    const timeText = state.phaseTimes[phase.id] != null ? formatTime(state.phaseTimes[phase.id]) : '--';
+    const confText = Number.isFinite(conf[phase.id]) ? `<em>${Math.round(conf[phase.id] * 100)}%</em>` : '';
+    cell.innerHTML = `<b>${phase.short}</b><span>${timeText}</span>${confText}`;
+    refs.phaseSummary.appendChild(cell);
+  });
+}
+
+function renderReadouts() {
+  const phase = currentPhase();
+  const time = refs.video.currentTime || 0;
+  const currentMarked = state.phaseTimes[phase.id] != null;
+  refs.activePhaseName.textContent = phase.label;
+  refs.markStatus.textContent = currentMarked ? 'Marcada' : 'Sin marcar';
+  refs.markStatus.classList.toggle('done', currentMarked);
+  refs.timeReadout.textContent = `${formatTime(time)} · frame ${frameNumber(time)}`;
+  refs.playerReadout.textContent = `${formatTime(time)} · frame ${frameNumber(time)}`;
+  refs.playerPhaseReadout.textContent = `Fase: ${phase.label}`;
+  refs.markPhaseBtn.textContent = currentMarked ? 'Actualizar' : 'Marcar';
+  refs.markPhaseBtn.classList.toggle('marked', currentMarked);
+  const canSave = Boolean(Object.keys(state.phaseCaptures).length || (state.videoUrl && markedCount()));
+  refs.saveSessionBtn.disabled = !canSave;
+  refs.saveSessionTopBtn.disabled = !canSave;
+}
+
+function renderTimeline() {
+  if (!state.videoUrl || state.isSeekingWithSlider || !Number.isFinite(refs.video.duration) || refs.video.duration <= 0) return;
+  refs.timeline.value = String(Math.round((refs.video.currentTime / refs.video.duration) * 1000));
+}
+
+function renderCapturesGrid() {
+  refs.capturesGrid.innerHTML = '';
+  const available = captureList();
+  if (!available.length) return;
+  available.forEach(({ phase, src }, index) => {
+    const time = state.phaseTimes[phase.id];
+    const card = document.createElement('button');
+    card.type = 'button';
+    card.className = `capture-card ${index === state.activeCaptureIndex && (state.viewingCapture || state.captureOnly) ? 'active' : ''}`;
+    card.innerHTML = `
+      <img src="${src}" alt="${phase.label}" />
+      <b>${phase.label}</b>
+      <span>${time != null ? `${formatTime(time)} · frame ${frameNumber(time)}` : 'Captura guardada'}</span>`;
+    card.addEventListener('click', () => openCaptureViewer(phase.id));
+    refs.capturesGrid.appendChild(card);
+  });
+}
+
+function renderRecommendations() {
+  const recs = buildRecommendations();
+  refs.recommendations.innerHTML = recs.map((rec) => `<div class="rec">${rec}</div>`).join('');
+}
+
+function render() {
+  renderShell();
+  renderRails();
+  renderTabs();
+  renderPhaseChips();
+  renderPhaseSummary();
+  renderReadouts();
+  renderTimeline();
+  renderCapturesGrid();
+  renderCaptureViewer();
+  drawAllLines();
+}
+
+
+function jumpToPhase(phaseId) {
+  state.currentPhaseId = phaseId;
+  if (state.videoUrl) state.viewingCapture = false;
+  const time = state.phaseTimes[phaseId];
+  if (state.videoUrl && time != null) {
+    refs.video.currentTime = time;
+  } else if (state.videoUrl && Number.isFinite(refs.video.duration) && refs.video.duration > 0) {
+    const phase = phases.find((item) => item.id === phaseId) || phases[0];
+    refs.video.currentTime = refs.video.duration * phase.pct;
+  } else if (!state.videoUrl && state.phaseCaptures[phaseId]) {
+    openCaptureViewer(phaseId);
+    return;
+  }
+  refs.video.pause();
+  refs.playBtn.textContent = 'Play';
+  render();
+}
+
+function togglePlay() {
+  if (!state.videoUrl) return;
+  if (refs.video.paused) {
+    refs.video.play().catch(console.warn);
+  } else {
+    refs.video.pause();
+  }
+}
+
+function cycleSpeed() {
+  state.speed = state.speed === 1 ? 0.5 : state.speed === 0.5 ? 0.25 : 1;
+  refs.video.playbackRate = state.speed;
+  refs.speedBtn.textContent = `${state.speed}x`;
+}
+
+function stepFrame(direction) {
+  if (!state.videoUrl) return;
+  refs.video.pause();
+  refs.playBtn.textContent = 'Play';
+  const step = 1 / ASSUMED_FPS;
+  const duration = Number.isFinite(refs.video.duration) ? refs.video.duration : Number.MAX_SAFE_INTEGER;
+  const next = Math.min(Math.max((refs.video.currentTime || 0) + (direction * step), 0), duration);
+  refs.video.currentTime = next;
+}
+
+function markCurrentPhase() {
+  if (!state.videoUrl) return;
+  const phase = currentPhase();
+  const currentIndex = phases.findIndex((item) => item.id === phase.id);
+  state.phaseTimes[phase.id] = refs.video.currentTime || 0;
+  render();
+
+  const nextPhase = phases[currentIndex + 1];
+  if (nextPhase) {
+    setTimeout(() => jumpToPhase(nextPhase.id), 90);
+  }
+}
+
+function updateTimelineFromInput() {
+  if (!state.videoUrl || !Number.isFinite(refs.video.duration) || refs.video.duration <= 0) return;
+  const pct = Number(refs.timeline.value) / 1000;
+  refs.video.pause();
+  refs.playBtn.textContent = 'Play';
+  refs.video.currentTime = refs.video.duration * pct;
+  renderReadouts();
+}
+
+
+function fmtSec(value) {
+  return Number.isFinite(value) ? `${value.toFixed(2)} s` : '--';
+}
+
+function buildRecommendations() {
+  const marked = markedCount();
+  const missing = phases.filter((phase) => state.phaseTimes[phase.id] == null).map((phase) => phase.label);
+  const metrics = state.analysisMetrics || computeAnalysisMetrics();
+  state.analysisMetrics = metrics;
+  const recs = [];
+  const confidence = Math.round((state.autoDetection.confidence || 0) * 100);
+  const diagnostics = metrics.diagnostics || {};
+  const scores = metrics.scores || {};
+  const ext = metrics.extendedTimes || {};
+
+  if (state.autoDetection.status === 'done') {
+    recs.push(`<b>Motor inteligente:</b> ${metrics.method || 'SwingEngine'} · ${confidence}% de confianza · ${state.autoDetection.samples || 0} muestras. El sistema primero detecta la ventana activa del swing y después ajusta Address, Takeaway, Top, Impact y Finish.`);
+  } else if (state.autoDetection.status === 'failed') {
+    recs.push('<b>Motor inteligente:</b> baja confianza. Se han colocado fases estimadas por porcentaje; conviene revisar todos los frames manualmente.');
+  } else if (state.captureOnly) {
+    recs.push('<b>Sesión recuperada:</b> estás viendo capturas guardadas. Puedes activar dibujo y añadir líneas sobre las imágenes aunque no esté cargado el vídeo original.');
+  }
+
+  if (scores.overall != null) {
+    recs.push(`<div class="metric-grid">
+      <div class="metric-card"><b>${scores.overall}</b><span>Score global</span></div>
+      <div class="metric-card"><b>${scores.phaseQuality}</b><span>Fases</span></div>
+      <div class="metric-card"><b>${scores.tempo}</b><span>Tempo</span></div>
+      <div class="metric-card"><b>${scores.finish}</b><span>Finish</span></div>
+    </div>`);
+  }
+
+  if (marked < phases.length) {
+    recs.push(`<b>Fases:</b> ${marked}/${phases.length} marcadas. Pendientes: ${missing.join(', ') || 'ninguna'}. El análisis mejora mucho cuando Address, Top, Impact y Finish están bien ajustadas.`);
+  } else {
+    recs.push('<b>Fases completas:</b> ya hay una estructura mínima para medir tempo, secuencia y capturas. Revisa manualmente Top e Impact, porque son los dos frames críticos del análisis.');
+  }
+
+  if (metrics?.tempoRatio) {
+    const tempo = metrics.tempoRatio;
+    let tempoComment = 'tempo razonable para un swing completo.';
+    if (tempo < 2.0) tempoComment = 'backswing demasiado corto respecto al downswing o Top marcado tarde; revisa Top con frame-by-frame.';
+    else if (tempo > 4.3) tempoComment = 'backswing muy largo respecto al downswing o Impact marcado tarde; revisa Impact y Finish.';
+    recs.push(`<b>Tempo avanzado:</b> ${tempo.toFixed(2)}:1 · backswing ${fmtSec(metrics.backswing)} · downswing ${fmtSec(metrics.downswing)} · follow-through ${fmtSec(metrics.followThrough)}. ${tempoComment}`);
+  }
+
+  if (metrics?.activeWindow) {
+    recs.push(`<b>Ventana activa:</b> ${fmtSec(metrics.activeWindow)} detectados entre ${formatTime(ext.activeStart)} y ${formatTime(ext.activeEnd)}. Esto evita que vídeos largos contaminen el análisis con preparación o pausas antes del swing.`);
+  }
+
+  if (Number.isFinite(ext.midBackswing) || Number.isFinite(ext.transition) || Number.isFinite(ext.preImpact)) {
+    const parts = [];
+    if (Number.isFinite(ext.midBackswing)) parts.push(`mid-backswing F${frameNumber(ext.midBackswing)}`);
+    if (Number.isFinite(ext.transition)) parts.push(`transition F${frameNumber(ext.transition)}`);
+    if (Number.isFinite(ext.preImpact)) parts.push(`pre-impact F${frameNumber(ext.preImpact)}`);
+    recs.push(`<b>Microfases internas:</b> ${parts.join(' · ')}. No añaden botones nuevos, pero ayudan a interpretar secuencia y aceleración entre Top e Impact.`);
+  }
+
+  if (metrics?.phaseConfidence) {
+    const parts = phases.map((phase) => `${phase.short} ${Math.round((metrics.phaseConfidence[phase.id] ?? metrics.confidence) * 100)}%`).join(' · ');
+    recs.push(`<b>Confianza por fase:</b> ${parts}. Prioriza corregir cualquier fase por debajo de 60%, especialmente Top e Impact.`);
+  }
+
+  if (metrics?.phasePercentages?.length) {
+    const parts = metrics.phasePercentages.map((p) => `${p.label} ${p.percent}%`).join(' · ');
+    recs.push(`<b>Distribución temporal:</b> ${parts}. Si un tramo sale extremadamente corto o largo, normalmente indica una fase desplazada.`);
+  }
+
+  if (metrics?.impactFrame != null) {
+    const impactConf = Math.round(((metrics.phaseConfidence || {}).impact ?? metrics.confidence ?? 0) * 100);
+    recs.push(`<b>Impact:</b> frame estimado F${metrics.impactFrame} · confianza ${impactConf}%. Es el frame principal para analizar manos, eje cabeza/cadera, shaft lean y orientación del cuerpo.`);
+  }
+
+  if (diagnostics.motionContrast != null) {
+    const contrastPct = Math.round(diagnostics.motionContrast * 100);
+    const read = contrastPct < 25 ? 'bajo: revisa manualmente porque el fondo/luz dificulta separar el movimiento.' : contrastPct < 55 ? 'medio: detección útil pero Top/Impact deben auditarse.' : 'alto: el vídeo ofrece buena señal de movimiento para detectar fases.';
+    recs.push(`<b>Calidad de señal:</b> contraste de movimiento ${contrastPct}% · ${read}`);
+  }
+
+  if (metrics?.consistencyWarnings?.length) {
+    recs.push(`<b>Revisión obligatoria:</b> ${metrics.consistencyWarnings.join(' ')}`);
+  }
+
+  if (state.guideMode === 'dtl') {
+    recs.push('<b>Lectura DTL recomendada:</b> usa 2–3 líneas: plano del palo, línea de pies/target y eje corporal. En Top revisa anchura; en Impact revisa si el palo vuelve por una zona coherente y si el cuerpo sigue rotando.');
+  } else {
+    recs.push('<b>Lectura Face-On recomendada:</b> usa línea vertical de cabeza, línea de cadera y posición de manos. En Impact revisa presión/transferencia y manos delante de la bola.');
+  }
+
+  if (Object.keys(state.phaseCaptures).length) {
+    recs.push('<b>Capturas:</b> toca una imagen para verla grande, desliza entre fases y activa Dibujo para añadir o mover líneas directamente sobre la captura. Guarda solo cuando Top e Impact estén validados.');
+  }
+
+  return recs;
+}
+
+function captureList() {
+  return phases
+    .map((phase) => ({ phase, src: state.phaseCaptures[phase.id] }))
+    .filter((item) => Boolean(item.src));
+}
+
+function openCaptureViewer(phaseId) {
+  const list = captureList();
+  if (!list.length) return;
+  const index = Math.max(0, list.findIndex((item) => item.phase.id === phaseId));
+  state.activeCaptureIndex = index >= 0 ? index : 0;
+  state.viewingCapture = true;
+  state.controlsVisible = false;
+  if (list[state.activeCaptureIndex]) state.currentPhaseId = list[state.activeCaptureIndex].phase.id;
+  if (state.videoUrl) {
+    refs.video.pause();
+    refs.playBtn.textContent = 'Play';
+  }
+  render();
+}
+
+function closeCaptureViewerToVideo() {
+  if (!state.videoUrl) return;
+  state.viewingCapture = false;
+  state.controlsVisible = true;
+  render();
+}
+
+function moveCapture(delta) {
+  const list = captureList();
+  if (!list.length) return;
+  const next = Math.min(Math.max(state.activeCaptureIndex + delta, 0), list.length - 1);
+  state.activeCaptureIndex = next;
+  state.currentPhaseId = list[next].phase.id;
+  state.viewingCapture = true;
+  state.controlsVisible = false;
+  render();
+}
+
+function renderCaptureViewer() {
+  const list = captureList();
+  if (!list.length) {
+    refs.captureViewer.classList.add('hidden');
+    refs.captureBadge.classList.add('hidden');
+    return;
+  }
+  if (state.activeCaptureIndex >= list.length) state.activeCaptureIndex = list.length - 1;
+  if (state.activeCaptureIndex < 0) state.activeCaptureIndex = 0;
+  const item = list[state.activeCaptureIndex];
+  const showing = state.viewingCapture || state.captureOnly;
+  refs.captureViewer.classList.toggle('hidden', !showing);
+  refs.captureBadge.classList.toggle('hidden', !showing);
+  if (!showing || !item) return;
+  refs.captureViewer.src = item.src;
+  const time = state.phaseTimes[item.phase.id];
+  refs.captureBadge.textContent = `${item.phase.label} · ${state.activeCaptureIndex + 1}/${list.length}${time != null ? ` · ${formatTime(time)}` : ''}`;
+}
+
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 
-function formatTime(seconds) {
-  if (!Number.isFinite(seconds)) return '0:00.00';
-  const s = Math.max(0, seconds);
-  const minutes = Math.floor(s / 60);
-  const rest = (s % 60).toFixed(2).padStart(5, '0');
-  return `${minutes}:${rest}`;
+function scoreFromRange(value, min, idealLow, idealHigh, max) {
+  if (!Number.isFinite(value)) return 0.5;
+  if (value >= idealLow && value <= idealHigh) return 1;
+  if (value < idealLow) return clamp((value - min) / Math.max(idealLow - min, 0.001), 0, 1);
+  return clamp((max - value) / Math.max(max - idealHigh, 0.001), 0, 1);
 }
 
-function frameAt(seconds) {
-  return Math.max(0, Math.round((seconds || 0) * ASSUMED_FPS));
-}
-
-function escapeHtml(value = '') {
-  return String(value).replace(/[&<>'"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[ch]));
-}
-
-function waitForMetadata(video) {
-  return new Promise((resolve, reject) => {
-    if (Number.isFinite(video.duration) && video.videoWidth) return resolve();
-    const onLoaded = () => resolve();
-    const onError = () => reject(new Error('No se pudo cargar el vídeo'));
-    video.addEventListener('loadedmetadata', onLoaded, { once: true });
-    video.addEventListener('error', onError, { once: true });
-  });
-}
-
-function seekTo(time) {
-  return new Promise((resolve) => {
-    const video = refs.video;
-    const safe = clamp(time, 0, Number.isFinite(video.duration) ? Math.max(0, video.duration - 0.02) : time);
-    if (Math.abs((video.currentTime || 0) - safe) < 0.025) return resolve();
-    const done = () => resolve();
-    video.addEventListener('seeked', done, { once: true });
-    video.currentTime = safe;
-  });
-}
-
-function getCtx(width, height, willRead = false) {
-  const canvas = refs.workCanvas;
-  canvas.width = width;
-  canvas.height = height;
-  return canvas.getContext('2d', willRead ? { willReadFrequently: true } : undefined);
-}
-
-async function loadVideo(file) {
-  if (!file || !file.type.startsWith('video/')) {
-    alert('Selecciona un archivo de vídeo válido.');
-    return;
-  }
-  if (state.videoUrl) URL.revokeObjectURL(state.videoUrl);
-  state.videoFile = file;
-  state.videoName = file.name || `swing-${new Date().toISOString().slice(0, 10)}.mp4`;
-  state.videoUrl = URL.createObjectURL(file);
-  state.profile = [];
-  state.detection = null;
-  state.phaseTimes = {};
-  state.captures = {};
-  state.metrics = null;
-  state.scores = null;
-  state.reportReady = false;
-  refs.reportRoot.classList.add('hidden');
-  refs.reportRoot.innerHTML = '';
-  refs.reportMiniSummary.innerHTML = '';
-  refs.phaseList.innerHTML = '';
-  refs.motionBar.innerHTML = '';
-  refs.video.src = state.videoUrl;
-  refs.video.load();
-  refs.landing.classList.add('hidden');
-  refs.workspace.classList.remove('hidden');
-  refs.videoName.textContent = state.videoName;
-  setStatus('Vídeo cargado', 'Esperando metadatos…');
-  refs.confidencePill.textContent = 'Sin análisis';
-  refs.confidencePill.className = 'pill muted';
-  refs.analyzeBtn.disabled = false;
-  refs.regenerateBtn.disabled = true;
-  refs.downloadJsonBtn.disabled = true;
-  await waitForMetadata(refs.video);
-  state.metadata = readVideoMetadata();
-  refs.videoMeta.textContent = `${state.metadata.width} × ${state.metadata.height}px · ${state.metadata.durationText}`;
-  setStatus('Vídeo listo', 'Pulsa analizar automáticamente. El vídeo no se reproduce entero; se leerán muestras internas.');
-}
-
-function readVideoMetadata() {
-  const duration = refs.video.duration || 0;
-  return {
-    width: refs.video.videoWidth || 0,
-    height: refs.video.videoHeight || 0,
-    duration,
-    durationText: `${duration.toFixed(2)} s`,
-    fpsAssumption: ASSUMED_FPS,
-    fileSizeMb: state.videoFile ? (state.videoFile.size / 1024 / 1024).toFixed(1) : null,
+function computeAnalysisMetrics() {
+  const t = state.phaseTimes;
+  const has = (id) => Number.isFinite(t[id]);
+  const safeDuration = Number.isFinite(refs.video.duration) ? refs.video.duration : null;
+  const extended = state.autoDetection?.extendedTimes || {};
+  const diagnostics = state.autoDetection?.diagnostics || {};
+  const phaseConfidence = state.autoDetection?.phaseConfidence || {};
+  const metrics = {
+    marked: markedCount(),
+    assumedFps: ASSUMED_FPS,
+    duration: safeDuration,
+    confidence: state.autoDetection.confidence || 0,
+    method: state.autoDetection.method || 'manual',
+    phaseConfidence: clone(phaseConfidence),
+    extendedTimes: clone(extended),
+    diagnostics: clone(diagnostics),
+    consistencyWarnings: [],
   };
+
+  if (has('top') && has('impact')) metrics.downswing = Math.max(0, t.impact - t.top);
+  if (has('address') && has('top')) metrics.backswing = Math.max(0, t.top - t.address);
+  else if (has('takeaway') && has('top')) metrics.backswing = Math.max(0, t.top - t.takeaway);
+  if (has('address') && has('finish')) metrics.total = Math.max(0, t.finish - t.address);
+  if (has('impact') && has('finish')) metrics.followThrough = Math.max(0, t.finish - t.impact);
+  if (has('address') && has('takeaway')) metrics.takeawayLoad = Math.max(0, t.takeaway - t.address);
+  if (has('takeaway') && has('top')) metrics.lateBackswing = Math.max(0, t.top - t.takeaway);
+  if (has('top') && has('impact')) metrics.transitionToStrike = Math.max(0, t.impact - t.top);
+  if (metrics.backswing && metrics.downswing) metrics.tempoRatio = metrics.backswing / Math.max(metrics.downswing, 0.001);
+  if (metrics.total && metrics.downswing) metrics.accelerationIndex = metrics.downswing / Math.max(metrics.total, 0.001);
+  if (has('impact')) metrics.impactFrame = frameNumber(t.impact);
+  if (has('top')) metrics.topFrame = frameNumber(t.top);
+
+  if (Number.isFinite(extended.midBackswing)) metrics.midBackswingFrame = frameNumber(extended.midBackswing);
+  if (Number.isFinite(extended.transition)) metrics.transitionFrame = frameNumber(extended.transition);
+  if (Number.isFinite(extended.preImpact)) metrics.preImpactFrame = frameNumber(extended.preImpact);
+
+  if (Number.isFinite(extended.activeStart) && Number.isFinite(extended.activeEnd)) {
+    metrics.activeWindow = Math.max(0, extended.activeEnd - extended.activeStart);
+    metrics.preAddressIdle = has('address') ? Math.max(0, t.address - extended.activeStart) : null;
+  }
+
+  metrics.intervals = [];
+  for (let i = 0; i < phases.length - 1; i += 1) {
+    const a = phases[i];
+    const b = phases[i + 1];
+    if (has(a.id) && has(b.id)) {
+      metrics.intervals.push({ from: a.label, to: b.label, seconds: Math.max(0, t[b.id] - t[a.id]) });
+    }
+  }
+
+  if (metrics.total && metrics.intervals.length) {
+    metrics.phasePercentages = metrics.intervals.map((item) => ({
+      label: `${item.from}→${item.to}`,
+      percent: Math.round((item.seconds / Math.max(metrics.total, 0.001)) * 100),
+    }));
+  }
+
+  const tempoScore = metrics.tempoRatio ? scoreFromRange(metrics.tempoRatio, 1.4, 2.4, 3.6, 5.4) : 0.55;
+  const downScore = metrics.downswing ? scoreFromRange(metrics.downswing, 0.06, 0.16, 0.42, 0.75) : 0.5;
+  const totalScore = metrics.total ? scoreFromRange(metrics.total, 0.55, 0.9, 2.8, 4.5) : 0.5;
+  const finishScore = metrics.followThrough ? scoreFromRange(metrics.followThrough, 0.10, 0.45, 2.2, 3.2) : 0.5;
+  const detectionScore = metrics.confidence || 0.4;
+  const phaseScore = phases.reduce((sum, phase) => sum + (phaseConfidence[phase.id] ?? detectionScore), 0) / phases.length;
+
+  metrics.scores = {
+    detection: Math.round(detectionScore * 100),
+    phaseQuality: Math.round(phaseScore * 100),
+    tempo: Math.round(tempoScore * 100),
+    sequence: Math.round(((tempoScore * 0.5) + (downScore * 0.25) + (totalScore * 0.25)) * 100),
+    finish: Math.round(finishScore * 100),
+  };
+  metrics.scores.overall = Math.round(
+    (metrics.scores.detection * 0.30) +
+    (metrics.scores.phaseQuality * 0.25) +
+    (metrics.scores.tempo * 0.20) +
+    (metrics.scores.sequence * 0.15) +
+    (metrics.scores.finish * 0.10)
+  );
+
+  if (metrics.downswing != null && metrics.downswing < 0.08) {
+    metrics.consistencyWarnings.push('Top→Impact parece demasiado corto; comprueba ambos frames con +1f/−1f.');
+  }
+  if (metrics.backswing != null && metrics.backswing < 0.20) {
+    metrics.consistencyWarnings.push('Backswing parece demasiado corto; revisa Address/Top.');
+  }
+  if (metrics.followThrough != null && metrics.followThrough < 0.18) {
+    metrics.consistencyWarnings.push('Finish está muy cerca de Impact; probablemente el finish real está más tarde.');
+  }
+  if (metrics.tempoRatio && metrics.tempoRatio < 1.7) {
+    metrics.consistencyWarnings.push('Tempo excesivamente bajo: Top puede estar marcado tarde o Impact demasiado pronto.');
+  }
+  if (metrics.tempoRatio && metrics.tempoRatio > 5.0) {
+    metrics.consistencyWarnings.push('Tempo excesivamente alto: Address/Top pueden estar demasiado separados o Impact tarde.');
+  }
+  if (diagnostics?.motionContrast != null && diagnostics.motionContrast < 0.18) {
+    metrics.consistencyWarnings.push('Contraste de movimiento bajo: vídeo con poca diferencia entre swing y fondo; revisa fases manualmente.');
+  }
+  if ((phaseConfidence.impact ?? 1) < 0.55) {
+    metrics.consistencyWarnings.push('Impact detectado con baja confianza; esta fase debe revisarse manualmente.');
+  }
+  return metrics;
 }
 
-function drawMotionBar(profile = state.profile, detection = state.detection) {
-  refs.motionBar.innerHTML = '';
-  if (!profile.length) return;
-  const max = Math.max(...profile.map((p) => p.score), 0.001);
-  const impactTime = detection?.times?.impact;
-  const start = detection?.window?.start ?? -1;
-  const end = detection?.window?.end ?? -1;
-  profile.forEach((p) => {
-    const bar = document.createElement('i');
-    const h = 8 + 34 * clamp(p.score / max, 0, 1);
-    bar.style.height = `${h}px`;
-    if (p.time >= start && p.time <= end) bar.classList.add('active');
-    if (impactTime != null && Math.abs(p.time - impactTime) < (state.metadata.duration / profile.length) * 1.5) bar.classList.add('impact');
-    bar.title = `${formatTime(p.time)} · motion ${p.score.toFixed(2)}`;
-    refs.motionBar.appendChild(bar);
+function fallbackPhaseTimes(duration) {
+  const safe = Number.isFinite(duration) && duration > 0 ? duration : 2;
+  return Object.fromEntries(phases.map((phase) => [phase.id, Math.max(0, Math.min(safe, safe * phase.pct))]));
+}
+
+function enforceIncreasing(times, duration) {
+  const safeDuration = Number.isFinite(duration) && duration > 0 ? duration : 2;
+  const minGap = Math.max(0.035, Math.min(0.18, safeDuration * 0.018));
+  let last = 0;
+  const output = {};
+  phases.forEach((phase, index) => {
+    let value = Number.isFinite(times[phase.id]) ? times[phase.id] : safeDuration * phase.pct;
+    if (index === 0) value = Math.max(0, Math.min(value, safeDuration - minGap * (phases.length - 1)));
+    else value = Math.max(value, last + minGap);
+    value = Math.min(value, safeDuration - minGap * (phases.length - 1 - index));
+    output[phase.id] = Math.max(0, Math.min(safeDuration, value));
+    last = output[phase.id];
   });
+  return output;
 }
 
 async function sampleMotionProfile() {
   const video = refs.video;
-  await waitForMetadata(video);
   const duration = video.duration;
-  const sampleCount = clamp(Math.round(duration * 12), 48, 132);
-  const w = 96;
-  const h = Math.max(96, Math.round(w * (video.videoHeight || 16) / Math.max(1, video.videoWidth || 9)));
-  const ctx = getCtx(w, h, true);
+  if (!state.videoUrl || !Number.isFinite(duration) || duration <= 0.25) return null;
   const originalTime = video.currentTime || 0;
+  const samples = Math.min(168, Math.max(54, Math.round(duration * 20)));
+  const canvas = refs.captureCanvas;
+  const w = 128;
+  const h = 192;
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
   let previous = null;
   const raw = [];
 
-  for (let i = 0; i < sampleCount; i += 1) {
-    const time = duration * (i / Math.max(1, sampleCount - 1));
-    await seekTo(time);
+  for (let i = 0; i < samples; i += 1) {
+    const t = duration * (i / (samples - 1));
+    await seekVideoTo(t);
     ctx.drawImage(video, 0, 0, w, h);
     const data = ctx.getImageData(0, 0, w, h).data;
-    const lum = new Float32Array(w * h);
-    for (let px = 0, j = 0; px < data.length; px += 4, j += 1) {
-      lum[j] = 0.299 * data[px] + 0.587 * data[px + 1] + 0.114 * data[px + 2];
-    }
+    let diff = 0;
+    let upper = 0;
+    let mid = 0;
+    let lower = 0;
+    let center = 0;
+    let edge = 0;
+    let xMoment = 0;
+    let yMoment = 0;
+    let motionMass = 0;
+    let count = 0;
+    let brightness = 0;
+    let contrastAcc = 0;
 
-    let diff = 0, upper = 0, lower = 0, xMoment = 0, yMoment = 0, mass = 0;
-    let minX = w, maxX = 0, minY = h, maxY = 0;
     if (previous) {
-      for (let y = 0; y < h; y += 3) {
-        for (let x = 0; x < w; x += 3) {
-          const idx = y * w + x;
-          const d = Math.abs(lum[idx] - previous[idx]);
+      for (let y = 0; y < h; y += 4) {
+        for (let x = 0; x < w; x += 4) {
+          const px = ((y * w) + x) * 4;
+          const lum = (data[px] * 0.299) + (data[px + 1] * 0.587) + (data[px + 2] * 0.114);
+          const d = Math.abs(lum - previous[count]);
+          previous[count] = lum;
           diff += d;
-          if (y < h * 0.52) upper += d; else lower += d;
-          if (d > 13) {
-            xMoment += d * (x / w);
-            yMoment += d * (y / h);
-            mass += d;
-            minX = Math.min(minX, x); maxX = Math.max(maxX, x);
-            minY = Math.min(minY, y); maxY = Math.max(maxY, y);
-          }
+          brightness += lum;
+          contrastAcc += Math.abs(lum - 128);
+          if (y < h * 0.43) upper += d;
+          else if (y < h * 0.72) mid += d;
+          else lower += d;
+          if (x > w * 0.18 && x < w * 0.82 && y > h * 0.10 && y < h * 0.92) center += d;
+          else edge += d;
+          xMoment += d * (x / w);
+          yMoment += d * (y / h);
+          motionMass += d;
+          count += 1;
         }
       }
-    }
-    const denom = Math.max(1, Math.ceil(w / 3) * Math.ceil(h / 3));
-    raw.push({
-      time,
-      score: diff / denom,
-      upper: upper / denom,
-      lower: lower / denom,
-      cx: mass ? xMoment / mass : 0.5,
-      cy: mass ? yMoment / mass : 0.5,
-      bbox: mass ? { x: minX / w, y: minY / h, w: (maxX - minX) / w, h: (maxY - minY) / h } : null,
-    });
-    previous = lum;
-    if (i % 8 === 0) {
-      setStatus('Analizando vídeo', `Leyendo movimiento ${Math.round((i / sampleCount) * 100)}%…`);
-      await new Promise((r) => setTimeout(r, 0));
+      raw.push({
+        time: t,
+        score: diff / Math.max(1, count),
+        upper: upper / Math.max(1, count),
+        mid: mid / Math.max(1, count),
+        lower: lower / Math.max(1, count),
+        center: center / Math.max(1, count),
+        edge: edge / Math.max(1, count),
+        cx: motionMass ? xMoment / motionMass : 0.5,
+        cy: motionMass ? yMoment / motionMass : 0.5,
+        brightness: brightness / Math.max(1, count),
+        contrast: contrastAcc / Math.max(1, count),
+      });
+    } else {
+      previous = [];
+      for (let y = 0; y < h; y += 4) {
+        for (let x = 0; x < w; x += 4) {
+          const px = ((y * w) + x) * 4;
+          previous.push((data[px] * 0.299) + (data[px + 1] * 0.587) + (data[px + 2] * 0.114));
+        }
+      }
+      raw.push({ time: t, score: 0, upper: 0, mid: 0, lower: 0, center: 0, edge: 0, cx: 0.5, cy: 0.5, brightness: 0, contrast: 0 });
     }
   }
-  await seekTo(originalTime);
-  return smoothProfile(raw);
+
+  await seekVideoTo(originalTime);
+  return enrichMotionProfile(smoothMotionProfile(raw));
 }
 
-function smoothProfile(raw) {
-  if (!raw.length) return [];
+function smoothMotionProfile(raw) {
+  if (!raw || raw.length < 3) return raw || [];
   return raw.map((p, i) => {
-    const slice = raw.slice(Math.max(0, i - 2), Math.min(raw.length, i + 3));
-    const avg = (key) => slice.reduce((sum, item) => sum + (item[key] || 0), 0) / slice.length;
-    return { ...p, score: avg('score'), upper: avg('upper'), lower: avg('lower'), cx: avg('cx'), cy: avg('cy') };
+    const items = raw.slice(Math.max(0, i - 2), Math.min(raw.length, i + 3));
+    const avg = (key) => items.reduce((sum, item) => sum + (item[key] || 0), 0) / items.length;
+    return {
+      ...p,
+      score: avg('score'),
+      upper: avg('upper'),
+      mid: avg('mid'),
+      lower: avg('lower'),
+      center: avg('center'),
+      edge: avg('edge'),
+      cx: avg('cx'),
+      cy: avg('cy'),
+      brightness: avg('brightness'),
+      contrast: avg('contrast'),
+    };
+  });
+}
+
+function enrichMotionProfile(profile) {
+  if (!profile || !profile.length) return profile || [];
+  const scores = profile.map((p) => p.score);
+  const base = percentile(scores, 0.28);
+  const p95 = percentile(scores, 0.95);
+  const range = Math.max(p95 - base, 0.001);
+  return profile.map((p, i) => {
+    const prev = profile[Math.max(0, i - 1)];
+    const next = profile[Math.min(profile.length - 1, i + 1)];
+    const dt = Math.max(0.001, next.time - prev.time);
+    const dx = (next.cx || 0.5) - (prev.cx || 0.5);
+    const dy = (next.cy || 0.5) - (prev.cy || 0.5);
+    const centroidSpeed = Math.sqrt((dx * dx) + (dy * dy)) / dt;
+    const accel = i ? p.score - profile[i - 1].score : 0;
+    const normalized = clamp((p.score - base) / range, 0, 1.6);
+    const bodyWeighted = (p.center || 0) * 1.08 + (p.upper || 0) * 0.62 + (p.mid || 0) * 0.42 + (p.lower || 0) * 0.18 - (p.edge || 0) * 0.12;
+    return { ...p, normalized, accel, centroidSpeed, bodyWeighted: Math.max(0, bodyWeighted) };
   });
 }
 
@@ -240,651 +933,942 @@ function percentile(values, q) {
   const sorted = values.filter(Number.isFinite).slice().sort((a, b) => a - b);
   if (!sorted.length) return 0;
   const pos = (sorted.length - 1) * q;
-  const lo = Math.floor(pos);
-  const hi = Math.ceil(pos);
-  if (lo === hi) return sorted[lo];
-  return sorted[lo] + (sorted[hi] - sorted[lo]) * (pos - lo);
+  const base = Math.floor(pos);
+  const rest = pos - base;
+  return sorted[base + 1] != null ? sorted[base] + rest * (sorted[base + 1] - sorted[base]) : sorted[base];
 }
 
-function nearestIndex(profile, time) {
-  let best = 0, bestDiff = Infinity;
-  profile.forEach((p, i) => {
+function indexAtTime(profile, time) {
+  let best = 0;
+  let bestDiff = Infinity;
+  profile.forEach((p, index) => {
     const d = Math.abs(p.time - time);
-    if (d < bestDiff) { best = i; bestDiff = d; }
+    if (d < bestDiff) { best = index; bestDiff = d; }
   });
   return best;
 }
 
-function maxInRange(profile, start, end, key = 'score') {
-  let best = profile[clamp(start, 0, profile.length - 1)] || profile[0];
-  for (let i = clamp(start, 0, profile.length - 1); i <= clamp(end, 0, profile.length - 1); i += 1) {
-    if ((profile[i]?.[key] || 0) > (best?.[key] || 0)) best = profile[i];
+function localMinimum(profile, startIndex, endIndex, fallbackIndex, key = 'score') {
+  const start = Math.max(0, Math.min(profile.length - 1, startIndex));
+  const end = Math.max(0, Math.min(profile.length - 1, endIndex));
+  if (start > end) return profile[Math.max(0, Math.min(profile.length - 1, fallbackIndex))] || profile[0];
+  let best = profile[Math.max(start, Math.min(end, fallbackIndex))] || profile[0];
+  for (let i = start; i <= end; i += 1) {
+    if ((profile[i][key] ?? profile[i].score) < (best[key] ?? best.score)) best = profile[i];
   }
   return best;
 }
 
-function minInRange(profile, start, end, key = 'score') {
-  let best = profile[clamp(start, 0, profile.length - 1)] || profile[0];
-  for (let i = clamp(start, 0, profile.length - 1); i <= clamp(end, 0, profile.length - 1); i += 1) {
-    if ((profile[i]?.[key] || 0) < (best?.[key] || 0)) best = profile[i];
+function localMaximum(profile, startIndex, endIndex, fallbackIndex, key = 'score') {
+  const start = Math.max(0, Math.min(profile.length - 1, startIndex));
+  const end = Math.max(0, Math.min(profile.length - 1, endIndex));
+  if (start > end) return profile[Math.max(0, Math.min(profile.length - 1, fallbackIndex))] || profile[profile.length - 1];
+  let best = profile[Math.max(start, Math.min(end, fallbackIndex))] || profile[profile.length - 1];
+  for (let i = start; i <= end; i += 1) {
+    if ((profile[i][key] ?? profile[i].score) > (best[key] ?? best.score)) best = profile[i];
   }
   return best;
 }
 
-function fallbackDetection(duration) {
-  const start = duration * 0.12;
-  const impact = duration * 0.66;
-  const top = duration * 0.48;
-  const finish = duration * 0.84;
-  return phaseTimesFromAnchors(start, top, impact, finish, duration, 0.22, { start, end: finish }, null, 'fallback-percentages');
+function mergeActiveSegments(segments, profile, maxGapSeconds) {
+  if (!segments.length) return [];
+  const merged = [clone(segments[0])];
+  for (let i = 1; i < segments.length; i += 1) {
+    const last = merged[merged.length - 1];
+    const gap = profile[segments[i].start].time - profile[last.end].time;
+    if (gap <= maxGapSeconds) {
+      last.end = segments[i].end;
+      last.area += segments[i].area;
+      last.max = Math.max(last.max, segments[i].max);
+    } else {
+      merged.push(clone(segments[i]));
+    }
+  }
+  return merged;
 }
 
-function phaseTimesFromAnchors(start, top, impact, finish, duration, confidence, window, thresholds, method) {
-  const safeStart = clamp(start, 0, duration * 0.85);
-  const safeImpact = clamp(Math.max(impact, safeStart + 0.20), safeStart + 0.20, duration * 0.95);
-  const safeTop = clamp(top, safeStart + 0.12, safeImpact - 0.08);
-  const safeFinish = clamp(Math.max(finish, safeImpact + 0.22), safeImpact + 0.22, duration);
-  const times = {
-    address: safeStart,
-    takeaway: safeStart + (safeTop - safeStart) * 0.30,
-    midBackswing: safeStart + (safeTop - safeStart) * 0.62,
-    top: safeTop,
-    transition: safeTop + (safeImpact - safeTop) * 0.24,
-    preImpact: safeTop + (safeImpact - safeTop) * 0.78,
-    impact: safeImpact,
-    finish: safeFinish,
-  };
-  return { times, confidence, window, thresholds, method };
+function findActiveSegments(profile, threshold) {
+  const segments = [];
+  let current = null;
+  profile.forEach((p, index) => {
+    const active = p.score >= threshold || p.bodyWeighted >= threshold * 0.85 || p.normalized >= 0.32;
+    if (active) {
+      if (!current) current = { start: index, end: index, area: 0, max: 0 };
+      current.end = index;
+      current.area += Math.max(p.score, p.bodyWeighted || 0);
+      current.max = Math.max(current.max, p.score, p.bodyWeighted || 0);
+    } else if (current) {
+      segments.push(current);
+      current = null;
+    }
+  });
+  if (current) segments.push(current);
+  return segments;
 }
 
-function detectPhasesFromMotion(profile, duration) {
-  if (!profile || profile.length < 12 || !duration) return fallbackDetection(duration || 1);
+function chooseSwingSegment(profile, duration, thresholds) {
+  const sampleGap = profile.length > 1 ? profile[1].time - profile[0].time : duration / 50;
+  let segments = findActiveSegments(profile, thresholds.activeThreshold);
+  segments = mergeActiveSegments(segments, profile, Math.max(0.22, sampleGap * 3.5));
+  segments = segments.filter((seg) => {
+    const dur = profile[seg.end].time - profile[seg.start].time;
+    return dur >= 0.16 && dur <= Math.min(Math.max(4.5, duration * 0.70), duration);
+  });
+
+  if (!segments.length) {
+    const peak = localMaximum(profile, 0, profile.length - 1, Math.round(profile.length * 0.55));
+    const peakIndex = indexAtTime(profile, peak.time);
+    return { start: Math.max(0, peakIndex - 12), end: Math.min(profile.length - 1, peakIndex + 18), max: peak.score, area: peak.score, quality: 0.22 };
+  }
+
+  let best = null;
+  let bestScore = -Infinity;
+  segments.forEach((seg) => {
+    const dur = profile[seg.end].time - profile[seg.start].time;
+    const upperAvg = profile.slice(seg.start, seg.end + 1).reduce((sum, p) => sum + (p.upper || 0), 0) / Math.max(1, seg.end - seg.start + 1);
+    const centerAvg = profile.slice(seg.start, seg.end + 1).reduce((sum, p) => sum + (p.center || 0), 0) / Math.max(1, seg.end - seg.start + 1);
+    const plausibility = scoreFromRange(dur, 0.18, 0.65, 3.2, Math.max(4.2, duration));
+    const compactness = seg.area / Math.max(dur, 0.08);
+    const score = (seg.max * 2.4) + (compactness * 0.10) + (upperAvg * 0.65) + (centerAvg * 0.35) + (plausibility * thresholds.p92 * 1.4);
+    if (score > bestScore) {
+      bestScore = score;
+      best = { ...seg, quality: clamp((score / Math.max(thresholds.p92 * 5.0, 0.001)), 0.18, 0.95) };
+    }
+  });
+
+  const expandBefore = Math.max(2, Math.round(0.34 / Math.max(sampleGap, 0.001)));
+  const expandAfter = Math.max(4, Math.round(0.95 / Math.max(sampleGap, 0.001)));
+  best.start = Math.max(0, best.start - expandBefore);
+  best.end = Math.min(profile.length - 1, best.end + expandAfter);
+  return best;
+}
+
+function bestTopCandidate(profile, startIndex, endIndex, impactIndex, thresholds) {
+  const fallback = Math.max(startIndex, Math.min(endIndex, impactIndex - 6));
+  let best = profile[fallback] || profile[startIndex] || profile[0];
+  let bestScore = -Infinity;
+  for (let i = startIndex; i <= endIndex; i += 1) {
+    const p = profile[i];
+    const after = localMaximum(profile, i + 1, Math.min(impactIndex, i + 7), i + 1, 'bodyWeighted');
+    const before = localMaximum(profile, Math.max(startIndex, i - 7), i, i, 'bodyWeighted');
+    const downDur = profile[impactIndex].time - p.time;
+    const plausibleDown = scoreFromRange(downDur, 0.07, 0.16, 0.46, 0.78);
+    const quiet = 1 - clamp((p.score - thresholds.median) / Math.max(thresholds.p92 - thresholds.median, 0.001), 0, 1);
+    const burstAfter = clamp((after.bodyWeighted || after.score) / Math.max(thresholds.p92, 0.001), 0, 1.4);
+    const notTooEarly = scoreFromRange(i - startIndex, 0, Math.max(1, (impactIndex - startIndex) * 0.36), Math.max(2, (impactIndex - startIndex) * 0.78), Math.max(3, impactIndex - startIndex));
+    const score = (quiet * 0.34) + (burstAfter * 0.30) + (plausibleDown * 0.24) + (notTooEarly * 0.12) - Math.max(0, (before.bodyWeighted || before.score) - (after.bodyWeighted || after.score)) * 0.03;
+    if (score > bestScore) { bestScore = score; best = p; }
+  }
+  return { point: best, quality: clamp(bestScore, 0.15, 0.96) };
+}
+
+function firstStableAfter(profile, startIndex, endIndex, threshold, minCount = 3) {
+  for (let i = startIndex; i <= endIndex; i += 1) {
+    let ok = true;
+    for (let j = 0; j < minCount; j += 1) {
+      const p = profile[Math.min(profile.length - 1, i + j)];
+      if (!p || p.score > threshold) { ok = false; break; }
+    }
+    if (ok) return profile[i];
+  }
+  return null;
+}
+
+function detectTimesFromMotion(profile, duration) {
+  if (!profile || profile.length < 10) {
+    return { times: fallbackPhaseTimes(duration), confidence: 0.22, peakTime: null, phaseConfidence: {}, extendedTimes: {}, diagnostics: {} };
+  }
   const scores = profile.map((p) => p.score);
   const maxScore = Math.max(...scores);
   const median = percentile(scores, 0.5);
-  const p70 = percentile(scores, 0.70);
-  const p84 = percentile(scores, 0.84);
+  const p65 = percentile(scores, 0.65);
+  const p78 = percentile(scores, 0.78);
+  const p88 = percentile(scores, 0.88);
   const p92 = percentile(scores, 0.92);
-  const threshold = Math.max(maxScore * 0.18, median * 1.85, p70);
-  const active = profile.map((p, i) => ({ ...p, i })).filter((p) => p.i > 1 && p.score >= threshold);
-  if (!active.length || maxScore < 0.55) return fallbackDetection(duration);
+  const p96 = percentile(scores, 0.96);
+  const noiseFloor = Math.max(median, 0.001);
+  const activeThreshold = Math.max(p65, noiseFloor * 1.42, maxScore * 0.14);
+  const strongThreshold = Math.max(p88, noiseFloor * 2.05, maxScore * 0.28);
+  const thresholds = { median, p65, p78, p88, p92, p96, activeThreshold, strongThreshold };
 
-  let firstIndex = Math.max(0, active[0].i - 1);
-  let lastIndex = Math.min(profile.length - 1, active[active.length - 1].i + 2);
-  const startTime = clamp(profile[firstIndex].time - Math.min(0.20, duration * 0.025), 0, duration);
-  const endTime = clamp(profile[lastIndex].time + Math.min(0.55, duration * 0.05), 0, duration);
-
-  const impactStart = Math.max(firstIndex + 4, nearestIndex(profile, startTime + (endTime - startTime) * 0.45));
-  const impactEnd = Math.max(impactStart, Math.min(lastIndex, nearestIndex(profile, startTime + (endTime - startTime) * 0.88)));
-  const impactPoint = maxInRange(profile, impactStart, impactEnd, 'score');
-  const impactIndex = nearestIndex(profile, impactPoint.time);
-
-  const topStart = Math.max(firstIndex + 2, nearestIndex(profile, startTime + (impactPoint.time - startTime) * 0.22));
-  const topEnd = Math.max(topStart, Math.min(impactIndex - 2, nearestIndex(profile, startTime + (impactPoint.time - startTime) * 0.86)));
-  let topPoint = minInRange(profile, topStart, topEnd, 'score');
-  if (topPoint.time < startTime + 0.18 || topPoint.time > impactPoint.time - 0.08) {
-    topPoint = profile[nearestIndex(profile, startTime + (impactPoint.time - startTime) * 0.68)] || topPoint;
+  if (maxScore < 0.45 || p92 <= noiseFloor * 1.12) {
+    return { times: fallbackPhaseTimes(duration), confidence: 0.2, peakTime: null, phaseConfidence: {}, extendedTimes: {}, diagnostics: { maxScore, median, motionContrast: 0 } };
   }
 
-  const releaseSearchEnd = Math.min(profile.length - 1, impactIndex + Math.round(profile.length * 0.12));
-  const finishCandidate = maxInRange(profile, impactIndex, releaseSearchEnd, 'upper');
-  const finishTime = Math.max(endTime, finishCandidate.time + Math.max(0.25, duration * 0.035));
+  const segment = chooseSwingSegment(profile, duration, thresholds);
+  const segSpan = Math.max(1, segment.end - segment.start);
+  const segStartTime = profile[segment.start].time;
+  const segEndTime = profile[segment.end].time;
 
-  const contrast = clamp((p92 - median) / Math.max(p92, 0.001), 0, 1);
-  const activeSpan = clamp((endTime - startTime) / Math.max(duration, 0.001), 0, 1);
-  const order = startTime < topPoint.time && topPoint.time < impactPoint.time && impactPoint.time < finishTime;
-  const tempoPlausible = (topPoint.time - startTime) > 0.25 && (impactPoint.time - topPoint.time) > 0.07;
-  const confidence = clamp(0.28 + contrast * 0.34 + activeSpan * 0.14 + (order ? 0.12 : 0) + (tempoPlausible ? 0.10 : 0), 0.2, 0.93);
+  const impactStart = Math.max(segment.start + Math.round(segSpan * 0.34), indexAtTime(profile, segStartTime + 0.28));
+  const impactEnd = Math.min(segment.end, Math.max(impactStart + 1, segment.start + Math.round(segSpan * 0.86)));
+  let impact = localMaximum(profile, impactStart, impactEnd, Math.round((impactStart + impactEnd) / 2), 'bodyWeighted');
+  const impactIndex = indexAtTime(profile, impact.time);
 
-  return phaseTimesFromAnchors(
-    startTime,
-    topPoint.time,
-    impactPoint.time,
-    finishTime,
-    duration,
-    confidence,
-    { start: startTime, end: endTime, firstIndex, lastIndex },
-    { median, p70, p84, p92, threshold, maxScore },
-    'motion-profile-v09'
+  const preWindowStart = Math.max(0, segment.start - Math.round(segSpan * 0.20));
+  const preWindowEnd = Math.max(preWindowStart, Math.min(segment.start + Math.round(segSpan * 0.10), impactIndex - 4));
+  const quietBefore = localMinimum(profile, preWindowStart, preWindowEnd, segment.start, 'score');
+  const addressTime = Math.max(0, Math.min(quietBefore.time, impact.time - 0.32));
+
+  const topStart = Math.max(indexAtTime(profile, addressTime + 0.14), segment.start + 2, indexAtTime(profile, impact.time - 1.15));
+  const topEnd = Math.max(topStart, Math.min(impactIndex - 2, indexAtTime(profile, impact.time - 0.08)));
+  const topCandidate = bestTopCandidate(profile, topStart, topEnd, impactIndex, thresholds);
+  let top = topCandidate.point;
+  if (!top || top.time >= impact.time - 0.05) {
+    top = profile[indexAtTime(profile, Math.max(addressTime + 0.2, impact.time - 0.28))];
+  }
+
+  const backDuration = Math.max(0.12, top.time - addressTime);
+  const takeawayTarget = addressTime + backDuration * 0.28;
+  const takeawayStart = indexAtTime(profile, addressTime + Math.min(0.035, backDuration * 0.12));
+  const takeawayEnd = Math.max(takeawayStart, indexAtTime(profile, Math.min(top.time - 0.035, addressTime + backDuration * 0.52)));
+  const thresholdCross = profile.slice(takeawayStart, takeawayEnd + 1).find((p) => p.score >= Math.max(median * 1.18, activeThreshold * 0.54));
+  const takeCandidate = thresholdCross || localMaximum(profile, takeawayStart, takeawayEnd, indexAtTime(profile, takeawayTarget), 'bodyWeighted');
+
+  const stableStart = indexAtTime(profile, impact.time + Math.min(0.22, Math.max(0.08, (profile[1]?.time || 0.05) * 4)));
+  const stable = firstStableAfter(profile, stableStart, profile.length - 1, Math.max(p78, median * 1.65), 3);
+  const rawFinishTime = stable?.time ?? Math.max(segEndTime, impact.time + Math.max(0.35, duration * 0.06));
+
+  const times = enforceIncreasing({
+    address: addressTime,
+    takeaway: Math.min(top.time - 0.035, Math.max(addressTime + 0.035, takeCandidate.time)),
+    top: top.time,
+    impact: impact.time,
+    finish: Math.min(duration, Math.max(rawFinishTime, impact.time + 0.18)),
+  }, duration);
+
+  // Derived internal checkpoints for richer analysis without adding more UI steps.
+  const extendedTimes = {
+    activeStart: segStartTime,
+    activeEnd: segEndTime,
+    midBackswing: times.takeaway + (times.top - times.takeaway) * 0.52,
+    transition: times.top + Math.min(0.09, Math.max(0.025, (times.impact - times.top) * 0.22)),
+    preImpact: times.impact - Math.min(0.075, Math.max(0.025, (times.impact - times.top) * 0.28)),
+  };
+
+  const motionContrast = Math.min(1, (p92 - median) / Math.max(p92, 0.001));
+  const impactProminence = clamp((impact.bodyWeighted || impact.score) / Math.max(p92, 0.001), 0, 1.25);
+  const orderOk = times.address < times.takeaway && times.takeaway < times.top && times.top < times.impact && times.impact < times.finish;
+  const downDur = times.impact - times.top;
+  const backDur = times.top - times.address;
+  const finishDur = times.finish - times.impact;
+  const plausibleTempo = downDur > 0.07 && downDur < 0.70 && backDur > 0.18 && backDur < Math.max(3.5, duration * 0.75);
+  const finishQuality = scoreFromRange(finishDur, 0.08, 0.35, 2.3, 3.4);
+  const topQuality = topCandidate.quality;
+  const segmentQuality = segment.quality || 0.3;
+
+  const phaseConfidence = {
+    address: clamp((1 - quietBefore.normalized * 0.45) * 0.55 + segmentQuality * 0.35 + (orderOk ? 0.10 : 0), 0.25, 0.95),
+    takeaway: clamp(0.40 + motionContrast * 0.25 + segmentQuality * 0.20 + (times.takeaway > times.address ? 0.10 : 0), 0.25, 0.92),
+    top: clamp(0.25 + topQuality * 0.55 + plausibleTempo * 0.12 + motionContrast * 0.08, 0.22, 0.94),
+    impact: clamp(0.24 + impactProminence * 0.42 + motionContrast * 0.20 + (downDur > 0.07 ? 0.10 : 0), 0.24, 0.96),
+    finish: clamp(0.32 + finishQuality * 0.35 + segmentQuality * 0.16 + (finishDur > 0.18 ? 0.10 : 0), 0.22, 0.92),
+  };
+
+  const avgPhaseConfidence = Object.values(phaseConfidence).reduce((sum, value) => sum + value, 0) / phases.length;
+  const confidence = clamp(
+    0.18 + (motionContrast * 0.25) + (segmentQuality * 0.20) + (avgPhaseConfidence * 0.25) + (orderOk ? 0.07 : 0) + (plausibleTempo ? 0.05 : 0),
+    0.20,
+    0.94
   );
+
+  const diagnostics = {
+    engine: 'SwingEngine v2.2',
+    maxScore,
+    median,
+    p92,
+    activeThreshold,
+    strongThreshold,
+    motionContrast,
+    segmentStart: segStartTime,
+    segmentEnd: segEndTime,
+    segmentDuration: segEndTime - segStartTime,
+    impactProminence,
+    topQuality,
+    segmentQuality,
+  };
+
+  return { times, confidence, peakTime: impact.time, thresholds, phaseConfidence, extendedTimes, diagnostics };
 }
 
-async function captureFrame(time, label) {
+async function autoDetectPhases() {
+  if (!state.videoUrl || state.autoDetection.status === 'running' || state.autoDetection.status === 'done') return;
+  setAppState('detecting');
+  state.autoDetection.status = 'running';
+  refs.analysisStatus.textContent = 'SwingEngine v2.2: localizando ventana activa, top e impacto…';
+  render();
+  try {
+    const duration = refs.video.duration;
+    const profile = await sampleMotionProfile();
+    const result = detectTimesFromMotion(profile, duration);
+    state.phaseTimes = result.times;
+    state.autoDetection = {
+      status: 'done',
+      confidence: result.confidence,
+      method: 'SwingEngine v2.2 · motion segmentation + temporal model',
+      samples: profile?.length || 0,
+      motionPeakTime: result.peakTime,
+      phaseConfidence: result.phaseConfidence || {},
+      extendedTimes: result.extendedTimes || {},
+      diagnostics: result.diagnostics || {},
+    };
+    state.analysisMetrics = computeAnalysisMetrics();
+    state.currentPhaseId = 'address';
+    await seekVideoTo(state.phaseTimes.address || 0);
+    setAppState('detected');
+    refs.analysisStatus.textContent = `Fases detectadas con SwingEngine v2.2 (${Math.round(result.confidence * 100)}% confianza). Revisa especialmente Top e Impact.`;
+    render();
+  } catch (error) {
+    console.warn('Auto detection failed', error);
+    state.phaseTimes = fallbackPhaseTimes(refs.video.duration);
+    state.autoDetection = { status: 'failed', confidence: 0.2, method: 'fallback-percentages', samples: 0, motionPeakTime: null, phaseConfidence: {}, extendedTimes: {}, diagnostics: {} };
+    state.analysisMetrics = computeAnalysisMetrics();
+    setAppState('marking');
+    refs.analysisStatus.textContent = 'No se pudo detectar con fiabilidad. Se han colocado fases estimadas por porcentaje para que puedas corregirlas.';
+    render();
+  }
+}
+
+function seekVideoTo(time) {
+  return new Promise((resolve) => {
+    const safeTime = Math.max(0, Math.min(time, Number.isFinite(refs.video.duration) ? refs.video.duration : time));
+    if (Math.abs((refs.video.currentTime || 0) - safeTime) < 0.03) return resolve();
+    const onSeeked = () => resolve();
+    refs.video.addEventListener('seeked', onSeeked, { once: true });
+    refs.video.currentTime = safeTime;
+  });
+}
+
+async function captureFrameAt(time) {
   const video = refs.video;
-  await seekTo(time);
-  const scale = Math.min(1, MAX_CAPTURE_WIDTH / Math.max(1, video.videoWidth));
-  const w = Math.round(video.videoWidth * scale);
-  const h = Math.round(video.videoHeight * scale);
-  const ctx = getCtx(w, h, false);
-  ctx.drawImage(video, 0, 0, w, h);
-  drawCaptureWatermark(ctx, w, h, label, time);
-  return refs.workCanvas.toDataURL('image/jpeg', 0.88);
+  if (!state.videoUrl || !video.videoWidth || !video.videoHeight) return null;
+  const canvas = refs.captureCanvas;
+  const maxWidth = Math.min(video.videoWidth, 1440);
+  const scale = maxWidth / video.videoWidth;
+  const width = Math.max(1, Math.round(video.videoWidth * scale));
+  const height = Math.max(1, Math.round(video.videoHeight * scale));
+
+  await seekVideoTo(time);
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, width, height);
+  ctx.drawImage(video, 0, 0, width, height);
+  return canvas.toDataURL('image/jpeg', 0.92);
 }
 
-function drawCaptureWatermark(ctx, w, h, label, time) {
-  const pad = Math.max(10, Math.round(w * 0.018));
+async function generatePhaseCaptures() {
+  if (!state.videoUrl) return {};
+  const originalTime = refs.video.currentTime || 0;
+  refs.video.pause();
+  refs.playBtn.textContent = 'Play';
+
+  const results = {};
+  for (const phase of phases) {
+    const time = state.phaseTimes[phase.id];
+    if (time == null) continue;
+    const image = await captureFrameAt(time);
+    if (image) results[phase.id] = image;
+  }
+
+  await seekVideoTo(originalTime);
+  renderReadouts();
+  renderTimeline();
+  return results;
+}
+
+async function analyze() {
+  if (!state.videoUrl) return;
+  setMode('analysis');
+  setAppState('analyzing');
+  refs.analysisStatus.textContent = 'Generando capturas y métricas del swing…';
+  refs.recommendations.innerHTML = '';
+  refs.capturesGrid.innerHTML = '';
+
+  try {
+    state.phaseCaptures = await generatePhaseCaptures();
+    state.analysisMetrics = computeAnalysisMetrics();
+    const capturesCount = Object.keys(state.phaseCaptures).length;
+    refs.analysisStatus.textContent = `Listo: ${capturesCount} capturas · ${markedCount()}/${phases.length} fases · tempo ${state.analysisMetrics?.tempoRatio ? state.analysisMetrics.tempoRatio.toFixed(2) + ':1' : 'pendiente'}.`;
+    renderRecommendations();
+    renderCapturesGrid();
+    setAppState('completed');
+    render();
+  } catch (error) {
+    console.error(error);
+    refs.analysisStatus.textContent = 'No se pudieron generar las capturas.';
+    setAppState('error');
+  }
+}
+
+async function saveSession() {
+  try {
+    if (!Object.keys(state.phaseCaptures).length && state.videoUrl && markedCount()) {
+      state.phaseCaptures = await generatePhaseCaptures();
+    }
+    if (!Object.keys(state.phaseCaptures).length) {
+      alert('Primero genera las capturas de las fases en la pestaña Análisis.');
+      return;
+    }
+    const previewCapture = state.phaseCaptures.address || Object.values(state.phaseCaptures)[0] || null;
+    await dbPut({
+      id: uid(),
+      createdAt: new Date().toISOString(),
+      videoName: state.videoName,
+      duration: Number.isFinite(refs.video.duration) ? refs.video.duration : null,
+      guideMode: state.guideMode,
+      phaseTimes: clone(state.phaseTimes),
+      phaseCaptures: clone(state.phaseCaptures),
+      analysisMetrics: clone(state.analysisMetrics || computeAnalysisMetrics()),
+      autoDetection: clone(state.autoDetection),
+      lines: clone(state.lines),
+      thumbnail: previewCapture,
+    });
+    setAppState('saved');
+    await loadHistory();
+    setMode('history');
+  } catch (error) {
+    console.error(error);
+    setAppState('error');
+    alert('No se pudo guardar la sesión. Puede faltar espacio o estar bloqueado el almacenamiento del navegador.');
+  }
+}
+
+async function loadHistory() {
+  const sessions = (await dbAll()).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  refs.historyList.innerHTML = '';
+  if (!sessions.length) {
+    refs.historyList.innerHTML = '<div class="status-box">Aún no hay sesiones guardadas.</div>';
+    return;
+  }
+  sessions.forEach((session) => {
+    const item = document.createElement('button');
+    item.className = 'history-item';
+    item.type = 'button';
+    const date = new Date(session.createdAt).toLocaleString('es-ES', { dateStyle: 'short', timeStyle: 'short' });
+    const capturesCount = Object.keys(session.phaseCaptures || {}).length;
+    item.innerHTML = `
+      <img class="history-thumb" src="${session.thumbnail || 'icons/icon-192.png'}" alt="Miniatura" />
+      <div>
+        <div class="history-title">${session.videoName || 'Swing guardado'}</div>
+        <div class="history-meta">${date} · ${capturesCount} capturas · ${Object.keys(session.phaseTimes || {}).length}/${phases.length} fases</div>
+      </div>`;
+    item.addEventListener('click', () => restoreSession(session));
+    refs.historyList.appendChild(item);
+  });
+}
+
+function restoreSession(session) {
+  revokeVideoUrl();
+  resetSessionState();
+  state.videoBlob = session.videoBlob || null;
+  state.videoName = session.videoName || 'Swing guardado';
+  state.phaseTimes = session.phaseTimes || {};
+  state.phaseCaptures = session.phaseCaptures || {};
+  state.analysisMetrics = session.analysisMetrics || null;
+  state.autoDetection = session.autoDetection || { status: 'idle', confidence: 0, method: '', samples: 0, motionPeakTime: null };
+  state.lines = session.lines || [];
+  state.guideMode = session.guideMode || 'dtl';
+  state.mode = Object.keys(state.phaseCaptures).length ? 'analysis' : 'phases';
+  state.controlsVisible = true;
+  state.activeCaptureIndex = 0;
+
+  if (Object.keys(state.phaseCaptures).length) {
+    state.viewingCapture = true;
+    state.controlsVisible = false;
+    refs.analysisStatus.textContent = `Sesión restaurada: ${Object.keys(state.phaseCaptures).length} capturas disponibles. Desliza para revisar fases.`;
+    renderRecommendations();
+  } else {
+    state.viewingCapture = false;
+    refs.analysisStatus.textContent = 'Marca las fases y genera las capturas.';
+    refs.recommendations.innerHTML = '';
+  }
+
+  if (session.videoBlob) {
+    state.captureOnly = false;
+    state.videoUrl = URL.createObjectURL(session.videoBlob);
+    refs.video.src = state.videoUrl;
+    refs.video.load();
+    setAppState('loaded');
+  } else {
+    state.captureOnly = true;
+    state.videoUrl = null;
+    state.videoBlob = null;
+    refs.video.removeAttribute('src');
+    refs.video.load();
+    setAppState('saved');
+  }
+  render();
+}
+
+async function clearHistory() {
+  if (!confirm('¿Borrar todas las sesiones guardadas en este dispositivo?')) return;
+  await dbClear();
+  await loadHistory();
+}
+
+function openHistoryFromStart() {
+  revokeVideoUrl();
+  resetSessionState();
+  state.captureOnly = true;
+  state.videoUrl = null;
+  state.videoBlob = null;
+  state.videoName = '';
+  state.mode = 'history';
+  state.viewingCapture = false;
+  state.controlsVisible = true;
+  refs.video.removeAttribute('src');
+  refs.video.load();
+  setAppState('saved');
+  render();
+  loadHistory();
+}
+
+function resizeDrawingCanvas() {
+  const canvas = refs.drawingCanvas;
+  const rect = canvas.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = Math.max(1, Math.round(rect.width * dpr));
+  canvas.height = Math.max(1, Math.round(rect.height * dpr));
+  drawAllLines();
+}
+
+function getCanvasCssSize() {
+  const rect = refs.drawingCanvas.getBoundingClientRect();
+  return { width: rect.width || 1, height: rect.height || 1 };
+}
+
+function toNormalized(clientX, clientY) {
+  const rect = refs.drawingCanvas.getBoundingClientRect();
+  return {
+    x: Math.min(Math.max((clientX - rect.left) / rect.width, 0), 1),
+    y: Math.min(Math.max((clientY - rect.top) / rect.height, 0), 1),
+  };
+}
+
+
+function drawLine(ctx, line, cssWidth, cssHeight, dpr, dashed = false) {
   ctx.save();
-  ctx.fillStyle = 'rgba(13,27,42,.82)';
-  ctx.roundRect?.(pad, pad, Math.min(w - 2 * pad, 360), 48, 10);
-  if (!ctx.roundRect) ctx.fillRect(pad, pad, Math.min(w - 2 * pad, 360), 48);
-  else ctx.fill();
-  ctx.fillStyle = '#fff';
-  ctx.font = `${Math.max(15, Math.round(w * 0.018))}px system-ui, sans-serif`;
-  ctx.fillText(label, pad + 14, pad + 21);
-  ctx.fillStyle = 'rgba(255,255,255,.72)';
-  ctx.font = `${Math.max(11, Math.round(w * 0.014))}px system-ui, sans-serif`;
-  ctx.fillText(`${formatTime(time)} · F${frameAt(time)}`, pad + 14, pad + 39);
+  ctx.scale(dpr, dpr);
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 2.8;
+  ctx.shadowColor = 'rgba(0,0,0,.65)';
+  ctx.shadowBlur = 5;
+  if (dashed) ctx.setLineDash([8, 6]);
+  ctx.beginPath();
+  ctx.moveTo(line.x1 * cssWidth, line.y1 * cssHeight);
+  ctx.lineTo(line.x2 * cssWidth, line.y2 * cssHeight);
+  ctx.stroke();
   ctx.restore();
 }
 
-async function generateCaptures() {
-  const captures = {};
-  for (const phase of PHASES) {
-    const time = state.phaseTimes[phase.id];
-    if (Number.isFinite(time)) {
-      setStatus('Generando capturas', `${phase.label} · ${formatTime(time)}`);
-      captures[phase.id] = await captureFrame(time, phase.label);
+function drawPoint(ctx, point, cssWidth, cssHeight, dpr) {
+  ctx.save();
+  ctx.scale(dpr, dpr);
+  ctx.fillStyle = '#ffffff';
+  ctx.strokeStyle = 'rgba(0,0,0,.72)';
+  ctx.lineWidth = 2;
+  ctx.shadowColor = 'rgba(0,0,0,.55)';
+  ctx.shadowBlur = 6;
+  ctx.beginPath();
+  ctx.arc(point.x * cssWidth, point.y * cssHeight, 6, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawAllLines() {
+  const canvas = refs.drawingCanvas;
+  if (!canvas.width || !canvas.height) return;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const dpr = window.devicePixelRatio || 1;
+  const { width, height } = getCanvasCssSize();
+
+  if (state.showDrawings) {
+    state.lines.forEach((line, index) => drawLine(ctx, line, width, height, dpr, index === state.selectedLineIndex));
+  }
+  if (state.pendingLineStart) {
+    drawPoint(ctx, state.pendingLineStart, width, height, dpr);
+  }
+  if (state.previewLine) {
+    drawLine(ctx, state.previewLine, width, height, dpr, true);
+  }
+}
+
+function toggleDrawingMode() {
+  const hasCaptures = captureList().length > 0;
+  if (!state.videoUrl && !hasCaptures) return;
+  state.drawingMode = !state.drawingMode;
+  if (state.drawingMode) {
+    state.controlsVisible = true;
+    if (state.videoUrl && !state.viewingCapture) {
+      state.mode = 'phases';
+      refs.video.pause();
+      refs.playBtn.textContent = 'Play';
+    } else if (hasCaptures) {
+      state.viewingCapture = true;
+      state.mode = state.mode === 'history' ? 'history' : 'analysis';
     }
   }
-  state.captures = captures;
+  state.previewLine = null;
+  state.pendingLineStart = null;
+  state.pointerStart = null;
+  state.pointerMoved = false;
+  state.pointerDown = false;
+  state.dragLineIndex = -1;
+  state.dragStartPoint = null;
+  state.dragOriginalLine = null;
+  state.lockAxisMode = false;
+  if (state.longPressTimer) clearTimeout(state.longPressTimer);
+  state.longPressTimer = null;
+  render();
 }
 
-function profileRange(start, end) {
-  return state.profile.filter((p) => p.time >= start && p.time <= end);
+
+function distance(a, b) {
+  if (!a || !b) return Infinity;
+  const dx = (a.x || 0) - (b.x || 0);
+  const dy = (a.y || 0) - (b.y || 0);
+  return Math.sqrt(dx * dx + dy * dy);
 }
 
-function average(list, key) {
-  if (!list.length) return 0;
-  return list.reduce((sum, item) => sum + (item[key] || 0), 0) / list.length;
+function lineLength(line) {
+  if (!line) return 0;
+  return distance({ x: line.x1, y: line.y1 }, { x: line.x2, y: line.y2 });
 }
 
-function computeMetrics() {
-  const t = state.phaseTimes;
-  const duration = state.metadata?.duration || 0;
-  const backswing = Math.max(0, (t.top || 0) - (t.address || 0));
-  const downswing = Math.max(0, (t.impact || 0) - (t.top || 0));
-  const followThrough = Math.max(0, (t.finish || 0) - (t.impact || 0));
-  const tempoRatio = downswing > 0.001 ? backswing / downswing : null;
-  const impactSlice = profileRange((t.impact || 0) - 0.12, (t.impact || 0) + 0.12);
-  const finishSlice = profileRange(Math.max(t.impact || 0, (t.finish || 0) - 0.45), t.finish || duration);
-  const preImpactSlice = profileRange(t.top || 0, t.impact || 0);
-  const backswingSlice = profileRange(t.address || 0, t.top || 0);
-  const impactSharpness = average(impactSlice, 'score') / Math.max(0.001, average(state.profile, 'score'));
-  const finishStability = 1 - clamp(average(finishSlice, 'score') / Math.max(0.001, average(impactSlice, 'score')), 0, 1);
-  const upperRelease = average(profileRange(t.impact || 0, t.finish || duration), 'upper') / Math.max(0.001, average(preImpactSlice, 'upper'));
-  const lowerUse = average(preImpactSlice, 'lower') / Math.max(0.001, average(backswingSlice, 'lower'));
-  const centerDrift = computeCentroidDrift(profileRange(t.address || 0, t.impact || 0));
-  const phaseRows = PHASES.map((phase) => ({
-    id: phase.id,
-    label: phase.label,
-    time: t[phase.id],
-    frame: frameAt(t[phase.id]),
-    reading: phase.reading,
-  }));
-  return {
-    duration,
-    activeDuration: Math.max(0, (t.finish || 0) - (t.address || 0)),
-    backswing,
-    downswing,
-    followThrough,
-    tempoRatio,
-    impactSharpness,
-    finishStability,
-    upperRelease,
-    lowerUse,
-    centerDrift,
-    impactFrame: frameAt(t.impact),
-    phaseRows,
+function createLineFromPending(point) {
+  if (!state.pendingLineStart || !point) return false;
+  let line = {
+    x1: state.pendingLineStart.x,
+    y1: state.pendingLineStart.y,
+    x2: point.x,
+    y2: point.y,
   };
-}
-
-function computeCentroidDrift(list) {
-  const valid = list.filter((p) => p.score > 0.1);
-  if (valid.length < 2) return 0;
-  const xs = valid.map((p) => p.cx);
-  const ys = valid.map((p) => p.cy);
-  return (Math.max(...xs) - Math.min(...xs)) + 0.7 * (Math.max(...ys) - Math.min(...ys));
-}
-
-function scoreFromMetrics(metrics) {
-  const tempo = metrics.tempoRatio || 3.0;
-  const tempoScore = 10 - Math.min(4.2, Math.abs(tempo - 3.0) * 1.7);
-  const stabilityScore = 6.4 + metrics.finishStability * 3.2 - Math.min(1.4, metrics.centerDrift * 2.0);
-  const impactScore = 6.2 + clamp(metrics.impactSharpness - 1, 0, 1.8) * 1.2;
-  const rotationScore = 6.7 + clamp(metrics.upperRelease - 0.8, 0, 1.2) * 1.5;
-  const sequenceScore = (tempoScore * 0.46) + (impactScore * 0.31) + (state.detection.confidence * 10 * 0.23);
-  const setupScore = 7.2 + clamp(0.35 - metrics.centerDrift, -0.3, 0.8);
-  const backswingScore = 7.0 + clamp(3.5 - Math.abs(tempo - 3.0), -1, 1) * 0.45;
-  const deliveryScore = impactScore;
-  const balanceScore = stabilityScore;
-  const scores = {
-    setup: roundScore(setupScore),
-    backswing: roundScore(backswingScore),
-    sequence: roundScore(sequenceScore),
-    delivery: roundScore(deliveryScore),
-    rotation: roundScore(rotationScore),
-    balance: roundScore(balanceScore),
-  };
-  scores.overall = roundScore(Object.values(scores).reduce((a, b) => a + b, 0) / Object.values(scores).length);
-  return scores;
-}
-
-function roundScore(value) {
-  return Math.round(clamp(value, 1, 9.4) * 10) / 10;
-}
-
-function technicalReading() {
-  const m = state.metrics;
-  const s = state.scores;
-  const strengths = [];
-  const opportunities = [];
-  const limitations = [];
-
-  if (s.setup >= 7.3) strengths.push('Setup estable y postura suficientemente atlética.');
-  if (s.balance >= 7.6) strengths.push('Finish y equilibrio final como buen punto de referencia.');
-  if (s.delivery >= 7.2) strengths.push('Impacto visualmente claro con buena transferencia de energía.');
-  if (strengths.length < 2) strengths.push('Secuencia general legible y apta para análisis comparativo.');
-
-  if (m.tempoRatio && (m.tempoRatio < 2.4 || m.tempoRatio > 3.8)) opportunities.push('Revisar tempo backswing/downswing y confirmar que Top e Impact están ajustados al frame correcto.');
-  if (m.centerDrift > 0.38) opportunities.push('Trabajar estabilidad de cabeza/eje para reducir desplazamientos durante la subida y entrega.');
-  if (s.rotation < 7.2) opportunities.push('Prolongar la rotación de pecho a través del impacto para que el release no dependa sólo de manos/brazos.');
-  if (!opportunities.length) opportunities.push('Mantener anchura al inicio de la subida y seguir rotando pecho durante el impacto.');
-
-  limitations.push('Análisis 2D desde una sola cámara; las métricas son estimadas y no sustituyen a medición 3D.');
-  limitations.push('Sin launch monitor no se conoce path, face-to-path, ataque, carry ni dispersión real.');
-  if (state.detection.confidence < 0.55) limitations.push('Confianza de detección moderada/baja: conviene revisar fases manualmente.');
-
-  const drills = [];
-  if (opportunities.join(' ').toLowerCase().includes('tempo')) drills.push({ title: 'Pump drill desde top', text: 'Bajar a posición de entrega y repetir antes de golpear para ordenar transición y ritmo.' });
-  drills.push({ title: 'Takeaway ancho', text: 'Ensayos lentos hasta medio backswing manteniendo manos/palo delante del pecho.' });
-  drills.push({ title: 'Step-through drill', text: 'Pasar el pie trail después del impacto para favorecer rotación, flujo y equilibrio.' });
-  if (m.centerDrift > 0.36) drills.push({ title: 'Head-line rehearsal', text: 'Ensayar con una línea vertical de cabeza y controlar que el eje no se desplace en exceso.' });
-
-  const mainFinding = `Swing ${s.overall >= 7.4 ? 'sólido y funcional' : 'analizable con áreas claras de mejora'}; prioridad: ${opportunities[0].replace(/\.$/, '').toLowerCase()}.`;
-  return { strengths, opportunities, limitations, drills: drills.slice(0, 3), mainFinding };
-}
-
-function metricRows() {
-  const m = state.metrics;
-  const tempo = m.tempoRatio ? `${m.tempoRatio.toFixed(2)} : 1` : 'Pendiente';
-  return [
-    ['Ventana activa del swing', `${formatTime(state.phaseTimes.address)} – ${formatTime(state.phaseTimes.finish)}`, 'Detectada desde perfil de movimiento'],
-    ['Backswing estimado', `${m.backswing.toFixed(2)} s`, m.backswing > 1.25 ? 'Ritmo pausado' : 'Ritmo compacto'],
-    ['Downswing estimado', `${m.downswing.toFixed(2)} s`, 'Entrega hacia impacto'],
-    ['Tempo estimado', tempo, tempoComment(m.tempoRatio)],
-    ['Impact frame', `F${m.impactFrame}`, 'Máxima energía visual aproximada'],
-    ['Estabilidad finish', `${Math.round(m.finishStability * 100)}%`, finishComment(m.finishStability)],
-    ['Drift visual centro movimiento', `${m.centerDrift.toFixed(2)}`, 'Estimación 2D sin calibración'],
-    ['Release / rotación post-impacto', `${m.upperRelease.toFixed(2)}x`, rotationComment(m.upperRelease)],
-  ];
-}
-
-function tempoComment(ratio) {
-  if (!ratio) return 'Pendiente';
-  if (ratio < 2.35) return 'Backswing rápido o Top tardío';
-  if (ratio > 3.9) return 'Backswing lento o Impact temprano';
-  return 'Rango razonable';
-}
-
-function finishComment(value) {
-  if (value > 0.68) return 'Balance final sólido';
-  if (value > 0.48) return 'Aceptable, revisar estabilidad';
-  return 'Mejorable; finish activo/inestable';
-}
-
-function rotationComment(value) {
-  if (value > 1.15) return 'Rotación/release visibles';
-  if (value > 0.85) return 'Correcto, puede prolongarse';
-  return 'Puede seguir abriendo pecho';
-}
-
-function renderPhaseList() {
-  refs.phaseList.innerHTML = '';
-  if (!state.detection) {
-    refs.phaseList.innerHTML = '<p class="tip">Aún no hay fases detectadas.</p>';
-    return;
+  line = snapLineIfNeeded(line);
+  if (lineLength(line) <= 0.012) {
+    state.previewLine = null;
+    return false;
   }
-  PHASES.forEach((phase) => {
-    const time = state.phaseTimes[phase.id];
-    const card = document.createElement('article');
-    card.className = 'phase-card';
-    card.innerHTML = `
-      <img src="${state.captures[phase.id] || ''}" alt="${phase.label}">
-      <div>
-        <strong>${phase.label}</strong>
-        <small>${formatTime(time)} · F${frameAt(time)} · ${phase.reading}</small>
-        <div class="phase-actions">
-          <button type="button" data-action="goto" data-id="${phase.id}">Ir</button>
-          <button type="button" data-action="capture" data-id="${phase.id}">Usar frame actual</button>
-          <input class="phase-time-input" data-id="${phase.id}" value="${Number(time).toFixed(2)}" aria-label="Tiempo ${phase.label}">
-        </div>
-      </div>`;
-    refs.phaseList.appendChild(card);
+  state.lines.push(line);
+  state.selectedLineIndex = state.lines.length - 1;
+  state.pendingLineStart = null;
+  state.previewLine = null;
+  state.pointerDown = false;
+  state.pointerStart = null;
+  state.pointerMoved = false;
+  state.lockAxisMode = false;
+  if (state.longPressTimer) clearTimeout(state.longPressTimer);
+  state.longPressTimer = null;
+  refs.drawingHint.textContent = 'Línea creada';
+  window.setTimeout(() => {
+    if (state.drawingMode) refs.drawingHint.textContent = 'Dibujo: toca 2 puntos, arrastra, o mueve una línea existente';
+  }, 900);
+  drawAllLines();
+  renderRails();
+  return true;
+}
+
+function pointToSegmentDistance(point, line) {
+  const ax = line.x1;
+  const ay = line.y1;
+  const bx = line.x2;
+  const by = line.y2;
+  const dx = bx - ax;
+  const dy = by - ay;
+  const len2 = dx * dx + dy * dy;
+  if (!len2) return distance(point, { x: ax, y: ay });
+  const t = Math.max(0, Math.min(1, ((point.x - ax) * dx + (point.y - ay) * dy) / len2));
+  return distance(point, { x: ax + t * dx, y: ay + t * dy });
+}
+
+function findLineNearPoint(point) {
+  if (!state.lines.length || !state.showDrawings) return -1;
+  let bestIndex = -1;
+  let bestDistance = Infinity;
+  state.lines.forEach((line, index) => {
+    const d = pointToSegmentDistance(point, line);
+    if (d < bestDistance) {
+      bestDistance = d;
+      bestIndex = index;
+    }
   });
+  return bestDistance <= 0.035 ? bestIndex : -1;
 }
 
-async function handlePhaseListClick(event) {
-  const button = event.target.closest('button[data-action]');
-  if (!button) return;
-  const id = button.dataset.id;
-  const action = button.dataset.action;
-  if (action === 'goto') {
-    await seekTo(state.phaseTimes[id] || 0);
-    refs.video.pause();
-  } else if (action === 'capture') {
-    state.phaseTimes[id] = refs.video.currentTime || 0;
-    const phase = PHASES.find((p) => p.id === id);
-    state.captures[id] = await captureFrame(state.phaseTimes[id], phase.label);
-    state.metrics = computeMetrics();
-    state.scores = scoreFromMetrics(state.metrics);
-    renderPhaseList();
-    renderReport();
+function snapLineIfNeeded(line) {
+  if (!state.lockAxisMode) return line;
+  const dx = line.x2 - line.x1;
+  const dy = line.y2 - line.y1;
+  if (Math.abs(dx) >= Math.abs(dy)) {
+    return { ...line, y2: line.y1, lock: 'horizontal' };
   }
+  return { ...line, x2: line.x1, lock: 'vertical' };
 }
 
-async function handlePhaseInputChange(event) {
-  const input = event.target.closest('.phase-time-input');
-  if (!input) return;
-  const id = input.dataset.id;
-  const val = Number(input.value);
-  if (!Number.isFinite(val)) return;
-  state.phaseTimes[id] = clamp(val, 0, state.metadata?.duration || val);
-  const phase = PHASES.find((p) => p.id === id);
-  state.captures[id] = await captureFrame(state.phaseTimes[id], phase.label);
-  state.metrics = computeMetrics();
-  state.scores = scoreFromMetrics(state.metrics);
-  renderPhaseList();
-  renderReport();
+function startLongPressAxisLock() {
+  if (state.longPressTimer) clearTimeout(state.longPressTimer);
+  state.longPressTimer = window.setTimeout(() => {
+    if (!state.pointerDown || state.dragLineIndex >= 0) return;
+    state.lockAxisMode = true;
+    if (state.previewLine) state.previewLine = snapLineIfNeeded(state.previewLine);
+    refs.drawingHint.textContent = 'Bloqueo ON: línea horizontal/vertical';
+    window.setTimeout(() => {
+      if (state.drawingMode) refs.drawingHint.textContent = 'Dibujo: toca 2 puntos, arrastra, o mueve una línea existente';
+    }, 1200);
+    drawAllLines();
+  }, 520);
 }
 
-function renderMiniSummary() {
-  if (!state.scores) {
-    refs.reportMiniSummary.innerHTML = '<p class="tip">Genera primero el análisis.</p>';
+function handleCanvasPointerDown(event) {
+  if (!state.drawingMode) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const point = toNormalized(event.clientX, event.clientY);
+
+  // Mobile two-tap mode: if a first point already exists, the next tap must
+  // immediately confirm the line. Do not wait for pointerup, because some
+  // mobile browsers lose/cancel the pointer capture before pointerup fires.
+  if (state.pendingLineStart && !state.pointerDown) {
+    const created = createLineFromPending(point);
+    if (!created) {
+      state.pendingLineStart = point;
+      state.previewLine = null;
+      state.selectedLineIndex = -1;
+      drawAllLines();
+      renderRails();
+    }
     return;
   }
-  const rows = [
-    ['Setup', state.scores.setup, 'green'],
-    ['Backswing', state.scores.backswing, ''],
-    ['Secuencia', state.scores.sequence, ''],
-    ['Delivery', state.scores.delivery, ''],
-    ['Rotación', state.scores.rotation, 'orange'],
-    ['Balance', state.scores.balance, 'green'],
-  ];
-  refs.reportMiniSummary.innerHTML = `
-    <div class="score-big"><b>${state.scores.overall.toFixed(1)}</b><span>/ 10</span></div>
-    <p class="tip">Evaluación visual estimada. Confianza de detección ${Math.round((state.detection?.confidence || 0) * 100)}%.</p>
-    <div class="score-grid">
-      ${rows.map(([label, score, cls]) => `
-        <div class="score-row"><span>${label}</span><div class="score-track"><span class="${cls}" style="width:${score * 10}%"></span></div><b>${score.toFixed(1)}</b></div>
-      `).join('')}
-    </div>`;
+
+  state.pointerDown = true;
+  state.pointerStart = point;
+  state.pointerMoved = false;
+  state.lockAxisMode = false;
+
+  const lineIndex = findLineNearPoint(point);
+  if (lineIndex >= 0) {
+    state.selectedLineIndex = lineIndex;
+    state.dragLineIndex = lineIndex;
+    state.dragStartPoint = point;
+    state.dragOriginalLine = { ...state.lines[lineIndex] };
+    state.previewLine = null;
+    state.pendingLineStart = null;
+  } else {
+    state.dragLineIndex = -1;
+    state.dragStartPoint = null;
+    state.dragOriginalLine = null;
+    state.previewLine = state.pendingLineStart
+      ? { x1: state.pendingLineStart.x, y1: state.pendingLineStart.y, x2: point.x, y2: point.y }
+      : { x1: point.x, y1: point.y, x2: point.x, y2: point.y };
+    startLongPressAxisLock();
+  }
+  refs.drawingCanvas.setPointerCapture?.(event.pointerId);
+  drawAllLines();
 }
 
-function renderReport() {
-  if (!state.metrics || !state.scores) return;
-  const reading = technicalReading();
-  const viewLabel = state.options.view === 'dtl' ? 'DTL' : 'Face-On';
-  const m = state.metrics;
-  const meta = state.metadata || readVideoMetadata();
-  const notes = refs.coachNotes.value.trim();
-  const external = refs.externalData.value.trim();
-  const date = new Date().toLocaleDateString('es-ES', { year: 'numeric', month: 'short', day: '2-digit' });
+function handleCanvasPointerMove(event) {
+  if (!state.drawingMode || !state.pointerDown) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const point = toNormalized(event.clientX, event.clientY);
+  if (distance(state.pointerStart, point) > 0.006) state.pointerMoved = true;
 
-  refs.reportRoot.innerHTML = `
-    <article class="page">
-      <div class="report-topbar"><strong>Informe profesional de swing | Resumen ejecutivo</strong><span>Swing Lab Smart | pág. 1</span></div>
-      <h1 class="report-title">Análisis profesional del swing</h1>
-      <p class="report-subtitle">Análisis visual 2D desde vista ${viewLabel}. Informe generado con lectura de vídeo completo, detección de movimiento y selección auditada de frames clave.</p>
-      <div class="report-grid">
-        <div class="card navy-head">
-          <h3>Secuencia del swing</h3>
-          <div class="sequence-grid">${renderSequenceItems()}</div>
-        </div>
-        <div class="right-stack">
-          <div class="card"><h3>Evaluación global</h3><div class="kpi-score"><b>${state.scores.overall.toFixed(1)}</b> / 10</div><p class="tip">Evaluación visual estimada del swing analizado</p></div>
-          <div class="card kpi-grid"><div><div class="label">Palo</div><div class="value">${escapeHtml(state.options.club)}</div></div><div><div class="label">Vista</div><div class="value">${viewLabel}</div></div></div>
-          <div class="card"><h3>Datos del vídeo</h3>${renderInfoList([
-            ['Resolución', `${meta.width} × ${meta.height} px`], ['Frame rate', `${ASSUMED_FPS}.0 fps estimado`], ['Duración', `${meta.duration.toFixed(2)} s`], ['Address', `F${frameAt(state.phaseTimes.address)} | ${formatTime(state.phaseTimes.address)}`], ['Top', `F${frameAt(state.phaseTimes.top)} | ${formatTime(state.phaseTimes.top)}`], ['Impacto', `F${frameAt(state.phaseTimes.impact)} | ${formatTime(state.phaseTimes.impact)}`], ['Tempo', m.tempoRatio ? `${m.tempoRatio.toFixed(2)} : 1` : '—'], ['Confianza', `${Math.round((state.detection?.confidence || 0) * 100)}%`]
-          ])}</div>
-        </div>
-      </div>
-      <div class="three-cards">
-        <div class="card accent green"><h3>Fortalezas</h3>${renderList(reading.strengths)}</div>
-        <div class="card accent orange"><h3>Oportunidad principal</h3>${renderList(reading.opportunities.slice(0,3))}</div>
-        <div class="card accent red"><h3>Limitaciones</h3>${renderList(reading.limitations)}</div>
-      </div>
-    </article>
-
-    <article class="page">
-      <div class="report-topbar"><strong>01 | Secuencia del swing</strong><span>Swing Lab Smart | pág. 2</span></div>
-      <h1 class="report-title">Secuencia estándar del swing</h1>
-      <p class="report-subtitle">Lectura global del vídeo: ventana de movimiento, picos de velocidad, fases clave y estabilidad final.</p>
-      <div class="card navy-head"><h3>Frames clave seleccionados</h3><div class="sequence-grid">${renderSequenceItems()}</div></div>
-      <div class="two-col" style="margin-top:18px">
-        <div class="card"><table class="table"><thead><tr><th>Fase</th><th>Frame</th><th>Tiempo</th><th>Lectura</th></tr></thead><tbody>${m.phaseRows.map((r) => `<tr><td>${r.label}</td><td>F${r.frame}</td><td>${formatTime(r.time)}</td><td>${r.reading}</td></tr>`).join('')}</tbody></table></div>
-        <div class="card accent"><h3>Lectura temporal</h3>${renderList([
-          `Swing activo detectado: ${formatTime(state.phaseTimes.address)}–${formatTime(state.phaseTimes.finish)}.`,
-          `Backswing: ${m.backswing.toFixed(2)} s.`,
-          `Downswing: ${m.downswing.toFixed(2)} s.`,
-          `Tempo estimado: ${m.tempoRatio ? m.tempoRatio.toFixed(2) + ':1' : 'pendiente'}.`,
-          `Finish estable estimado: ${Math.round(m.finishStability * 100)}%.`,
-        ])}</div>
-      </div>
-    </article>
-
-    <article class="page">
-      <div class="report-topbar"><strong>02 | Setup y backswing</strong><span>Swing Lab Smart | pág. 3</span></div>
-      <h1 class="report-title">Setup y backswing</h1>
-      <p class="report-subtitle">Checkpoints de preparación y carga. Las anotaciones son puntos de revisión visual, no medición biomecánica calibrada.</p>
-      <div class="two-col">
-        ${renderAnnotatedShot('01 | Address', 'Postura, base y referencia inicial', state.captures.address, ['Columna/cabeza como referencia de control.', 'Posición de bola, manos y shaft.', 'Base estable y presión repartida.'])}
-        ${renderAnnotatedShot('02 | Backswing / Top', 'Longitud, eje y organización del palo', state.captures.top, ['Top compacto y controlado.', 'Cabeza contenida respecto al eje.', 'Conservar anchura al inicio del takeaway.'])}
-      </div>
-    </article>
-
-    <article class="page">
-      <div class="report-topbar"><strong>03 | Impacto y finish</strong><span>Swing Lab Smart | pág. 4</span></div>
-      <h1 class="report-title">Impacto y finish</h1>
-      <p class="report-subtitle">Delivery, presión y equilibrio final. Impacto tomado como contacto aproximado por pico de movimiento y lectura visual.</p>
-      <div class="two-col">
-        ${renderAnnotatedShot('03 | Impacto', 'Delivery, strike y transferencia', state.captures.impact, ['Cabeza/postura se mantienen como referencia.', 'Transferencia hacia el lado lead.', 'Pecho debe seguir abriendo a través del impacto.'])}
-        ${renderAnnotatedShot('04 | Finish', 'Balance y cierre post-impacto', state.captures.finish, ['Release completo sin perder control.', 'Equilibrio sobre el lado lead.', 'Finish confirma coordinación global.'])}
-      </div>
-    </article>
-
-    <article class="page">
-      <div class="report-topbar"><strong>04 | Dashboard numérico</strong><span>Swing Lab Smart | pág. 5</span></div>
-      <h1 class="report-title">Dashboard numérico y scoring</h1>
-      <p class="report-subtitle">Métricas visuales estimadas desde cámara 2D. Rangos prudentes para comparar futuras sesiones.</p>
-      <div class="report-grid">
-        <div class="card"><table class="table"><thead><tr><th>Métrica</th><th>Estimación</th><th>Lectura</th></tr></thead><tbody>${metricRows().map((r) => `<tr><td>${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td></tr>`).join('')}</tbody></table></div>
-        <div>
-          <div class="card"><h3>Perfil de score</h3>${renderScoreRows()}</div>
-          <div class="card" style="margin-top:18px"><h3>Lectura técnica</h3><p>${escapeHtml(reading.mainFinding)}</p>${notes ? `<p><strong>Nota coach:</strong> ${escapeHtml(notes)}</p>` : ''}${external ? `<p><strong>Datos externos:</strong> ${escapeHtml(external)}</p>` : ''}</div>
-        </div>
-      </div>
-    </article>
-
-    <article class="page">
-      <div class="report-topbar"><strong>05 | Resumen técnico y plan de mejora</strong><span>Swing Lab Smart | pág. 6</span></div>
-      <h1 class="report-title">Resumen técnico y plan de mejora</h1>
-      <p class="report-subtitle">Cierre accionable: pocas prioridades, drills vinculados al diagnóstico y recomendaciones para la siguiente captura.</p>
-      <div class="two-col">
-        <div>
-          <div class="card accent"><h3>Hallazgo principal</h3>${renderList([reading.mainFinding, ...reading.strengths.slice(0,2)])}</div>
-          ${reading.opportunities.slice(0,3).map((item, index) => `<div class="card accent ${index === 2 ? 'green' : 'orange'}" style="margin-top:14px"><h3>Prioridad ${index + 1}</h3>${renderList([item])}</div>`).join('')}
-        </div>
-        <div>
-          <div class="card accent green"><h3>Drills sugeridos</h3>${reading.drills.map((d, i) => `<h3>${i + 1}. ${escapeHtml(d.title)}</h3><p>${escapeHtml(d.text)}</p>`).join('')}</div>
-          <div class="card accent" style="margin-top:18px"><h3>Siguiente versión / captura</h3>${renderList([
-            'Añadir vídeo complementario face-on para medir desplazamiento lateral, presión y sway con mayor fiabilidad.',
-            'Mantener misma cámara, altura y distancia para comparar métricas entre sesiones.',
-            'Integrar launch monitor si está disponible: path, face-to-path, ataque, carry y dispersión.',
-          ])}</div>
-          <div class="report-bottom"><strong>Conclusión</strong><span>${escapeHtml(reading.mainFinding)}</span></div>
-        </div>
-      </div>
-      <p class="tip" style="margin-top:16px">Generado el ${date}. Las métricas y scores son estimaciones visuales 2D y deben auditarse con revisión de frames y datos externos cuando estén disponibles.</p>
-    </article>`;
-
-  refs.reportRoot.classList.remove('hidden');
-  renderMiniSummary();
-}
-
-function renderSequenceItems() {
-  return PHASES.map((phase) => {
-    const time = state.phaseTimes[phase.id];
-    return `<div class="sequence-item"><img src="${state.captures[phase.id] || ''}" alt="${phase.label}"><b>${phase.label}</b><span>F${frameAt(time)} | ${formatTime(time)}</span></div>`;
-  }).join('');
-}
-
-function renderInfoList(items) {
-  return `<dl class="info-list">${items.map(([a, b]) => `<dt>${escapeHtml(a)}</dt><dd>${escapeHtml(b)}</dd>`).join('')}</dl>`;
-}
-
-function renderList(items) {
-  return `<ul>${items.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`;
-}
-
-function renderAnnotatedShot(title, subtitle, src, observations) {
-  return `<div class="annotated-shot">
-    <div class="shot-title">${escapeHtml(title)}<small>${escapeHtml(subtitle)}</small></div>
-    <img src="${src || ''}" alt="${escapeHtml(title)}">
-    <span class="callout c1">1</span><span class="callout c2">2</span><span class="callout c3">3</span><span class="callout c4">4</span>
-    <div class="observation-box"><strong>Observaciones clave</strong>${renderList(observations)}</div>
-  </div>`;
-}
-
-function renderScoreRows() {
-  const rows = [
-    ['Setup', state.scores.setup, 'green'], ['Backswing', state.scores.backswing, ''], ['Secuencia', state.scores.sequence, ''],
-    ['Delivery', state.scores.delivery, ''], ['Rotación', state.scores.rotation, 'orange'], ['Balance / finish', state.scores.balance, 'green'],
-  ];
-  return `<div class="score-grid">${rows.map(([label, score, cls]) => `<div class="score-row"><span>${label}</span><div class="score-track"><span class="${cls}" style="width:${score * 10}%"></span></div><b>${score.toFixed(1)}</b></div>`).join('')}</div>`;
-}
-
-async function analyzeVideo() {
-  if (!state.videoUrl) return;
-  refs.analyzeBtn.disabled = true;
-  refs.regenerateBtn.disabled = true;
-  refs.downloadJsonBtn.disabled = true;
-  setStatus('Analizando vídeo', 'Leyendo muestras del vídeo completo…');
-  refs.confidencePill.textContent = 'Procesando';
-  refs.confidencePill.className = 'pill muted';
-  try {
-    state.options = {
-      view: refs.viewSelect.value,
-      club: refs.clubSelect.value,
-      hand: refs.handSelect.value,
+  if (state.dragLineIndex >= 0 && state.dragOriginalLine && state.dragStartPoint) {
+    const dx = point.x - state.dragStartPoint.x;
+    const dy = point.y - state.dragStartPoint.y;
+    state.lines[state.dragLineIndex] = {
+      ...state.dragOriginalLine,
+      x1: Math.min(Math.max(state.dragOriginalLine.x1 + dx, 0), 1),
+      y1: Math.min(Math.max(state.dragOriginalLine.y1 + dy, 0), 1),
+      x2: Math.min(Math.max(state.dragOriginalLine.x2 + dx, 0), 1),
+      y2: Math.min(Math.max(state.dragOriginalLine.y2 + dy, 0), 1),
     };
-    state.metadata = readVideoMetadata();
-    state.profile = await sampleMotionProfile();
-    state.detection = detectPhasesFromMotion(state.profile, state.metadata.duration);
-    state.phaseTimes = { ...state.detection.times };
-    drawMotionBar();
-    await generateCaptures();
-    state.metrics = computeMetrics();
-    state.scores = scoreFromMetrics(state.metrics);
-    state.reportReady = true;
-    renderPhaseList();
-    renderReport();
-    const conf = Math.round(state.detection.confidence * 100);
-    refs.confidencePill.textContent = `${conf}% confianza`;
-    refs.confidencePill.className = `pill ${conf >= 66 ? 'good' : 'warn'}`;
-    setStatus('Análisis listo', `Detectadas ${PHASES.length} fases · impacto en F${state.metrics.impactFrame} · score ${state.scores.overall.toFixed(1)}/10.`);
-    refs.regenerateBtn.disabled = false;
-    refs.downloadJsonBtn.disabled = false;
-    setTab('report');
-  } catch (error) {
-    console.error(error);
-    setStatus('Error de análisis', error.message || 'No se pudo analizar el vídeo.');
-    refs.confidencePill.textContent = 'Error';
-    refs.confidencePill.className = 'pill warn';
-  } finally {
-    refs.analyzeBtn.disabled = false;
+  } else if (state.previewLine) {
+    state.previewLine.x2 = point.x;
+    state.previewLine.y2 = point.y;
+    state.previewLine = snapLineIfNeeded(state.previewLine);
   }
+  drawAllLines();
 }
 
-function setTab(name) {
-  const map = {
-    phases: [refs.tabPhases, refs.phasesPanel],
-    report: [refs.tabReport, refs.reportPanel],
-    notes: [refs.tabNotes, refs.notesPanel],
-  };
-  Object.entries(map).forEach(([key, [tab, panel]]) => {
-    tab.classList.toggle('active', key === name);
-    panel.classList.toggle('active', key === name);
-  });
-}
+function handleCanvasPointerUp(event) {
+  if (!state.drawingMode || !state.pointerDown) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const point = toNormalized(event.clientX, event.clientY);
+  const wasMoved = state.pointerMoved;
+  let draggedLine = state.previewLine ? snapLineIfNeeded(state.previewLine) : null;
+  const wasMovingLine = state.dragLineIndex >= 0;
 
-function downloadJson() {
-  if (!state.reportReady) return;
-  const payload = {
-    app: 'Swing Lab Smart v0.9',
-    generatedAt: new Date().toISOString(),
-    videoName: state.videoName,
-    options: state.options,
-    metadata: state.metadata,
-    detection: state.detection,
-    phaseTimes: state.phaseTimes,
-    metrics: state.metrics,
-    scores: state.scores,
-    coachNotes: refs.coachNotes.value,
-    externalData: refs.externalData.value,
-  };
-  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `${(state.videoName || 'swing').replace(/\.[^.]+$/, '')}-swing-lab-analysis.json`;
-  a.click();
-  URL.revokeObjectURL(url);
-}
+  if (state.longPressTimer) clearTimeout(state.longPressTimer);
+  state.longPressTimer = null;
+  state.pointerDown = false;
+  state.pointerStart = null;
+  state.pointerMoved = false;
 
-function printReport() {
-  if (!state.reportReady) {
-    alert('Primero genera el análisis.');
-    return;
+  if (wasMovingLine) {
+    state.selectedLineIndex = state.dragLineIndex;
+    state.dragLineIndex = -1;
+    state.dragStartPoint = null;
+    state.dragOriginalLine = null;
+    state.previewLine = null;
+  } else if (wasMoved && draggedLine && lineLength(draggedLine) > 0.012) {
+    state.lines.push(draggedLine);
+    state.selectedLineIndex = state.lines.length - 1;
+    state.pendingLineStart = null;
+    state.previewLine = null;
+  } else if (!state.pendingLineStart) {
+    state.pendingLineStart = point;
+    state.previewLine = null;
+    state.selectedLineIndex = -1;
+  } else {
+    const before = state.lines.length;
+    createLineFromPending(point);
+    if (state.lines.length > before) state.selectedLineIndex = state.lines.length - 1;
   }
-  renderReport();
-  window.print();
+
+  state.lockAxisMode = false;
+  refs.drawingCanvas.releasePointerCapture?.(event.pointerId);
+  drawAllLines();
+  renderRails();
 }
 
-function bind() {
+function cancelCanvasPointer(event) {
+  if (!state.drawingMode || !state.pointerDown) return;
+  state.pointerDown = false;
+  state.pointerStart = null;
+  state.pointerMoved = false;
+  state.previewLine = null;
+  state.dragLineIndex = -1;
+  state.dragStartPoint = null;
+  state.dragOriginalLine = null;
+  state.lockAxisMode = false;
+  if (state.longPressTimer) clearTimeout(state.longPressTimer);
+  state.longPressTimer = null;
+  try { refs.drawingCanvas.releasePointerCapture?.(event.pointerId); } catch (_) {}
+  drawAllLines();
+  renderRails();
+}
+
+function bindEvents() {
   refs.pickVideoBtn.addEventListener('click', () => refs.videoInput.click());
-  refs.cameraBtn.addEventListener('click', () => refs.cameraInput.click());
-  refs.newVideoBtn.addEventListener('click', () => refs.videoInput.click());
-  refs.videoInput.addEventListener('change', (e) => loadVideo(e.target.files?.[0]));
-  refs.cameraInput.addEventListener('change', (e) => loadVideo(e.target.files?.[0]));
-  refs.analyzeBtn.addEventListener('click', analyzeVideo);
-  refs.regenerateBtn.addEventListener('click', () => { renderReport(); setTab('report'); });
-  refs.downloadJsonBtn.addEventListener('click', downloadJson);
-  refs.printBtn.addEventListener('click', printReport);
-  refs.printBtnTop.addEventListener('click', printReport);
-  refs.tabPhases.addEventListener('click', () => setTab('phases'));
-  refs.tabReport.addEventListener('click', () => setTab('report'));
-  refs.tabNotes.addEventListener('click', () => setTab('notes'));
-  refs.phaseList.addEventListener('click', handlePhaseListClick);
-  refs.phaseList.addEventListener('change', handlePhaseInputChange);
-  refs.coachNotes.addEventListener('input', () => { if (state.reportReady) renderReport(); });
-  refs.externalData.addEventListener('input', () => { if (state.reportReady) renderReport(); });
+  refs.openCameraBtn.addEventListener('click', () => refs.cameraInput.click());
+  refs.openHistoryStartBtn.addEventListener('click', openHistoryFromStart);
+  refs.uploadBtn.addEventListener('click', () => refs.videoInput.click());
+  refs.videoInput.addEventListener('change', (event) => applyVideoFile(event.target.files?.[0]));
+  refs.cameraInput.addEventListener('change', (event) => applyVideoFile(event.target.files?.[0]));
+
+  refs.tapLayer.addEventListener('click', toggleControls);
+  refs.video.addEventListener('click', toggleControls);
+  refs.playBtn.addEventListener('click', togglePlay);
+  refs.video.addEventListener('timeupdate', () => { renderReadouts(); renderTimeline(); });
+  refs.video.addEventListener('seeked', () => { renderReadouts(); renderTimeline(); });
+  refs.video.addEventListener('play', () => { refs.playBtn.textContent = 'Pause'; });
+  refs.video.addEventListener('pause', () => { refs.playBtn.textContent = 'Play'; });
+  refs.video.addEventListener('loadedmetadata', () => {
+    refs.video.pause();
+    refs.playBtn.textContent = 'Play';
+    refs.video.playbackRate = state.speed;
+    resizeDrawingCanvas();
+    if (state.initialVideoClean) {
+      refs.video.currentTime = 0;
+    } else if (state.phaseTimes[currentPhase().id] == null && Number.isFinite(refs.video.duration) && refs.video.duration > 0) {
+      refs.video.currentTime = refs.video.duration * currentPhase().pct;
+    }
+    render();
+    if (state.autoDetection.status === 'queued') {
+      window.setTimeout(() => autoDetectPhases(), 220);
+    }
+  });
+
+  refs.toggleGuidesBtn.addEventListener('click', () => { state.showGuides = !state.showGuides; render(); });
+  refs.switchModeBtn.addEventListener('click', () => { state.guideMode = state.guideMode === 'dtl' ? 'fo' : 'dtl'; render(); });
+  refs.drawModeBtn.addEventListener('click', toggleDrawingMode);
+  refs.toggleDrawingsBtn.addEventListener('click', () => { state.showDrawings = !state.showDrawings; drawAllLines(); renderRails(); });
+  refs.undoLineBtn.addEventListener('click', () => { if (state.selectedLineIndex >= 0) { state.lines.splice(state.selectedLineIndex, 1); state.selectedLineIndex = -1; } else { state.lines.pop(); } drawAllLines(); renderRails(); });
+  refs.clearLinesBtn.addEventListener('click', () => { state.lines = []; state.selectedLineIndex = -1; state.pendingLineStart = null; state.previewLine = null; drawAllLines(); renderRails(); });
+
+  refs.tabPhases.addEventListener('click', () => setMode('phases'));
+  refs.tabAnalysis.addEventListener('click', () => setMode('analysis'));
+  refs.tabHistory.addEventListener('click', () => setMode('history'));
+  refs.speedBtn.addEventListener('click', cycleSpeed);
+
+  refs.timeline.addEventListener('input', () => {
+    state.isSeekingWithSlider = true;
+    updateTimelineFromInput();
+  });
+  refs.timeline.addEventListener('change', () => {
+    state.isSeekingWithSlider = false;
+    renderTimeline();
+  });
+  refs.backFrameBtn.addEventListener('click', () => stepFrame(-1));
+  refs.forwardFrameBtn.addEventListener('click', () => stepFrame(1));
+  refs.markPhaseBtn.addEventListener('click', markCurrentPhase);
+  refs.analyzeBtn.addEventListener('click', analyze);
+  refs.saveSessionBtn.addEventListener('click', saveSession);
+  refs.saveSessionTopBtn.addEventListener('click', saveSession);
+  refs.clearHistoryBtn.addEventListener('click', clearHistory);
+
+  refs.drawingCanvas.addEventListener('pointerdown', handleCanvasPointerDown);
+  refs.drawingCanvas.addEventListener('pointermove', handleCanvasPointerMove);
+  refs.drawingCanvas.addEventListener('pointerup', handleCanvasPointerUp);
+  refs.drawingCanvas.addEventListener('pointercancel', cancelCanvasPointer);
+  refs.drawingCanvas.addEventListener('lostpointercapture', cancelCanvasPointer);
+  refs.captureViewer.addEventListener('pointerdown', (event) => {
+    state.captureSwipeStart = { x: event.clientX, y: event.clientY };
+  });
+  refs.captureViewer.addEventListener('pointerup', (event) => {
+    if (!state.captureSwipeStart || state.drawingMode) return;
+    const dx = event.clientX - state.captureSwipeStart.x;
+    const dy = event.clientY - state.captureSwipeStart.y;
+    state.captureSwipeStart = null;
+    if (Math.abs(dx) > 38 && Math.abs(dx) > Math.abs(dy)) {
+      moveCapture(dx < 0 ? 1 : -1);
+    } else if (Math.abs(dx) < 10 && Math.abs(dy) < 10) {
+      state.controlsVisible = !state.controlsVisible;
+      render();
+    }
+  });
+  refs.captureViewer.addEventListener('dblclick', closeCaptureViewerToVideo);
+  window.addEventListener('resize', resizeDrawingCanvas);
 
   window.addEventListener('beforeinstallprompt', (event) => {
     event.preventDefault();
     state.installPrompt = event;
     refs.installBtn.classList.remove('hidden');
+    refs.installBtnEmpty.classList.remove('hidden');
   });
-  refs.installBtn.addEventListener('click', async () => {
+
+  const install = async () => {
     if (!state.installPrompt) return;
     state.installPrompt.prompt();
     await state.installPrompt.userChoice;
     state.installPrompt = null;
     refs.installBtn.classList.add('hidden');
-  });
+    refs.installBtnEmpty.classList.add('hidden');
+  };
+  refs.installBtn.addEventListener('click', install);
+  refs.installBtnEmpty.addEventListener('click', install);
 }
 
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(console.warn));
+async function registerServiceWorker() {
+  if (!('serviceWorker' in navigator)) return;
+  try {
+    await navigator.serviceWorker.register('./sw.js');
+  } catch (error) {
+    console.warn('Service worker no registrado:', error);
+  }
 }
 
-bind();
+function init() {
+  bindEvents();
+  render();
+  loadHistory();
+  registerServiceWorker();
+}
+
+init();

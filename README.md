@@ -1,24 +1,29 @@
-# Swing Lab Smart v0.9
+# Swing Lab PWA v0.8.3 Smart Phases
 
-Nueva app PWA para análisis inteligente 2D de swing de golf.
+Base: v0.8.2 Clean Load.
 
-## Qué hace
+Esta versión mantiene la UX simple tipo short y añade una capa más inteligente de análisis local:
 
-- Carga o graba un vídeo de swing.
-- Lee el vídeo completo sin reproducirlo entero al usuario.
-- Genera un perfil de movimiento por muestreo de frames.
-- Detecta ventana activa del swing y selecciona 8 fases: Address, Takeaway, Mid-backswing, Top, Transition, Pre-impact, Impact y Finish.
-- Captura frames clave y permite revisar/corregir tiempos.
-- Estima métricas visuales 2D: tempo, ventana activa, impacto, estabilidad del finish, drift visual y release/rotación.
-- Genera informe técnico imprimible con 6 páginas: resumen ejecutivo, secuencia, setup/backswing, impacto/finish, dashboard numérico y plan de mejora.
-- Exporta datos del análisis en JSON.
+- Carga limpia: el vídeo queda pausado y sin paneles hasta tocar la pantalla.
+- Guías OFF por defecto.
+- Dibujo móvil corregido con dos toques, arrastre, selección y movimiento de líneas.
+- SwingEngine v2.2 para detección automática de fases:
+  - segmentación de ventana activa del swing,
+  - perfil de movimiento por frames muestreados,
+  - detección de Address, Takeaway, Top, Impact y Finish,
+  - confianza por fase,
+  - microfases internas: mid-backswing, transition y pre-impact.
+- Métricas inteligentes:
+  - backswing,
+  - downswing,
+  - follow-through,
+  - tempo,
+  - ventana activa,
+  - score global,
+  - calidad de fases,
+  - warnings de consistencia.
+- Guardado ligero: capturas, fases, métricas y líneas. No guarda el vídeo completo.
 
-## Limitaciones actuales
+## Limitaciones
 
-- El análisis es 2D y sin calibración real de cámara.
-- No usa todavía un modelo de pose humana completo ni launch monitor.
-- Las métricas son estimadas y deben auditarse con revisión de frames.
-
-## Siguiente paso recomendado
-
-Integrar un módulo de pose estimation en navegador o backend para calcular articulaciones, ángulos y desplazamientos corporales con mayor precisión.
+Sigue siendo análisis 2D local basado en vídeo y movimiento. No usa todavía pose real, detección robusta de palo ni calibración métrica. La detección automática debe usarse como pre-marcado y revisar manualmente Top e Impact antes de guardar.
