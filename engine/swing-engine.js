@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  const ENGINE_VERSION = 'v0.9.2 Pose Active / SwingEngine 4.2';
+  const ENGINE_VERSION = 'v0.9.3 Pose Initial / SwingEngine 4.3';
   const PHASES = ['address', 'takeaway', 'top', 'impact', 'finish'];
 
   function clamp(value, min, max) { return Math.max(min, Math.min(max, value)); }
@@ -35,7 +35,7 @@
       metrics.technicalFindings = metrics.technicalFindings || [];
       metrics.tips = metrics.tips || [];
       metrics.drills = metrics.drills || [];
-      metrics.technicalFindings.unshift(`Pose Foundation: ${poseSummary.samples} muestras corporales procesadas · visibilidad mediana ${vis}% · peso de pose ${poseWeight}% en la corrección de fases.`);
+      metrics.technicalFindings.unshift(`Pose Foundation: ${poseSummary.samples} muestras corporales procesadas · visibilidad mediana ${vis}% · peso de pose ${poseWeight}% en la detección inicial de fases.`);
 
       const headDrift = poseSummary.impact?.headDrift;
       if (Number.isFinite(headDrift)) {
@@ -58,7 +58,7 @@
         metrics.technicalFindings.push(`Impact: desplazamiento lateral de cadera relativo ${hipShift.toFixed(2)}. Úsalo como indicador inicial de transferencia, no como medida absoluta.`);
       }
       metrics.drills.push({ name: 'Head box', detail: 'Dibuja una caja pequeña alrededor de la cabeza en Address y revisa si sigue dentro o cerca en Top e Impact.' });
-      metrics.drills.push({ name: 'Pose checkpoints', detail: 'Revisa Address, Top e Impact con líneas de hombros/cadera; confirma que las fases detectadas por pose son las correctas.' });
+      metrics.drills.push({ name: 'Pose checkpoints', detail: 'Revisa Address, Top e Impact con líneas de hombros/cadera; confirma que las fases detectadas por pose coinciden con el frame real.' });
 
       const poseScore = Math.round(clamp((poseSummary.medianVisibility || 0) * 0.45 + (poseSummary.poseWeight || 0) * 0.35 + (finishStability || 0.5) * 0.20, 0, 1) * 100);
       metrics.scores = Object.assign({}, metrics.scores, { pose: poseScore });
@@ -86,7 +86,7 @@
     // the app falls back to the heuristic result without breaking the UX.
     if (window.SwingLabPoseEngine?.analyze && input.usePose !== false) {
       try {
-        pose = await window.SwingLabPoseEngine.analyze(Object.assign({}, input, { baseResult: heuristic, maxPoseSamples: input.maxPoseSamples || input.maxSamples || 84 }));
+        pose = await window.SwingLabPoseEngine.analyze(Object.assign({}, input, { baseResult: heuristic, maxPoseSamples: input.maxPoseSamples || input.maxSamples || (input.phaseDetectionMode === 'initial-load' ? 156 : 104) }));
       } catch (error) {
         poseError = error;
         console.warn('Pose Foundation fallback:', error);
@@ -105,7 +105,7 @@
     }
 
     const phaseConfidence = mergeConfidence(heuristic.phaseConfidence, pose.phaseConfidence);
-    const confidence = clamp((heuristic.confidence || 0.35) * 0.34 + (pose.confidence || 0.35) * 0.66, 0.22, 0.97);
+    const confidence = input.phaseDetectionMode === 'initial-load' ? clamp((heuristic.confidence || 0.35) * 0.20 + (pose.confidence || 0.35) * 0.80, 0.22, 0.98) : clamp((heuristic.confidence || 0.35) * 0.34 + (pose.confidence || 0.35) * 0.66, 0.22, 0.97);
     const mergedPhaseResult = {
       times: pose.phases,
       confidence,
@@ -114,15 +114,15 @@
       diagnostics: Object.assign({}, heuristic.diagnostics || {}, { poseDiagnostics: pose.diagnostics || {}, heuristicDiagnostics: heuristic.diagnostics || {} })
     };
     let metrics = window.SwingLabHeuristicEngine.computeMetrics(mergedPhaseResult, duration, fps);
-    metrics = addPoseInterpretation(metrics, pose.poseSummary, 'pose-mediapipe+heuristic');
+    metrics = addPoseInterpretation(metrics, pose.poseSummary, input.phaseDetectionMode === 'initial-load' ? 'pose-mediapipe-initial+heuristic' : 'pose-mediapipe+heuristic');
 
     return {
       engineVersion: ENGINE_VERSION,
-      provider: 'pose-mediapipe+heuristic',
+      provider: input.phaseDetectionMode === 'initial-load' ? 'pose-mediapipe-initial+heuristic' : 'pose-mediapipe+heuristic',
       profileSummary: {
         samples: heuristic.profileSummary?.samples || 0,
         poseSamples: pose.profileSummary?.samples || 0,
-        type: 'motion+pose'
+        type: input.phaseDetectionMode === 'initial-load' ? 'initial-load-motion+pose' : 'motion+pose'
       },
       phases: pose.phases,
       phaseConfidence,
@@ -159,7 +159,7 @@
 
   window.SwingLabEngine = {
     version: ENGINE_VERSION,
-    providers: ['pose-mediapipe+heuristic', 'heuristic-fallback'],
+    providers: ['pose-mediapipe-initial+heuristic', 'pose-mediapipe+heuristic', 'heuristic-fallback'],
     analyze,
     computeMetrics,
     fallbackTimes,

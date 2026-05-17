@@ -2,7 +2,7 @@
 
 const $ = (id) => document.getElementById(id);
 const DB_NAME = 'swing-lab-db';
-const DB_VERSION = 13;
+const DB_VERSION = 14;
 const STORE = 'sessions';
 const ASSUMED_FPS = 30;
 
@@ -315,12 +315,12 @@ function applyVideoFile(file) {
   state.videoBlob = file;
   state.videoUrl = URL.createObjectURL(file);
   state.videoName = file.name || `swing-${new Date().toISOString().slice(0, 10)}.mp4`;
-  refs.analysisStatus.textContent = 'Detectando fases automáticamente con Pose Foundation + fallback heurístico… podrás corregirlas manualmente.';
+  refs.analysisStatus.textContent = 'Vídeo cargado. Preparando detección inicial con pose corporal… podrás corregir las fases manualmente.';
   refs.recommendations.innerHTML = '';
   refs.capturesGrid.innerHTML = '';
   refs.video.src = state.videoUrl;
   refs.video.load();
-  state.autoDetection = { status: 'queued', confidence: 0, method: 'Pose Foundation v0.9', provider: '', samples: 0, poseSamples: 0, poseStatus: 'pending', motionPeakTime: null, phaseConfidence: {}, extendedTimes: {}, diagnostics: {}, poseSummary: null };
+  state.autoDetection = { status: 'queued', confidence: 0, method: 'Pose Foundation v0.9.3 initial-load', provider: '', samples: 0, poseSamples: 0, poseStatus: 'pending', motionPeakTime: null, phaseConfidence: {}, extendedTimes: {}, diagnostics: {}, poseSummary: null };
   setAppState('loaded');
   render();
 }
@@ -339,6 +339,39 @@ function setMode(mode) {
   }
   render();
   if (mode === 'history') loadHistory();
+}
+
+
+function videoHasFrameData() {
+  return Boolean(state.videoUrl) && Number.isFinite(refs.video.duration) && refs.video.duration > 0 && refs.video.readyState >= 2;
+}
+
+function scheduleInitialAutoDetection() {
+  if (state.autoDetection.status !== 'queued') return;
+  if (!videoHasFrameData()) return;
+  window.setTimeout(() => autoDetectPhases(), 90);
+}
+
+function waitForVideoReadyForAnalysis(timeoutMs = 2600) {
+  return new Promise((resolve) => {
+    if (videoHasFrameData()) return resolve(true);
+    const started = performance.now();
+    const finish = () => {
+      cleanup();
+      resolve(videoHasFrameData());
+    };
+    const check = () => {
+      if (videoHasFrameData() || performance.now() - started > timeoutMs) finish();
+    };
+    const cleanup = () => {
+      clearInterval(timer);
+      refs.video.removeEventListener('loadeddata', finish);
+      refs.video.removeEventListener('canplay', finish);
+    };
+    const timer = setInterval(check, 120);
+    refs.video.addEventListener('loadeddata', finish, { once: true });
+    refs.video.addEventListener('canplay', finish, { once: true });
+  });
 }
 
 function toggleControls() {
@@ -1363,8 +1396,9 @@ async function autoDetectPhases() {
   if (!state.videoUrl || state.autoDetection.status === 'running' || state.autoDetection.status === 'done') return;
   setAppState('detecting');
   state.autoDetection.status = 'running';
-  refs.analysisStatus.textContent = 'Pose Foundation: analizando movimiento y, si está disponible, landmarks corporales…';
+  refs.analysisStatus.textContent = 'Detección inicial: leyendo vídeo con Pose Foundation y movimiento temporal…';
   render();
+  await waitForVideoReadyForAnalysis();
   try {
     let result = null;
     if (window.SwingLabEngine?.analyze) {
@@ -1373,8 +1407,10 @@ async function autoDetectPhases() {
         fps: ASSUMED_FPS,
         view: state.guideMode,
         phases,
-        maxSamples: 128,
-        maxPoseSamples: 84,
+        maxSamples: 168,
+        maxPoseSamples: 156,
+        phaseDetectionMode: 'initial-load',
+        preferPose: true,
       });
       state.phaseTimes = result.phases || fallbackPhaseTimes(refs.video.duration);
       state.autoDetection = {
@@ -1413,7 +1449,7 @@ async function autoDetectPhases() {
     state.currentPhaseId = 'address';
     await seekVideoTo(state.phaseTimes.address || 0);
     setAppState('detected');
-    refs.analysisStatus.textContent = `Fases detectadas (${Math.round((state.autoDetection.confidence || 0) * 100)}% confianza) · ${state.autoDetection.poseStatus === 'available' ? 'pose corporal activa' : 'fallback heurístico'}. Revisa Top e Impact.`;
+    refs.analysisStatus.textContent = `Fases detectadas al cargar (${Math.round((state.autoDetection.confidence || 0) * 100)}% confianza) · ${state.autoDetection.poseStatus === 'available' ? 'pose corporal activa usada para fases' : 'fallback heurístico'}. Revisa Top e Impact.`;
     render();
   } catch (error) {
     console.warn('Auto detection failed', error);
@@ -2049,10 +2085,9 @@ function bindEvents() {
       refs.video.currentTime = refs.video.duration * currentPhase().pct;
     }
     render();
-    if (state.autoDetection.status === 'queued') {
-      window.setTimeout(() => autoDetectPhases(), 220);
-    }
   });
+  refs.video.addEventListener('loadeddata', scheduleInitialAutoDetection);
+  refs.video.addEventListener('canplay', scheduleInitialAutoDetection);
 
   refs.toggleGuidesBtn.addEventListener('click', () => { state.showGuides = !state.showGuides; render(); });
   refs.switchModeBtn.addEventListener('click', () => { state.guideMode = state.guideMode === 'dtl' ? 'fo' : 'dtl'; render(); });
