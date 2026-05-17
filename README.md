@@ -1,20 +1,18 @@
-# Swing Lab PWA v0.9 Pose Foundation
+# Swing Lab PWA v0.9.1 Pose Active
 
-Versión incremental sobre v0.8.5. Mantiene la UX tipo short y añade una arquitectura de motor más seria:
-
-- `engine/heuristic-engine.js`: fallback local basado en movimiento, ventana activa y modelo temporal.
-- `engine/pose-engine.js`: Pose Foundation opcional con MediaPipe Pose Landmarker si el navegador puede cargarlo.
-- `engine/swing-engine.js`: orquestador. Intenta pose + heurística y, si falla, mantiene la app funcionando con fallback heurístico.
+Versión incremental sobre v0.9 Pose Foundation.
 
 ## Cambios principales
+- Se mantiene la base visual y de uso de v0.8.x/v0.9.
+- MediaPipe Pose se carga de forma más robusta desde CDN con varios candidatos.
+- Se prueba primero GPU y, si falla en móvil, pasa automáticamente a CPU.
+- El modelo de pose usa URLs exactas y alternativas para evitar fallback innecesario.
+- El service worker ya no cachea assets externos de MediaPipe para evitar respuestas obsoletas.
+- En Análisis se elimina el botón Expandir: el panel se maneja con el gesto de deslizar.
+- En Análisis, al tocar el vídeo para modo limpio, se mantienen los controles compactos de play/timeline/frame como en Fases.
 
-- Motor modular preparado para probar modelos sin romper la app.
-- Primer uso de pose corporal si hay conexión y el navegador lo permite.
-- Si MediaPipe no carga, la app sigue funcionando igual con el motor heurístico.
-- Mejor análisis de resultados: estabilidad de cabeza, proxy de cadera, estabilidad de finish, altura de manos en Top y score pose.
-- Panel de análisis más fácil de expandir con botón “Expandir” y handle más claro.
-- Preparado para seguir hacia un modelo específico de swing.
-
-## Nota técnica
-
-Pose Foundation usa MediaPipe Tasks Vision desde CDN. La PWA funciona offline para la app base, pero la primera carga del modelo de pose requiere conexión. Esto evita meter archivos WASM/modelos pesados dentro del ZIP. El fallback heurístico se mantiene siempre disponible.
+## Notas
+- Para que Pose funcione debe estar desplegada en HTTPS, por ejemplo GitHub Pages.
+- La primera carga de MediaPipe necesita conexión.
+- Si MediaPipe no puede activarse, la app sigue funcionando con el motor heurístico.
+- Si venías de una versión anterior instalada, reinstala la PWA o borra caché.

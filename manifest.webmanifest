@@ -1,6 +1,6 @@
 {
-  "name": "Swing Lab",
-  "short_name": "Swing Lab",
+  "name": "Swing Lab v0.9.1 Pose Active",
+  "short_name": "SwingLab",
   "description": "PWA fullscreen para revisar swing de golf con motor modular, Pose Foundation opcional, análisis expandible, capturas e historial editable.",
   "start_url": "./index.html",
   "scope": "./",

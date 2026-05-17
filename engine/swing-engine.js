@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  const ENGINE_VERSION = 'v0.9 Pose Foundation / SwingEngine 4.0';
+  const ENGINE_VERSION = 'v0.9.1 Pose Active / SwingEngine 4.1';
   const PHASES = ['address', 'takeaway', 'top', 'impact', 'finish'];
 
   function clamp(value, min, max) { return Math.max(min, Math.min(max, value)); }
@@ -84,7 +84,7 @@
     // the app falls back to the heuristic result without breaking the UX.
     if (window.SwingLabPoseEngine?.analyze && input.usePose !== false) {
       try {
-        pose = await window.SwingLabPoseEngine.analyze(Object.assign({}, input, { baseResult: heuristic, maxPoseSamples: input.maxPoseSamples || 58 }));
+        pose = await window.SwingLabPoseEngine.analyze(Object.assign({}, input, { baseResult: heuristic, maxPoseSamples: input.maxPoseSamples || input.maxSamples || 84 }));
       } catch (error) {
         poseError = error;
         console.warn('Pose Foundation fallback:', error);

@@ -817,3 +817,38 @@ button:disabled { opacity: .42; cursor: not-allowed; }
   .analysis-actions { max-width: 160px; }
   .analysis-actions .small-pill { padding: 0 8px; }
 }
+
+/* v0.9.1 Pose Active polish */
+/* In analysis clean mode, keep the compact video controls just like in Fases. */
+.controls-hidden .bottom-dock.analysis-mode {
+  display: block !important;
+  max-height: none !important;
+  padding: 0 9px calc(7px + var(--safe-bottom));
+  background: linear-gradient(to top, rgba(0,0,0,.78), rgba(0,0,0,0));
+  border-top: 0;
+  backdrop-filter: none;
+}
+.controls-hidden .bottom-dock.analysis-mode .player-strip {
+  display: block !important;
+  padding: 6px 8px;
+  border-radius: 15px;
+  margin-bottom: 0;
+  background: rgba(0,0,0,.48);
+  backdrop-filter: blur(14px);
+}
+.controls-hidden .bottom-dock.analysis-mode .mode-tabs,
+.controls-hidden .bottom-dock.analysis-mode .dock-panel,
+.controls-hidden .bottom-dock.analysis-mode .sheet-handle {
+  display: none !important;
+}
+.controls-hidden .bottom-dock.analysis-mode .player-phase-readout { display: none; }
+.controls-hidden .bottom-dock.analysis-mode .timeline { height: 20px; margin: 0 0 4px; }
+.controls-hidden .bottom-dock.analysis-mode .marking-controls { grid-template-columns: .75fr 1fr .75fr; }
+.controls-hidden .bottom-dock.analysis-mode .mark-btn { display: none; }
+.controls-hidden .bottom-dock.analysis-mode .frame-btn,
+.controls-hidden .bottom-dock.analysis-mode .play-btn {
+  min-height: 32px;
+  border-radius: 12px;
+  font-size: 12px;
+}
+.analysis-actions { gap: 6px; }

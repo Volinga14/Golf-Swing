@@ -1,14 +1,23 @@
 (function () {
   'use strict';
 
-  const POSE_ENGINE_VERSION = 'v0.9 Pose Foundation / PoseEngine 0.1';
-  const TASKS_VERSION = '0.10.22';
-  const CDN_BASE = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${TASKS_VERSION}`;
-  const WASM_URL = `${CDN_BASE}/wasm`;
-  const MODEL_URL = 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task';
+  const POSE_ENGINE_VERSION = 'v0.9.1 Pose Foundation / PoseEngine 0.2';
+  const TASKS_VERSION = '0.10.3';
+  const CDN_CANDIDATES = [
+    { version: '0.10.3', base: 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3' },
+    { version: '0.10.14', base: 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14' },
+    { version: 'latest', base: 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision' },
+    { version: '0.10.3-unpkg', base: 'https://unpkg.com/@mediapipe/tasks-vision@0.10.3' }
+  ];
+  const MODEL_CANDIDATES = [
+    'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task',
+    'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task',
+    'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task'
+  ];
   const PHASES = ['address', 'takeaway', 'top', 'impact', 'finish'];
 
   let cachedLandmarkerPromise = null;
+  let lastVideoTimestamp = 0;
 
   function clamp(value, min, max) { return Math.max(min, Math.min(max, value)); }
   function lerp(a, b, t) { return a + (b - a) * t; }
@@ -73,23 +82,53 @@
     ]);
   }
 
+  function nextVideoTimestamp(time) {
+    const proposed = Math.round(performance.now() + (time || 0) * 1000);
+    lastVideoTimestamp = Math.max(lastVideoTimestamp + 1, proposed);
+    return lastVideoTimestamp;
+  }
+
+  async function createLandmarker(mod, vision, modelAssetPath, delegate) {
+    const baseOptions = { modelAssetPath };
+    if (delegate) baseOptions.delegate = delegate;
+    return mod.PoseLandmarker.createFromOptions(vision, {
+      baseOptions,
+      runningMode: 'VIDEO',
+      numPoses: 1,
+      minPoseDetectionConfidence: 0.30,
+      minPosePresenceConfidence: 0.30,
+      minTrackingConfidence: 0.30
+    });
+  }
+
   async function loadLandmarker() {
     if (cachedLandmarkerPromise) return cachedLandmarkerPromise;
     cachedLandmarkerPromise = (async () => {
-      const mod = await withTimeout(import(`${CDN_BASE}/vision_bundle.mjs`), 14000, 'No se pudo cargar MediaPipe Tasks Vision a tiempo');
-      const vision = await withTimeout(mod.FilesetResolver.forVisionTasks(WASM_URL), 14000, 'No se pudo cargar WASM de MediaPipe');
-      const landmarker = await withTimeout(mod.PoseLandmarker.createFromOptions(vision, {
-        baseOptions: {
-          modelAssetPath: MODEL_URL,
-          delegate: 'GPU'
-        },
-        runningMode: 'VIDEO',
-        numPoses: 1,
-        minPoseDetectionConfidence: 0.45,
-        minPosePresenceConfidence: 0.45,
-        minTrackingConfidence: 0.45
-      }), 18000, 'No se pudo inicializar Pose Landmarker');
-      return landmarker;
+      const errors = [];
+      for (const cdn of CDN_CANDIDATES) {
+        try {
+          const mod = await withTimeout(import(`${cdn.base}/vision_bundle.mjs`), 18000, `No se pudo cargar MediaPipe Tasks Vision desde ${cdn.base}`);
+          const vision = await withTimeout(mod.FilesetResolver.forVisionTasks(`${cdn.base}/wasm`), 18000, `No se pudo cargar WASM de MediaPipe desde ${cdn.base}`);
+          for (const model of MODEL_CANDIDATES) {
+            try {
+              try {
+                const gpu = await withTimeout(createLandmarker(mod, vision, model, 'GPU'), 22000, 'Timeout inicializando Pose Landmarker GPU');
+                gpu.__swingLabLoadInfo = { cdn: cdn.base, version: cdn.version, model, delegate: 'GPU' };
+                return gpu;
+              } catch (gpuError) {
+                const cpu = await withTimeout(createLandmarker(mod, vision, model, null), 22000, 'Timeout inicializando Pose Landmarker CPU');
+                cpu.__swingLabLoadInfo = { cdn: cdn.base, version: cdn.version, model, delegate: 'CPU', gpuError: String(gpuError?.message || gpuError) };
+                return cpu;
+              }
+            } catch (modelError) {
+              errors.push(`${cdn.version} · model: ${String(modelError?.message || modelError)}`);
+            }
+          }
+        } catch (cdnError) {
+          errors.push(`${cdn.version}: ${String(cdnError?.message || cdnError)}`);
+        }
+      }
+      throw new Error(`No se pudo activar MediaPipe Pose. ${errors.slice(0, 4).join(' | ')}`);
     })();
     return cachedLandmarkerPromise;
   }
@@ -335,7 +374,7 @@
     const ext = base.extendedTimes || base.metrics?.extendedTimes || {};
     const start = Number.isFinite(ext.activeStart) ? Math.max(0, ext.activeStart - 0.18) : 0;
     const end = Number.isFinite(ext.activeEnd) ? Math.min(duration, ext.activeEnd + 0.18) : duration;
-    const sampleCount = Math.min(input.maxPoseSamples || 64, Math.max(28, Math.round((end - start) * 20)));
+    const sampleCount = Math.min(input.maxPoseSamples || 84, Math.max(32, Math.round((end - start) * 24)));
     const frames = [];
     const originalTime = video.currentTime || 0;
     const wasPaused = video.paused;
@@ -344,10 +383,10 @@
       const ratio = sampleCount === 1 ? 0 : i / (sampleCount - 1);
       const time = start + (end - start) * ratio;
       await seek(video, time);
-      const result = landmarker.detectForVideo(video, Math.round(time * 1000));
+      const result = landmarker.detectForVideo(video, nextVideoTimestamp(time));
       const landmarks = result?.landmarks?.[0];
       const features = landmarksToFeatures(landmarks, time);
-      if (features && Number.isFinite(features.visibility) && features.visibility > 0.20) frames.push(features);
+      if (features && Number.isFinite(features.visibility) && features.visibility > 0.10) frames.push(features);
       // Yield to UI every few frames on mobile.
       if (i % 8 === 0) await new Promise(r => setTimeout(r, 0));
     }
@@ -371,7 +410,7 @@
       phaseConfidence: phaseResult.phaseConfidence,
       extendedTimes: phaseResult.extendedTimes,
       poseSummary: phaseResult.poseSummary,
-      diagnostics: Object.assign({ poseFrames: frames.length }, phaseResult.diagnostics),
+      diagnostics: Object.assign({ poseFrames: frames.length, loadInfo: landmarker.__swingLabLoadInfo || null }, phaseResult.diagnostics),
       profileSummary: { samples: frames.length, type: 'pose-landmarks' }
     };
   }
@@ -381,6 +420,6 @@
     provider: 'pose-mediapipe',
     analyze,
     isAvailable: () => typeof window !== 'undefined' && 'WebAssembly' in window,
-    config: { tasksVersion: TASKS_VERSION, model: MODEL_URL }
+    config: { tasksVersion: TASKS_VERSION, cdnCandidates: CDN_CANDIDATES.map(c => c.base), modelCandidates: MODEL_CANDIDATES }
   };
 })();

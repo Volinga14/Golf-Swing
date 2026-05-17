@@ -1,4 +1,4 @@
-const CACHE_NAME = 'swing-lab-v09-pose-foundation';
+const CACHE_NAME = 'swing-lab-v091-pose-active';
 const APP_ASSETS = [
   './',
   './index.html',
@@ -27,12 +27,14 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
   const url = new URL(event.request.url);
-  // External MediaPipe assets are network-first. They are optional; if they fail,
-  // the app falls back to the heuristic engine.
+
+  // MediaPipe JS, WASM and model assets are intentionally network-first.
+  // This avoids stale/opaque cache responses when the PWA is installed from GitHub Pages.
   if (url.origin !== self.location.origin) {
-    event.respondWith(fetch(event.request).catch(() => caches.match(event.request)));
+    event.respondWith(fetch(event.request));
     return;
   }
+
   event.respondWith(
     caches.match(event.request).then((cached) => {
       if (cached) return cached;

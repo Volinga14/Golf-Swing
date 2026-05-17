@@ -2,7 +2,7 @@
 
 const $ = (id) => document.getElementById(id);
 const DB_NAME = 'swing-lab-db';
-const DB_VERSION = 12;
+const DB_VERSION = 13;
 const STORE = 'sessions';
 const ASSUMED_FPS = 30;
 
@@ -133,7 +133,7 @@ const refs = {
   capturesGrid: $('capturesGrid'),
   saveSessionBtn: $('saveSessionBtn'),
   saveSessionTopBtn: $('saveSessionTopBtn'),
-  expandSheetBtn: $('expandSheetBtn'),
+  expandSheetBtn: $('expandSheetBtn'), // removed in v0.9.1; kept optional for backwards compatibility
   historySelectBtn: $('historySelectBtn'),
   deleteSelectedHistoryBtn: $('deleteSelectedHistoryBtn'),
   clearHistoryBtn: $('clearHistoryBtn'),
@@ -385,7 +385,8 @@ function renderShell() {
   refs.bottomDock.classList.toggle('history-mode', state.mode === 'history');
   refs.bottomDock.classList.toggle('sheet-expanded', state.sheetExpanded && (state.mode === 'analysis' || state.mode === 'history'));
   refs.bottomDock.classList.toggle('sheet-dragging', state.sheetDragging);
-  refs.playerStrip.classList.toggle('hidden', state.mode !== 'phases' || state.captureOnly || showingCapture);
+  const showPlayerStrip = hasVideo && !state.captureOnly && !showingCapture && (state.mode === 'phases' || (state.mode === 'analysis' && !state.controlsVisible));
+  refs.playerStrip.classList.toggle('hidden', !showPlayerStrip);
   refs.drawingCanvas.classList.toggle('hidden', !hasSession);
 }
 
@@ -594,7 +595,13 @@ function buildRecommendations() {
   const ext = metrics.extendedTimes || {};
 
   if (state.autoDetection.status === 'done') {
-    recs.push(`<b>Detección inteligente:</b> ${metrics.method || 'Smart Phases'} · ${confidence}% de confianza · ${state.autoDetection.samples || 0} muestras. Combina movimiento real del vídeo, patrón temporal de referencia y, cuando el navegador lo permite, landmarks corporales para estabilizar Address, Top, Impact y Finish.`);
+    const poseText = state.autoDetection.poseStatus === 'available'
+      ? ` · pose activa con ${state.autoDetection.poseSamples || metrics.poseSummary?.samples || 0} muestras corporales`
+      : ' · pose no activa, usando fallback heurístico';
+    recs.push(`<b>Detección inteligente:</b> ${metrics.method || 'Smart Phases'} · ${confidence}% de confianza · ${state.autoDetection.samples || 0} muestras de movimiento${poseText}. Combina movimiento real del vídeo, patrón temporal de referencia y landmarks corporales cuando MediaPipe está disponible.`);
+    if (state.autoDetection.poseStatus !== 'available' && state.autoDetection.poseError) {
+      recs.push(`<b>Nota Pose:</b> no se activó MediaPipe Pose en este análisis. Motivo técnico: ${String(state.autoDetection.poseError).slice(0, 180)}. En GitHub/HTTPS debería cargar; revisa conexión inicial y actualiza la PWA si estaba cacheada.`);
+    }
   } else if (state.autoDetection.status === 'failed') {
     recs.push('<b>Motor inteligente:</b> baja confianza. Se han colocado fases estimadas por porcentaje; conviene revisar todos los frames manualmente.');
   } else if (state.captureOnly) {
@@ -1367,12 +1374,13 @@ async function autoDetectPhases() {
         view: state.guideMode,
         phases,
         maxSamples: 128,
+        maxPoseSamples: 84,
       });
       state.phaseTimes = result.phases || fallbackPhaseTimes(refs.video.duration);
       state.autoDetection = {
         status: 'done',
         confidence: result.confidence || 0.3,
-        method: result.engineVersion || window.SwingLabEngine.version || 'Pose Foundation Engine',
+        method: result.engineVersion || window.SwingLabEngine.version || 'Pose Active Engine',
         provider: result.provider || 'unknown',
         samples: result.profileSummary?.samples || 0,
         poseSamples: result.profileSummary?.poseSamples || 0,
@@ -2072,7 +2080,7 @@ function bindEvents() {
   refs.analyzeBtn.addEventListener('click', analyze);
   refs.saveSessionBtn.addEventListener('click', saveSession);
   refs.saveSessionTopBtn.addEventListener('click', saveSession);
-  refs.expandSheetBtn.addEventListener('click', () => { state.sheetExpanded = !state.sheetExpanded; render(); });
+  if (refs.expandSheetBtn) refs.expandSheetBtn.addEventListener('click', () => { state.sheetExpanded = !state.sheetExpanded; render(); });
   refs.historySelectBtn.addEventListener('click', toggleHistorySelectionMode);
   refs.deleteSelectedHistoryBtn.addEventListener('click', deleteSelectedSessions);
   refs.clearHistoryBtn.addEventListener('click', clearHistory);
