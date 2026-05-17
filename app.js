@@ -2,7 +2,7 @@
 
 const $ = (id) => document.getElementById(id);
 const DB_NAME = 'swing-lab-db';
-const DB_VERSION = 11;
+const DB_VERSION = 12;
 const STORE = 'sessions';
 const ASSUMED_FPS = 30;
 
@@ -133,6 +133,7 @@ const refs = {
   capturesGrid: $('capturesGrid'),
   saveSessionBtn: $('saveSessionBtn'),
   saveSessionTopBtn: $('saveSessionTopBtn'),
+  expandSheetBtn: $('expandSheetBtn'),
   historySelectBtn: $('historySelectBtn'),
   deleteSelectedHistoryBtn: $('deleteSelectedHistoryBtn'),
   clearHistoryBtn: $('clearHistoryBtn'),
@@ -266,7 +267,7 @@ function resetSessionState() {
   state.phaseTimes = {};
   state.phaseCaptures = {};
   state.analysisMetrics = null;
-  state.autoDetection = { status: 'idle', confidence: 0, method: '', samples: 0, motionPeakTime: null, phaseConfidence: {}, extendedTimes: {}, diagnostics: {} };
+  state.autoDetection = { status: 'idle', confidence: 0, method: '', provider: '', samples: 0, poseSamples: 0, poseStatus: 'idle', poseSummary: null, motionPeakTime: null, phaseConfidence: {}, extendedTimes: {}, diagnostics: {} };
   state.viewingCapture = false;
   state.activeCaptureIndex = 0;
   state.sheetExpanded = false;
@@ -314,12 +315,12 @@ function applyVideoFile(file) {
   state.videoBlob = file;
   state.videoUrl = URL.createObjectURL(file);
   state.videoName = file.name || `swing-${new Date().toISOString().slice(0, 10)}.mp4`;
-  refs.analysisStatus.textContent = 'Detectando fases automáticamente con modelo temporal + referencia Swing Lab… podrás corregirlas manualmente.';
+  refs.analysisStatus.textContent = 'Detectando fases automáticamente con Pose Foundation + fallback heurístico… podrás corregirlas manualmente.';
   refs.recommendations.innerHTML = '';
   refs.capturesGrid.innerHTML = '';
   refs.video.src = state.videoUrl;
   refs.video.load();
-  state.autoDetection = { status: 'queued', confidence: 0, method: 'Smart Phases v0.8.4', samples: 0, motionPeakTime: null, phaseConfidence: {}, extendedTimes: {}, diagnostics: {} };
+  state.autoDetection = { status: 'queued', confidence: 0, method: 'Pose Foundation v0.9', provider: '', samples: 0, poseSamples: 0, poseStatus: 'pending', motionPeakTime: null, phaseConfidence: {}, extendedTimes: {}, diagnostics: {}, poseSummary: null };
   setAppState('loaded');
   render();
 }
@@ -593,7 +594,7 @@ function buildRecommendations() {
   const ext = metrics.extendedTimes || {};
 
   if (state.autoDetection.status === 'done') {
-    recs.push(`<b>Detección inteligente:</b> ${metrics.method || 'Smart Phases'} · ${confidence}% de confianza · ${state.autoDetection.samples || 0} muestras. Combina movimiento real del vídeo con un patrón temporal de referencia del informe Swing Lab para estabilizar Address, Top, Impact y Finish.`);
+    recs.push(`<b>Detección inteligente:</b> ${metrics.method || 'Smart Phases'} · ${confidence}% de confianza · ${state.autoDetection.samples || 0} muestras. Combina movimiento real del vídeo, patrón temporal de referencia y, cuando el navegador lo permite, landmarks corporales para estabilizar Address, Top, Impact y Finish.`);
   } else if (state.autoDetection.status === 'failed') {
     recs.push('<b>Motor inteligente:</b> baja confianza. Se han colocado fases estimadas por porcentaje; conviene revisar todos los frames manualmente.');
   } else if (state.captureOnly) {
@@ -610,6 +611,9 @@ function buildRecommendations() {
       <div class="metric-card"><b>${scores.finish}</b><span>Finish</span></div>
     </div>`);
     recs.push(`<b>Lectura técnica:</b> ${metrics.scoreLabels?.overall || 'pendiente'}. Setup/fases ${metrics.scoreLabels?.phaseQuality || 'pendiente'}, tempo ${metrics.scoreLabels?.tempo || 'pendiente'}, secuencia ${metrics.scoreLabels?.sequence || 'pendiente'}. Este bloque replica la lógica de dashboard del informe: score global + lectura accionable, no solo tiempos.`);
+    if (scores.pose != null) {
+      recs.push(`<b>Pose Foundation:</b> score pose ${scores.pose}/100 (${metrics.scoreLabels?.pose || 'pendiente'}). ${metrics.poseStatus === 'available' ? 'Se han usado landmarks corporales para refinar fases y métricas.' : 'No se ha podido usar pose; el análisis sigue en fallback heurístico.'}`);
+    }
   }
 
   if (marked < phases.length) {
@@ -1352,7 +1356,7 @@ async function autoDetectPhases() {
   if (!state.videoUrl || state.autoDetection.status === 'running' || state.autoDetection.status === 'done') return;
   setAppState('detecting');
   state.autoDetection.status = 'running';
-  refs.analysisStatus.textContent = 'Engine Refactor: analizando vídeo con motor separado…';
+  refs.analysisStatus.textContent = 'Pose Foundation: analizando movimiento y, si está disponible, landmarks corporales…';
   render();
   try {
     let result = null;
@@ -1368,8 +1372,13 @@ async function autoDetectPhases() {
       state.autoDetection = {
         status: 'done',
         confidence: result.confidence || 0.3,
-        method: result.engineVersion || window.SwingLabEngine.version || 'Separated Swing Engine',
+        method: result.engineVersion || window.SwingLabEngine.version || 'Pose Foundation Engine',
+        provider: result.provider || 'unknown',
         samples: result.profileSummary?.samples || 0,
+        poseSamples: result.profileSummary?.poseSamples || 0,
+        poseStatus: result.poseStatus || result.poseSummary?.status || 'unavailable',
+        poseSummary: result.poseSummary || result.metrics?.poseSummary || null,
+        poseError: result.poseError || null,
         motionPeakTime: result.phases?.impact || null,
         phaseConfidence: result.phaseConfidence || {},
         extendedTimes: result.extendedTimes || {},
@@ -1396,7 +1405,7 @@ async function autoDetectPhases() {
     state.currentPhaseId = 'address';
     await seekVideoTo(state.phaseTimes.address || 0);
     setAppState('detected');
-    refs.analysisStatus.textContent = `Fases detectadas (${Math.round((state.autoDetection.confidence || 0) * 100)}% confianza) con motor separado. Revisa especialmente Top e Impact.`;
+    refs.analysisStatus.textContent = `Fases detectadas (${Math.round((state.autoDetection.confidence || 0) * 100)}% confianza) · ${state.autoDetection.poseStatus === 'available' ? 'pose corporal activa' : 'fallback heurístico'}. Revisa Top e Impact.`;
     render();
   } catch (error) {
     console.warn('Auto detection failed', error);
@@ -1474,6 +1483,8 @@ async function analyze() {
           phaseConfidence: state.autoDetection.phaseConfidence || {},
           extendedTimes: state.autoDetection.extendedTimes || {},
           diagnostics: state.autoDetection.diagnostics || {},
+          poseSummary: state.autoDetection.poseSummary || null,
+          provider: state.autoDetection.provider || state.autoDetection.method || 'manual-review',
         }, refs.video.duration, ASSUMED_FPS)
       : computeAnalysisMetrics();
     const capturesCount = Object.keys(state.phaseCaptures).length;
@@ -1514,6 +1525,8 @@ async function saveSession() {
             phaseConfidence: state.autoDetection.phaseConfidence || {},
             extendedTimes: state.autoDetection.extendedTimes || {},
             diagnostics: state.autoDetection.diagnostics || {},
+            poseSummary: state.autoDetection.poseSummary || null,
+            provider: state.autoDetection.provider || state.autoDetection.method || 'manual-review',
           }, refs.video.duration || 0, ASSUMED_FPS)
         : computeAnalysisMetrics())),
       autoDetection: clone(state.autoDetection),
@@ -2059,6 +2072,7 @@ function bindEvents() {
   refs.analyzeBtn.addEventListener('click', analyze);
   refs.saveSessionBtn.addEventListener('click', saveSession);
   refs.saveSessionTopBtn.addEventListener('click', saveSession);
+  refs.expandSheetBtn.addEventListener('click', () => { state.sheetExpanded = !state.sheetExpanded; render(); });
   refs.historySelectBtn.addEventListener('click', toggleHistorySelectionMode);
   refs.deleteSelectedHistoryBtn.addEventListener('click', deleteSelectedSessions);
   refs.clearHistoryBtn.addEventListener('click', clearHistory);
