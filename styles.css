@@ -743,7 +743,6 @@ button:disabled { opacity: .42; cursor: not-allowed; }
   display: grid;
   gap: 7px;
   margin-top: 8px;
-}
 .drill-card {
   border-radius: 14px;
   background: rgba(255,255,255,.07);
@@ -770,4 +769,51 @@ button:disabled { opacity: .42; cursor: not-allowed; }
 }
 @media (max-width: 360px) {
   .metric-grid-wide { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* v0.9 Pose Foundation - clearer analysis sheet + pose cards */
+.sheet-handle {
+  height: 40px;
+  margin: -6px 0 4px;
+  border-radius: 18px;
+  background: linear-gradient(to bottom, rgba(255,255,255,.055), rgba(255,255,255,0));
+}
+.sheet-handle span {
+  width: 58px;
+  height: 6px;
+  background: rgba(255,255,255,.52);
+}
+.sheet-handle::after {
+  top: 24px;
+  font-size: 10px;
+  color: rgba(255,255,255,.58);
+}
+.bottom-dock.sheet-expanded {
+  max-height: calc(100dvh - var(--safe-top) - 4px) !important;
+  height: calc(100dvh - var(--safe-top) - 4px);
+  border-radius: 28px 28px 0 0;
+}
+.bottom-dock.sheet-expanded.analysis-mode .dock-panel,
+.bottom-dock.sheet-expanded.history-mode .dock-panel {
+  max-height: calc(100dvh - 106px - var(--safe-top) - var(--safe-bottom)) !important;
+}
+.analysis-actions {
+  max-width: 190px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.analysis-actions .small-pill {
+  min-height: 31px;
+  padding: 0 10px;
+  font-size: 11px;
+}
+.rec b:first-child {
+  color: #fff;
+}
+.metric-grid .metric-card:nth-child(7) {
+  grid-column: span 1;
+}
+@media (max-width: 390px) {
+  .analysis-actions { max-width: 160px; }
+  .analysis-actions .small-pill { padding: 0 8px; }
 }

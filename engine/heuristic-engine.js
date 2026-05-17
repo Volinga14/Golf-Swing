@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  const ENGINE_VERSION = 'v0.8.5 Engine Refactor / HeuristicEngine 3.0';
+  const ENGINE_VERSION = 'v0.9 Pose Foundation / HeuristicEngine 3.1';
   const PHASES = ['address', 'takeaway', 'top', 'impact', 'finish'];
   const REFERENCE = {
     tempoIdealLow: 2.4,
@@ -427,7 +427,7 @@
     return { engineVersion: ENGINE_VERSION, provider: 'heuristic', profileSummary: { samples: profile.length }, phases: phaseResult.times, phaseConfidence: phaseResult.phaseConfidence, extendedTimes: phaseResult.extendedTimes, confidence: phaseResult.confidence, metrics, diagnostics: phaseResult.diagnostics };
   }
 
-  window.SwingLabEngine = {
+  window.SwingLabHeuristicEngine = {
     version: ENGINE_VERSION,
     providers: ['heuristic'],
     analyze,

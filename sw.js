@@ -1,10 +1,12 @@
-const CACHE_NAME = 'swing-lab-v085-engine-refactor';
+const CACHE_NAME = 'swing-lab-v09-pose-foundation';
 const APP_ASSETS = [
   './',
   './index.html',
   './styles.css',
   './app.js',
   './engine/heuristic-engine.js',
+  './engine/pose-engine.js',
+  './engine/swing-engine.js',
   './manifest.webmanifest',
   './icons/icon-192.png',
   './icons/icon-512.png'
@@ -24,6 +26,13 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
+  const url = new URL(event.request.url);
+  // External MediaPipe assets are network-first. They are optional; if they fail,
+  // the app falls back to the heuristic engine.
+  if (url.origin !== self.location.origin) {
+    event.respondWith(fetch(event.request).catch(() => caches.match(event.request)));
+    return;
+  }
   event.respondWith(
     caches.match(event.request).then((cached) => {
       if (cached) return cached;

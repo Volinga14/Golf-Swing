@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no" />
-  <title>Swing Lab v0.8.5 Engine Refactor</title>
-  <meta name="description" content="Swing Lab PWA v0.8.5 - Engine Refactor con motor separado, análisis ampliado y bottom-sheet mejorado." />
+  <title>Swing Lab v0.9 Pose Foundation</title>
+  <meta name="description" content="Swing Lab PWA v0.9 - Pose Foundation con motor modular, pose corporal opcional y fallback heurístico." />
   <meta name="theme-color" content="#000000" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -21,7 +21,7 @@
       <section id="emptyState" class="empty-state">
         <div class="empty-logo">⛳</div>
         <h1>Swing Lab</h1>
-        <p>Sube o graba un swing. La app detecta fases automáticamente y mantiene el formato simple tipo short para revisar, corregir y analizar.</p>
+        <p>Sube o graba un swing. La app detecta fases automáticamente, intenta usar pose corporal si está disponible y mantiene el formato simple tipo short para revisar, corregir y analizar.</p>
         <div class="empty-actions">
           <button id="pickVideoBtn" class="btn primary" type="button">Subir vídeo</button>
           <button id="openCameraBtn" class="btn secondary" type="button">Grabar con cámara</button>
@@ -132,6 +132,7 @@
             </div>
             <div class="analysis-actions">
               <button id="analyzeBtn" class="small-pill" type="button">Generar</button>
+              <button id="expandSheetBtn" class="small-pill" type="button">Expandir</button>
               <button id="saveSessionTopBtn" class="small-pill save-pill" type="button">Guardar</button>
             </div>
           </div>
@@ -161,6 +162,8 @@
   </div>
 
   <script src="engine/heuristic-engine.js" defer></script>
+  <script src="engine/pose-engine.js" defer></script>
+  <script src="engine/swing-engine.js" defer></script>
   <script src="app.js" defer></script>
 </body>
 </html>

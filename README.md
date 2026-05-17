@@ -1,57 +1,20 @@
-# Swing Lab PWA v0.8.5 Engine Refactor
+# Swing Lab PWA v0.9 Pose Foundation
 
-Versión incremental sobre la línea v0.8.x, manteniendo el formato de app tipo short.
+Versión incremental sobre v0.8.5. Mantiene la UX tipo short y añade una arquitectura de motor más seria:
 
-## Objetivo
-Separar el motor de análisis de la interfaz para poder probar modelos nuevos sin romper la app.
+- `engine/heuristic-engine.js`: fallback local basado en movimiento, ventana activa y modelo temporal.
+- `engine/pose-engine.js`: Pose Foundation opcional con MediaPipe Pose Landmarker si el navegador puede cargarlo.
+- `engine/swing-engine.js`: orquestador. Intenta pose + heurística y, si falla, mantiene la app funcionando con fallback heurístico.
 
 ## Cambios principales
 
-- App mantiene la UX existente: vídeo limpio al cargar, fases al tocar, dibujo, capturas e historial.
-- Nuevo directorio `engine/`.
-- Nuevo motor separado `engine/heuristic-engine.js`.
-- La app llama al motor mediante `window.SwingLabEngine.analyze()`.
-- El motor devuelve una interfaz estable:
-  - fases detectadas,
-  - confianza por fase,
-  - microfases,
-  - métricas,
-  - recomendaciones,
-  - drills/ejercicios,
-  - diagnóstico interno.
-- Panel de análisis mejorado:
-  - drag más suave,
-  - se expande casi a pantalla completa,
-  - permite leer resultados largos con más comodidad.
-- Resultados ampliados:
-  - score global,
-  - fases,
-  - tempo,
-  - secuencia,
-  - downswing,
-  - finish,
-  - findings técnicos,
-  - tips,
-  - ejercicios.
+- Motor modular preparado para probar modelos sin romper la app.
+- Primer uso de pose corporal si hay conexión y el navegador lo permite.
+- Si MediaPipe no carga, la app sigue funcionando igual con el motor heurístico.
+- Mejor análisis de resultados: estabilidad de cabeza, proxy de cadera, estabilidad de finish, altura de manos en Top y score pose.
+- Panel de análisis más fácil de expandir con botón “Expandir” y handle más claro.
+- Preparado para seguir hacia un modelo específico de swing.
 
-## Arquitectura
+## Nota técnica
 
-```text
-app.js                    Interfaz, sesiones, vídeo, dibujo, capturas
-engine/heuristic-engine.js Motor separado de análisis temporal del swing
-styles.css                UX móvil, bottom sheet, shorts layout
-sw.js                     Offline cache
-```
-
-## Siguiente paso previsto
-
-v0.9 Pose Foundation:
-
-- integrar pose corporal,
-- extraer landmarks,
-- usar cabeza/hombros/cadera/manos/pies para mejorar Top, Impact y Finish,
-- guardar landmarks como dataset para un futuro modelo específico de golf.
-
-## Limitación actual
-
-El motor v0.8.5 sigue siendo heurístico. Es más modular y más fácil de mejorar, pero todavía no es detección de pose real ni modelo entrenado de swing.
+Pose Foundation usa MediaPipe Tasks Vision desde CDN. La PWA funciona offline para la app base, pero la primera carga del modelo de pose requiere conexión. Esto evita meter archivos WASM/modelos pesados dentro del ZIP. El fallback heurístico se mantiene siempre disponible.

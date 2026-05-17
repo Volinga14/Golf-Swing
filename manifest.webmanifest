@@ -1,7 +1,7 @@
 {
   "name": "Swing Lab",
   "short_name": "Swing Lab",
-  "description": "PWA fullscreen para revisar swing de golf con motor de análisis separado, detección inteligente incremental, análisis expandible, capturas e historial editable.",
+  "description": "PWA fullscreen para revisar swing de golf con motor modular, Pose Foundation opcional, análisis expandible, capturas e historial editable.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
