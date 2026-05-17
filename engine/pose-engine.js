@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  const POSE_ENGINE_VERSION = 'v0.9.1 Pose Foundation / PoseEngine 0.2';
+  const POSE_ENGINE_VERSION = 'v0.9.2 Pose Foundation / PoseEngine 0.3';
   const TASKS_VERSION = '0.10.3';
   const CDN_CANDIDATES = [
     { version: '0.10.3', base: 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3' },
@@ -18,6 +18,7 @@
 
   let cachedLandmarkerPromise = null;
   let lastVideoTimestamp = 0;
+  let lastLoadInfo = null;
 
   function clamp(value, min, max) { return Math.max(min, Math.min(max, value)); }
   function lerp(a, b, t) { return a + (b - a) * t; }
@@ -338,7 +339,7 @@
       view,
       top: {
         handHeightRel: handHeightTop,
-        shoulderTurnProxy,
+        shoulderTurnProxy: shoulderTurnTop,
         score: topPick.score,
       },
       impact: {
@@ -368,6 +369,7 @@
 
   async function samplePoseFrames(video, input) {
     const landmarker = await loadLandmarker();
+    lastLoadInfo = landmarker.__swingLabLoadInfo || null;
     const duration = Number.isFinite(video.duration) ? video.duration : 0;
     if (!duration) throw new Error('Video duration unavailable');
     const base = input.baseResult || {};
@@ -410,7 +412,7 @@
       phaseConfidence: phaseResult.phaseConfidence,
       extendedTimes: phaseResult.extendedTimes,
       poseSummary: phaseResult.poseSummary,
-      diagnostics: Object.assign({ poseFrames: frames.length, loadInfo: landmarker.__swingLabLoadInfo || null }, phaseResult.diagnostics),
+      diagnostics: Object.assign({ poseFrames: frames.length, loadInfo: lastLoadInfo || null }, phaseResult.diagnostics),
       profileSummary: { samples: frames.length, type: 'pose-landmarks' }
     };
   }

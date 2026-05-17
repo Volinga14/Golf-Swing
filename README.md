@@ -16,3 +16,9 @@ Versión incremental sobre v0.9 Pose Foundation.
 - La primera carga de MediaPipe necesita conexión.
 - Si MediaPipe no puede activarse, la app sigue funcionando con el motor heurístico.
 - Si venías de una versión anterior instalada, reinstala la PWA o borra caché.
+
+
+## v0.9.2 Pose Fix
+- Corrige el fallo `shoulderTurnProxy is not defined` que forzaba fallback heurístico.
+- Corrige el diagnóstico `loadInfo` del motor de pose.
+- Actualiza cache/service worker para evitar cargar el motor anterior.

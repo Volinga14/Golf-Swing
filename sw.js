@@ -1,4 +1,4 @@
-const CACHE_NAME = 'swing-lab-v091-pose-active';
+const CACHE_NAME = 'swing-lab-v092-pose-fix';
 const APP_ASSETS = [
   './',
   './index.html',

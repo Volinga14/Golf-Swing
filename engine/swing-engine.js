@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  const ENGINE_VERSION = 'v0.9.1 Pose Active / SwingEngine 4.1';
+  const ENGINE_VERSION = 'v0.9.2 Pose Active / SwingEngine 4.2';
   const PHASES = ['address', 'takeaway', 'top', 'impact', 'finish'];
 
   function clamp(value, min, max) { return Math.max(min, Math.min(max, value)); }
@@ -67,7 +67,9 @@
       metrics.technicalFindings = metrics.technicalFindings || [];
       metrics.tips = metrics.tips || [];
       metrics.technicalFindings.unshift('Pose Foundation: pose corporal no disponible en este análisis. Se ha usado fallback heurístico de movimiento; revisa manualmente Top e Impact.');
-      metrics.tips.push('Para activar Pose Foundation, usa conexión a internet la primera vez y un vídeo donde se vea el cuerpo completo. Si falla, la app sigue funcionando con el motor heurístico.');
+      const errText = poseSummary?.error ? String(poseSummary.error) : '';
+      if (errText) metrics.technicalFindings.push(`Motivo técnico de fallback: ${errText}`);
+      metrics.tips.push('Para activar Pose Foundation, usa conexión a internet la primera vez, GitHub Pages/HTTPS y un vídeo donde se vea el cuerpo completo. Si falla, la app sigue funcionando con el motor heurístico.');
     }
     return metrics;
   }
