@@ -1,35 +1,57 @@
-# Swing Lab PWA v0.8.4 Smart Review
+# Swing Lab PWA v0.8.5 Engine Refactor
 
-Base: v0.8.2 Clean Load.
+Versión incremental sobre la línea v0.8.x, manteniendo el formato de app tipo short.
 
-Esta versión mantiene la UX simple tipo short y añade una capa más inteligente de análisis local:
+## Objetivo
+Separar el motor de análisis de la interfaz para poder probar modelos nuevos sin romper la app.
 
-- Carga limpia: el vídeo queda pausado y sin paneles hasta tocar la pantalla.
-- Guías OFF por defecto.
-- Dibujo móvil corregido con dos toques, arrastre, selección y movimiento de líneas.
-- Smart Phases v0.8.4 para detección automática de fases:
-  - segmentación de ventana activa del swing,
-  - perfil de movimiento por frames muestreados,
-  - detección de Address, Takeaway, Top, Impact y Finish,
+## Cambios principales
+
+- App mantiene la UX existente: vídeo limpio al cargar, fases al tocar, dibujo, capturas e historial.
+- Nuevo directorio `engine/`.
+- Nuevo motor separado `engine/heuristic-engine.js`.
+- La app llama al motor mediante `window.SwingLabEngine.analyze()`.
+- El motor devuelve una interfaz estable:
+  - fases detectadas,
   - confianza por fase,
-  - microfases internas: mid-backswing, transition y pre-impact.
-- Métricas inteligentes:
-  - backswing,
-  - downswing,
-  - follow-through,
-  - tempo,
-  - ventana activa,
+  - microfases,
+  - métricas,
+  - recomendaciones,
+  - drills/ejercicios,
+  - diagnóstico interno.
+- Panel de análisis mejorado:
+  - drag más suave,
+  - se expande casi a pantalla completa,
+  - permite leer resultados largos con más comodidad.
+- Resultados ampliados:
   - score global,
-  - calidad de fases,
-  - warnings de consistencia.
-- Guardado ligero: capturas, fases, métricas y líneas. No guarda el vídeo completo.
+  - fases,
+  - tempo,
+  - secuencia,
+  - downswing,
+  - finish,
+  - findings técnicos,
+  - tips,
+  - ejercicios.
 
-## Limitaciones
+## Arquitectura
 
-Sigue siendo análisis 2D local basado en vídeo y movimiento. No usa todavía pose real, detección robusta de palo ni calibración métrica. La detección automática debe usarse como pre-marcado y revisar manualmente Top e Impact antes de guardar.
+```text
+app.js                    Interfaz, sesiones, vídeo, dibujo, capturas
+engine/heuristic-engine.js Motor separado de análisis temporal del swing
+styles.css                UX móvil, bottom sheet, shorts layout
+sw.js                     Offline cache
+```
 
+## Siguiente paso previsto
 
-## v0.8.4
-- Modelo temporal más estable con referencia del informe Swing Lab.
-- Panel de análisis/historial expandible a pantalla casi completa.
-- Selección múltiple de sesiones guardadas para borrar solo las elegidas.
+v0.9 Pose Foundation:
+
+- integrar pose corporal,
+- extraer landmarks,
+- usar cabeza/hombros/cadera/manos/pies para mejorar Top, Impact y Finish,
+- guardar landmarks como dataset para un futuro modelo específico de golf.
+
+## Limitación actual
+
+El motor v0.8.5 sigue siendo heurístico. Es más modular y más fácil de mejorar, pero todavía no es detección de pose real ni modelo entrenado de swing.

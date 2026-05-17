@@ -1,9 +1,10 @@
-const CACHE_NAME = 'swing-lab-v084-smart-review';
+const CACHE_NAME = 'swing-lab-v085-engine-refactor';
 const APP_ASSETS = [
   './',
   './index.html',
   './styles.css',
   './app.js',
+  './engine/heuristic-engine.js',
   './manifest.webmanifest',
   './icons/icon-192.png',
   './icons/icon-512.png'

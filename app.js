@@ -2,7 +2,7 @@
 
 const $ = (id) => document.getElementById(id);
 const DB_NAME = 'swing-lab-db';
-const DB_VERSION = 10;
+const DB_VERSION = 11;
 const STORE = 'sessions';
 const ASSUMED_FPS = 30;
 
@@ -65,6 +65,8 @@ const state = {
   lockAxisMode: false,
   sheetExpanded: false,
   sheetDragStartY: null,
+  sheetDragStartHeight: null,
+  sheetDragging: false,
   historySelectionMode: false,
   selectedSessionIds: new Set(),
 };
@@ -289,6 +291,8 @@ function resetSessionState() {
   state.initialVideoClean = false;
   state.sheetExpanded = false;
   state.sheetDragStartY = null;
+  state.sheetDragStartHeight = null;
+  state.sheetDragging = false;
 }
 
 
@@ -379,6 +383,7 @@ function renderShell() {
   refs.bottomDock.classList.toggle('analysis-mode', state.mode === 'analysis');
   refs.bottomDock.classList.toggle('history-mode', state.mode === 'history');
   refs.bottomDock.classList.toggle('sheet-expanded', state.sheetExpanded && (state.mode === 'analysis' || state.mode === 'history'));
+  refs.bottomDock.classList.toggle('sheet-dragging', state.sheetDragging);
   refs.playerStrip.classList.toggle('hidden', state.mode !== 'phases' || state.captureOnly || showingCapture);
   refs.drawingCanvas.classList.toggle('hidden', !hasSession);
 }
@@ -596,10 +601,12 @@ function buildRecommendations() {
   }
 
   if (scores.overall != null) {
-    recs.push(`<div class="metric-grid">
+    recs.push(`<div class="metric-grid metric-grid-wide">
       <div class="metric-card"><b>${scores.overall}</b><span>Score global</span></div>
       <div class="metric-card"><b>${scores.phaseQuality}</b><span>Fases</span></div>
       <div class="metric-card"><b>${scores.tempo}</b><span>Tempo</span></div>
+      <div class="metric-card"><b>${scores.sequence ?? '-'}</b><span>Secuencia</span></div>
+      <div class="metric-card"><b>${scores.downswing ?? '-'}</b><span>Downswing</span></div>
       <div class="metric-card"><b>${scores.finish}</b><span>Finish</span></div>
     </div>`);
     recs.push(`<b>Lectura técnica:</b> ${metrics.scoreLabels?.overall || 'pendiente'}. Setup/fases ${metrics.scoreLabels?.phaseQuality || 'pendiente'}, tempo ${metrics.scoreLabels?.tempo || 'pendiente'}, secuencia ${metrics.scoreLabels?.sequence || 'pendiente'}. Este bloque replica la lógica de dashboard del informe: score global + lectura accionable, no solo tiempos.`);
@@ -659,6 +666,20 @@ function buildRecommendations() {
 
   if (metrics?.consistencyWarnings?.length) {
     recs.push(`<b>Revisión obligatoria:</b> ${metrics.consistencyWarnings.join(' ')}`);
+  }
+
+
+
+  if (Array.isArray(metrics?.technicalFindings) && metrics.technicalFindings.length) {
+    recs.push(`<b>Resultados del swing:</b><ul>${metrics.technicalFindings.map((item) => `<li>${item}</li>`).join('')}</ul>`);
+  }
+
+  if (Array.isArray(metrics?.tips) && metrics.tips.length) {
+    recs.push(`<b>Tips / recomendaciones:</b><ul>${metrics.tips.map((item) => `<li>${item}</li>`).join('')}</ul>`);
+  }
+
+  if (Array.isArray(metrics?.drills) && metrics.drills.length) {
+    recs.push(`<b>Ejercicios sugeridos:</b><div class="drill-list">${metrics.drills.map((drill) => `<div class="drill-card"><b>${drill.name}</b><span>${drill.detail}</span></div>`).join('')}</div>`);
   }
 
   if (state.guideMode === 'dtl') {
@@ -1331,28 +1352,51 @@ async function autoDetectPhases() {
   if (!state.videoUrl || state.autoDetection.status === 'running' || state.autoDetection.status === 'done') return;
   setAppState('detecting');
   state.autoDetection.status = 'running';
-  refs.analysisStatus.textContent = 'Smart Phases: localizando ventana activa, top e impacto con referencia temporal…';
+  refs.analysisStatus.textContent = 'Engine Refactor: analizando vídeo con motor separado…';
   render();
   try {
-    const duration = refs.video.duration;
-    const profile = await sampleMotionProfile();
-    const result = detectTimesFromMotion(profile, duration);
-    state.phaseTimes = result.times;
-    state.autoDetection = {
-      status: 'done',
-      confidence: result.confidence,
-      method: 'Smart Phases v0.8.4 · motion model + Swing Lab reference',
-      samples: profile?.length || 0,
-      motionPeakTime: result.peakTime,
-      phaseConfidence: result.phaseConfidence || {},
-      extendedTimes: result.extendedTimes || {},
-      diagnostics: result.diagnostics || {},
-    };
-    state.analysisMetrics = computeAnalysisMetrics();
+    let result = null;
+    if (window.SwingLabEngine?.analyze) {
+      result = await window.SwingLabEngine.analyze({
+        video: refs.video,
+        fps: ASSUMED_FPS,
+        view: state.guideMode,
+        phases,
+        maxSamples: 128,
+      });
+      state.phaseTimes = result.phases || fallbackPhaseTimes(refs.video.duration);
+      state.autoDetection = {
+        status: 'done',
+        confidence: result.confidence || 0.3,
+        method: result.engineVersion || window.SwingLabEngine.version || 'Separated Swing Engine',
+        samples: result.profileSummary?.samples || 0,
+        motionPeakTime: result.phases?.impact || null,
+        phaseConfidence: result.phaseConfidence || {},
+        extendedTimes: result.extendedTimes || {},
+        diagnostics: result.diagnostics || {},
+      };
+      state.analysisMetrics = result.metrics || computeAnalysisMetrics();
+    } else {
+      const duration = refs.video.duration;
+      const profile = await sampleMotionProfile();
+      const legacy = detectTimesFromMotion(profile, duration);
+      state.phaseTimes = legacy.times;
+      state.autoDetection = {
+        status: 'done',
+        confidence: legacy.confidence,
+        method: 'Legacy Smart Phases fallback',
+        samples: profile?.length || 0,
+        motionPeakTime: legacy.peakTime,
+        phaseConfidence: legacy.phaseConfidence || {},
+        extendedTimes: legacy.extendedTimes || {},
+        diagnostics: legacy.diagnostics || {},
+      };
+      state.analysisMetrics = computeAnalysisMetrics();
+    }
     state.currentPhaseId = 'address';
     await seekVideoTo(state.phaseTimes.address || 0);
     setAppState('detected');
-    refs.analysisStatus.textContent = `Fases detectadas con Smart Phases (${Math.round(result.confidence * 100)}% confianza). Revisa especialmente Top e Impact.`;
+    refs.analysisStatus.textContent = `Fases detectadas (${Math.round((state.autoDetection.confidence || 0) * 100)}% confianza) con motor separado. Revisa especialmente Top e Impact.`;
     render();
   } catch (error) {
     console.warn('Auto detection failed', error);
@@ -1423,7 +1467,15 @@ async function analyze() {
 
   try {
     state.phaseCaptures = await generatePhaseCaptures();
-    state.analysisMetrics = computeAnalysisMetrics();
+    state.analysisMetrics = window.SwingLabEngine?.computeMetrics
+      ? window.SwingLabEngine.computeMetrics({
+          times: clone(state.phaseTimes),
+          confidence: state.autoDetection.confidence || 0.45,
+          phaseConfidence: state.autoDetection.phaseConfidence || {},
+          extendedTimes: state.autoDetection.extendedTimes || {},
+          diagnostics: state.autoDetection.diagnostics || {},
+        }, refs.video.duration, ASSUMED_FPS)
+      : computeAnalysisMetrics();
     const capturesCount = Object.keys(state.phaseCaptures).length;
     refs.analysisStatus.textContent = `Listo: ${capturesCount} capturas · ${markedCount()}/${phases.length} fases · tempo ${state.analysisMetrics?.tempoRatio ? state.analysisMetrics.tempoRatio.toFixed(2) + ':1' : 'pendiente'}.`;
     renderRecommendations();
@@ -1455,7 +1507,15 @@ async function saveSession() {
       guideMode: state.guideMode,
       phaseTimes: clone(state.phaseTimes),
       phaseCaptures: clone(state.phaseCaptures),
-      analysisMetrics: clone(state.analysisMetrics || computeAnalysisMetrics()),
+      analysisMetrics: clone(state.analysisMetrics || (window.SwingLabEngine?.computeMetrics
+        ? window.SwingLabEngine.computeMetrics({
+            times: clone(state.phaseTimes),
+            confidence: state.autoDetection.confidence || 0.45,
+            phaseConfidence: state.autoDetection.phaseConfidence || {},
+            extendedTimes: state.autoDetection.extendedTimes || {},
+            diagnostics: state.autoDetection.diagnostics || {},
+          }, refs.video.duration || 0, ASSUMED_FPS)
+        : computeAnalysisMetrics())),
       autoDetection: clone(state.autoDetection),
       lines: clone(state.lines),
       thumbnail: previewCapture,
@@ -2003,21 +2063,58 @@ function bindEvents() {
   refs.deleteSelectedHistoryBtn.addEventListener('click', deleteSelectedSessions);
   refs.clearHistoryBtn.addEventListener('click', clearHistory);
 
-  refs.sheetHandle.addEventListener('pointerdown', (event) => {
+  function beginSheetDrag(event) {
     if (state.mode !== 'analysis' && state.mode !== 'history') return;
     state.sheetDragStartY = event.clientY;
+    state.sheetDragStartHeight = refs.bottomDock.getBoundingClientRect().height;
+    state.sheetDragging = true;
+    refs.bottomDock.classList.add('sheet-dragging');
     refs.sheetHandle.setPointerCapture?.(event.pointerId);
-  });
-  refs.sheetHandle.addEventListener('pointerup', (event) => {
+  }
+
+  function updateSheetDrag(event) {
+    if (!state.sheetDragging || !Number.isFinite(state.sheetDragStartY)) return;
+    const viewport = window.innerHeight || document.documentElement.clientHeight || 700;
+    const minHeight = Math.max(210, viewport * (state.mode === 'history' ? 0.42 : 0.44));
+    const maxHeight = Math.max(minHeight + 80, viewport - 10);
+    const dyUp = state.sheetDragStartY - event.clientY;
+    const startHeight = state.sheetDragStartHeight || refs.bottomDock.getBoundingClientRect().height;
+    const nextHeight = Math.min(maxHeight, Math.max(minHeight, startHeight + dyUp));
+    refs.bottomDock.style.height = `${nextHeight}px`;
+    refs.bottomDock.style.maxHeight = `${nextHeight}px`;
+    const panel = state.mode === 'analysis' ? refs.analysisPanel : refs.historyPanel;
+    if (panel) panel.style.maxHeight = `${Math.max(120, nextHeight - 88)}px`;
+  }
+
+  function finishSheetDrag(event) {
     if (state.mode !== 'analysis' && state.mode !== 'history') return;
     const startY = state.sheetDragStartY;
-    state.sheetDragStartY = null;
+    const startHeight = state.sheetDragStartHeight;
+    const currentHeight = refs.bottomDock.getBoundingClientRect().height;
+    const viewport = window.innerHeight || document.documentElement.clientHeight || 700;
     const dy = Number.isFinite(startY) ? event.clientY - startY : 0;
-    if (Math.abs(dy) < 12) state.sheetExpanded = !state.sheetExpanded;
-    else if (dy < -28) state.sheetExpanded = true;
-    else if (dy > 28) state.sheetExpanded = false;
+    state.sheetDragStartY = null;
+    state.sheetDragStartHeight = null;
+    state.sheetDragging = false;
+    refs.bottomDock.classList.remove('sheet-dragging');
+    refs.bottomDock.style.height = '';
+    refs.bottomDock.style.maxHeight = '';
+    refs.analysisPanel.style.maxHeight = '';
+    refs.historyPanel.style.maxHeight = '';
+    if (Math.abs(dy) < 10 && Number.isFinite(startHeight)) {
+      state.sheetExpanded = !state.sheetExpanded;
+    } else if (currentHeight > viewport * 0.62 || dy < -26) {
+      state.sheetExpanded = true;
+    } else if (dy > 26 || currentHeight < viewport * 0.58) {
+      state.sheetExpanded = false;
+    }
     render();
-  });
+  }
+
+  refs.sheetHandle.addEventListener('pointerdown', beginSheetDrag);
+  refs.sheetHandle.addEventListener('pointermove', updateSheetDrag);
+  refs.sheetHandle.addEventListener('pointerup', finishSheetDrag);
+  refs.sheetHandle.addEventListener('pointercancel', finishSheetDrag);
 
   refs.drawingCanvas.addEventListener('pointerdown', handleCanvasPointerDown);
   refs.drawingCanvas.addEventListener('pointermove', handleCanvasPointerMove);

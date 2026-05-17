@@ -706,3 +706,68 @@ button:disabled { opacity: .42; cursor: not-allowed; }
   .history-actions { max-width: 190px; }
   .history-actions .small-pill { font-size: 10px; padding: 0 7px; }
 }
+
+/* v0.8.5 Engine Refactor - smoother analysis bottom sheet */
+.bottom-dock {
+  transition: height .22s ease, max-height .22s ease, border-radius .22s ease, background .22s ease, transform .22s ease;
+  will-change: height, max-height;
+}
+.bottom-dock.sheet-dragging {
+  transition: none !important;
+}
+.sheet-handle {
+  height: 32px;
+  margin: -6px 0 2px;
+  position: relative;
+}
+.sheet-handle::after {
+  content: 'Desliza para leer todo';
+  position: absolute;
+  top: 19px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 9px;
+  color: rgba(255,255,255,.42);
+  white-space: nowrap;
+}
+.bottom-dock.sheet-expanded .sheet-handle::after { content: 'Desliza abajo para volver al vídeo'; }
+.bottom-dock.analysis-mode .dock-panel,
+.bottom-dock.history-mode .dock-panel {
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+.metric-grid-wide {
+  grid-template-columns: repeat(3, 1fr);
+}
+.drill-list {
+  display: grid;
+  gap: 7px;
+  margin-top: 8px;
+}
+.drill-card {
+  border-radius: 14px;
+  background: rgba(255,255,255,.07);
+  padding: 9px;
+}
+.drill-card b {
+  display: block;
+  font-size: 12px;
+}
+.drill-card span {
+  display: block;
+  margin-top: 3px;
+  color: rgba(255,255,255,.68);
+  font-size: 12px;
+  line-height: 1.35;
+}
+.rec {
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+.bottom-dock.sheet-expanded .rec {
+  font-size: 13px;
+  line-height: 1.5;
+}
+@media (max-width: 360px) {
+  .metric-grid-wide { grid-template-columns: repeat(2, 1fr); }
+}
