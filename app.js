@@ -2,7 +2,7 @@
 
 const $ = (id) => document.getElementById(id);
 const DB_NAME = 'swing-lab-db';
-const DB_VERSION = 14;
+const DB_VERSION = 15;
 const STORE = 'sessions';
 const ASSUMED_FPS = 30;
 
@@ -320,7 +320,7 @@ function applyVideoFile(file) {
   refs.capturesGrid.innerHTML = '';
   refs.video.src = state.videoUrl;
   refs.video.load();
-  state.autoDetection = { status: 'queued', confidence: 0, method: 'Pose Foundation v0.9.4 auto-start', provider: '', samples: 0, poseSamples: 0, poseStatus: 'queued', motionPeakTime: null, phaseConfidence: {}, extendedTimes: {}, diagnostics: {}, poseSummary: null };
+  state.autoDetection = { status: 'queued', confidence: 0, method: 'Pose Foundation v0.9.5 auto-start', provider: '', samples: 0, poseSamples: 0, poseStatus: 'queued', motionPeakTime: null, phaseConfidence: {}, extendedTimes: {}, diagnostics: {}, poseSummary: null };
   setAppState('loaded');
   render();
   preWarmPoseEngine();
@@ -388,11 +388,12 @@ function scheduleInitialAutoDetection() {
   if (!state.videoUrl) return;
   if (state.autoDetection.status === 'scheduled' || state.autoDetection.status === 'running' || state.autoDetection.status === 'done') return;
   if (!videoHasFrameData()) {
-    if (state.autoDetection.status === 'queued') {
-      window.setTimeout(scheduleInitialAutoDetection, 160);
+    if (['queued', 'defaults-ready', 'preloading', 'ready', 'preload-failed', 'scheduled'].includes(state.autoDetection.status)) {
+      window.setTimeout(scheduleInitialAutoDetection, 180);
     }
     return;
   }
+  if (!hasCompletePhaseTimes(state.phaseTimes)) installImmediatePhaseDefaults('frame-data-ready');
   state.autoDetection.status = 'scheduled';
   refs.cleanHint.textContent = 'Analizando fases…';
   refs.analysisStatus.textContent = 'Detección inicial automática: analizando el vídeo en segundo plano con pose corporal y movimiento temporal…';
@@ -1019,6 +1020,67 @@ function fallbackPhaseTimes(duration) {
   return Object.fromEntries(phases.map((phase) => [phase.id, Math.max(0, Math.min(safe, safe * phase.pct))]));
 }
 
+function initialLoadPhaseTimes(duration) {
+  const safe = Number.isFinite(duration) && duration > 0 ? duration : 2;
+  // Immediate safe defaults: for long clips we do not spread across the full video.
+  // We place a compact review window near the beginning until the engine replaces it.
+  const windowStart = 0;
+  const windowDur = Math.min(Math.max(safe * 0.32, 1.25), Math.min(3.20, safe));
+  const ratios = { address: 0.00, takeaway: 0.18, top: 0.50, impact: 0.70, finish: 1.00 };
+  const output = {};
+  phases.forEach((phase) => {
+    output[phase.id] = Math.max(0, Math.min(safe, windowStart + windowDur * ratios[phase.id]));
+  });
+  return enforceIncreasing(output, safe);
+}
+
+function extractPhaseTime(value) {
+  if (Number.isFinite(value)) return value;
+  if (value && Number.isFinite(value.time)) return value.time;
+  if (value && Number.isFinite(value.seconds)) return value.seconds;
+  if (value && Number.isFinite(value.t)) return value.t;
+  return null;
+}
+
+function normalizePhaseTimes(input, duration, baseTimes = null) {
+  const safe = Number.isFinite(duration) && duration > 0 ? duration : 2;
+  const base = baseTimes || state.phaseTimes || initialLoadPhaseTimes(safe);
+  const output = {};
+  phases.forEach((phase) => {
+    const direct = input ? extractPhaseTime(input[phase.id]) : null;
+    const tableItem = Array.isArray(input) ? input.find((item) => item && item.id === phase.id) : null;
+    const fromTable = tableItem ? extractPhaseTime(tableItem) : null;
+    const fallback = extractPhaseTime(base[phase.id]);
+    output[phase.id] = Number.isFinite(direct) ? direct : (Number.isFinite(fromTable) ? fromTable : fallback);
+  });
+  return enforceIncreasing(output, safe);
+}
+
+function hasCompletePhaseTimes(times) {
+  return phases.every((phase) => Number.isFinite(extractPhaseTime(times?.[phase.id])));
+}
+
+function installImmediatePhaseDefaults(reason = 'defaults') {
+  if (!state.videoUrl || !Number.isFinite(refs.video.duration) || refs.video.duration <= 0) return false;
+  const defaults = initialLoadPhaseTimes(refs.video.duration);
+  state.phaseTimes = normalizePhaseTimes(state.phaseTimes, refs.video.duration, defaults);
+  state.currentPhaseId = 'address';
+  if (!state.autoDetection || state.autoDetection.status === 'idle') {
+    state.autoDetection = { status: 'defaults-ready', confidence: 0.18, method: 'Initial defaults', samples: 0, motionPeakTime: null, phaseConfidence: {}, extendedTimes: {}, diagnostics: { reason } };
+  } else if (!['running', 'done'].includes(state.autoDetection.status)) {
+    state.autoDetection.status = 'defaults-ready';
+    state.autoDetection.confidence = Math.max(state.autoDetection.confidence || 0, 0.18);
+    state.autoDetection.diagnostics = Object.assign({}, state.autoDetection.diagnostics || {}, { defaultReason: reason });
+  }
+  refs.analysisStatus.textContent = 'Fases preliminares colocadas. La detección automática sigue trabajando en segundo plano para refinarlas con Pose Foundation.';
+  render();
+  return true;
+}
+
+function phaseConfidenceFallback(value = 0.18) {
+  return Object.fromEntries(phases.map((phase) => [phase.id, value]));
+}
+
 function enforceIncreasing(times, duration) {
   const safeDuration = Number.isFinite(duration) && duration > 0 ? duration : 2;
   const minGap = Math.max(0.035, Math.min(0.18, safeDuration * 0.018));
@@ -1461,14 +1523,15 @@ async function autoDetectPhases() {
         fps: ASSUMED_FPS,
         view: state.guideMode,
         phases,
-        maxSamples: 220,
-        maxPoseSamples: 228,
+        maxSamples: 300,
+        maxPoseSamples: 320,
         phaseDetectionMode: 'initial-load',
         preferPose: true,
         autoStart: true,
         fullVideoPoseScan: true,
       });
-      state.phaseTimes = result.phases || fallbackPhaseTimes(refs.video.duration);
+      const rawPhases = result.phases || result.times || result.metrics?.phaseTable || null;
+      state.phaseTimes = normalizePhaseTimes(rawPhases, refs.video.duration, initialLoadPhaseTimes(refs.video.duration));
       state.autoDetection = {
         status: 'done',
         confidence: result.confidence || 0.3,
@@ -1480,7 +1543,7 @@ async function autoDetectPhases() {
         poseSummary: result.poseSummary || result.metrics?.poseSummary || null,
         poseError: result.poseError || null,
         motionPeakTime: result.phases?.impact || null,
-        phaseConfidence: result.phaseConfidence || {},
+        phaseConfidence: result.phaseConfidence || phaseConfidenceFallback(result.confidence || 0.35),
         extendedTimes: result.extendedTimes || {},
         diagnostics: result.diagnostics || {},
       };
@@ -1489,20 +1552,23 @@ async function autoDetectPhases() {
       const duration = refs.video.duration;
       const profile = await sampleMotionProfile();
       const legacy = detectTimesFromMotion(profile, duration);
-      state.phaseTimes = legacy.times;
+      state.phaseTimes = normalizePhaseTimes(legacy.times, duration, initialLoadPhaseTimes(duration));
       state.autoDetection = {
         status: 'done',
         confidence: legacy.confidence,
         method: 'Legacy Smart Phases fallback',
         samples: profile?.length || 0,
         motionPeakTime: legacy.peakTime,
-        phaseConfidence: legacy.phaseConfidence || {},
+        phaseConfidence: legacy.phaseConfidence || phaseConfidenceFallback(legacy.confidence || 0.28),
         extendedTimes: legacy.extendedTimes || {},
         diagnostics: legacy.diagnostics || {},
       };
       state.analysisMetrics = computeAnalysisMetrics();
     }
     state.currentPhaseId = 'address';
+    if (!hasCompletePhaseTimes(state.phaseTimes)) {
+      state.phaseTimes = normalizePhaseTimes(null, refs.video.duration, initialLoadPhaseTimes(refs.video.duration));
+    }
     await seekVideoTo(state.phaseTimes.address || 0);
     setAppState('detected');
     refs.cleanHint.textContent = 'Fases listas · toca para revisar';
@@ -1510,8 +1576,8 @@ async function autoDetectPhases() {
     render();
   } catch (error) {
     console.warn('Auto detection failed', error);
-    state.phaseTimes = fallbackPhaseTimes(refs.video.duration);
-    state.autoDetection = { status: 'failed', confidence: 0.2, method: 'fallback-percentages', samples: 0, motionPeakTime: null, phaseConfidence: {}, extendedTimes: {}, diagnostics: {} };
+    state.phaseTimes = normalizePhaseTimes(null, refs.video.duration, initialLoadPhaseTimes(refs.video.duration));
+    state.autoDetection = { status: 'failed', confidence: 0.2, method: 'fallback-percentages', samples: 0, motionPeakTime: null, phaseConfidence: phaseConfidenceFallback(0.20), extendedTimes: {}, diagnostics: { error: String(error?.message || error) } };
     state.analysisMetrics = computeAnalysisMetrics();
     setAppState('marking');
     refs.cleanHint.textContent = 'Toca para revisar fases estimadas';
@@ -2137,15 +2203,23 @@ function bindEvents() {
     refs.playBtn.textContent = 'Play';
     refs.video.playbackRate = state.speed;
     resizeDrawingCanvas();
+    if (state.videoUrl && Number.isFinite(refs.video.duration) && refs.video.duration > 0) {
+      installImmediatePhaseDefaults('loadedmetadata');
+    }
     if (state.initialVideoClean) {
       refs.video.currentTime = 0;
     } else if (state.phaseTimes[currentPhase().id] == null && Number.isFinite(refs.video.duration) && refs.video.duration > 0) {
       refs.video.currentTime = refs.video.duration * currentPhase().pct;
     }
     render();
+    scheduleInitialAutoDetection();
   });
-  refs.video.addEventListener('loadeddata', scheduleInitialAutoDetection);
-  refs.video.addEventListener('canplay', scheduleInitialAutoDetection);
+  refs.video.addEventListener('durationchange', () => { installImmediatePhaseDefaults('durationchange'); scheduleInitialAutoDetection(); });
+  refs.video.addEventListener('loadeddata', () => { installImmediatePhaseDefaults('loadeddata'); scheduleInitialAutoDetection(); });
+  refs.video.addEventListener('canplay', () => { installImmediatePhaseDefaults('canplay'); scheduleInitialAutoDetection(); });
+  if ('requestVideoFrameCallback' in HTMLVideoElement.prototype) {
+    refs.video.requestVideoFrameCallback(() => { installImmediatePhaseDefaults('video-frame-callback'); scheduleInitialAutoDetection(); });
+  }
 
   refs.toggleGuidesBtn.addEventListener('click', () => { state.showGuides = !state.showGuides; render(); });
   refs.switchModeBtn.addEventListener('click', () => { state.guideMode = state.guideMode === 'dtl' ? 'fo' : 'dtl'; render(); });

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'swing-lab-v094-pose-autostart';
+const CACHE_NAME = 'swing-lab-v095-phase-autodetect-fix';
 const APP_ASSETS = [
   './',
   './index.html',

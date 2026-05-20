@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  const POSE_ENGINE_VERSION = 'v0.9.4 Pose Foundation / PoseEngine 0.5 auto-scan';
+  const POSE_ENGINE_VERSION = 'v0.9.5 Phase Auto-Detect / PoseEngine 0.6 auto-scan';
   const CDN_CANDIDATES = [
     { version: '0.10.14', base: 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14' },
     { version: '0.10.3', base: 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3' },
@@ -255,7 +255,15 @@
     const p94 = percentile(activities, 0.94);
     const threshold = Math.max(0.10, p45 * 0.35 + p70 * 0.30 + p86 * 0.24 + p94 * 0.06);
     const quietThreshold = Math.max(0.055, p45 * 0.45 + p70 * 0.10);
-    const peak = frames.reduce((best, f) => (f.activity || 0) > (best.activity || 0) ? f : best, frames[0]);
+
+    // For initial load, the motion heuristic gives a useful candidate window.
+    // Use it to avoid selecting warm-up/waggle/phone movement as the main swing.
+    const hasBaseWindow = Number.isFinite(baseStart) && Number.isFinite(baseEnd) && baseEnd > baseStart + 0.35;
+    const candidateStart = initialLoad && hasBaseWindow ? Math.max(0, baseStart - Math.max(0.25, (baseEnd - baseStart) * 0.22)) : frames[0].time;
+    const candidateEnd = initialLoad && hasBaseWindow ? Math.min(duration, baseEnd + Math.max(0.35, (baseEnd - baseStart) * 0.35)) : frames[frames.length - 1].time;
+    const candidateFrames = frames.filter(f => f.time >= candidateStart && f.time <= candidateEnd);
+    const searchFrames = candidateFrames.length >= 8 ? candidateFrames : frames;
+    const peak = searchFrames.reduce((best, f) => (f.activity || 0) > (best.activity || 0) ? f : best, searchFrames[0] || frames[0]);
 
     const sustainedAbove = (idx, forward = true, count = 4) => {
       let hits = 0;
@@ -472,8 +480,8 @@
     let end = initialLoad ? duration : Math.min(duration, baseEnd + marginAfter);
     if (duration <= 4.5 || end - start < 1.25) { start = 0; end = duration; }
     const desired = Math.round((end - start) * (initialLoad ? 24 : 30));
-    const cap = input.maxPoseSamples || (initialLoad ? 228 : 156);
-    const sampleCount = Math.min(cap, Math.max(initialLoad ? 86 : 48, desired));
+    const cap = input.maxPoseSamples || (initialLoad ? 320 : 180);
+    const sampleCount = Math.min(cap, Math.max(initialLoad ? 118 : 56, desired));
     const frames = [];
     const originalTime = video.currentTime || 0;
     const wasPaused = video.paused;
@@ -495,7 +503,7 @@
       const coarse = inferPoseActiveWindow(enriched, input.baseResult || {}, duration, { phaseDetectionMode: 'initial-load' });
       const denseStart = clamp(coarse.activeStart - 0.12, 0, duration);
       const denseEnd = clamp(coarse.activeEnd + 0.18, denseStart + 0.4, duration);
-      const denseCount = Math.min(Math.max(72, Math.round((denseEnd - denseStart) * 42)), Math.max(96, Math.floor((input.maxPoseSamples || 228) * 0.72)));
+      const denseCount = Math.min(Math.max(72, Math.round((denseEnd - denseStart) * 42)), Math.max(96, Math.floor((input.maxPoseSamples || 320) * 0.74)));
       for (let i = 0; i < denseCount; i += 1) {
         const ratio = denseCount === 1 ? 0 : i / (denseCount - 1);
         const time = denseStart + (denseEnd - denseStart) * ratio;

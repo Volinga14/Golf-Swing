@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  const ENGINE_VERSION = 'v0.9 Pose Foundation / HeuristicEngine 3.1';
+  const ENGINE_VERSION = 'v0.9.5 Phase Auto-Detect / HeuristicEngine 3.2';
   const PHASES = ['address', 'takeaway', 'top', 'impact', 'finish'];
   const REFERENCE = {
     tempoIdealLow: 2.4,
