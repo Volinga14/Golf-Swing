@@ -320,9 +320,13 @@ function applyVideoFile(file) {
   refs.capturesGrid.innerHTML = '';
   refs.video.src = state.videoUrl;
   refs.video.load();
-  state.autoDetection = { status: 'queued', confidence: 0, method: 'Pose Foundation v0.9.3 initial-load', provider: '', samples: 0, poseSamples: 0, poseStatus: 'pending', motionPeakTime: null, phaseConfidence: {}, extendedTimes: {}, diagnostics: {}, poseSummary: null };
+  state.autoDetection = { status: 'queued', confidence: 0, method: 'Pose Foundation v0.9.4 auto-start', provider: '', samples: 0, poseSamples: 0, poseStatus: 'queued', motionPeakTime: null, phaseConfidence: {}, extendedTimes: {}, diagnostics: {}, poseSummary: null };
   setAppState('loaded');
   render();
+  preWarmPoseEngine();
+  window.setTimeout(scheduleInitialAutoDetection, 0);
+  window.setTimeout(scheduleInitialAutoDetection, 240);
+  window.setTimeout(scheduleInitialAutoDetection, 780);
 }
 
 function setMode(mode) {
@@ -346,10 +350,54 @@ function videoHasFrameData() {
   return Boolean(state.videoUrl) && Number.isFinite(refs.video.duration) && refs.video.duration > 0 && refs.video.readyState >= 2;
 }
 
+function preWarmPoseEngine() {
+  if (!state.videoUrl || !window.SwingLabEngine?.preload) return;
+  const currentStatus = state.autoDetection?.poseStatus;
+  if (currentStatus === 'preloading' || currentStatus === 'ready' || currentStatus === 'available') return;
+  state.autoDetection.poseStatus = 'preloading';
+  state.autoDetection.poseError = null;
+  refs.cleanHint.textContent = 'Analizando vídeo… preparando pose';
+  refs.analysisStatus.textContent = 'Vídeo cargado. Preparando MediaPipe Pose y esperando frames del vídeo…';
+  render();
+  window.SwingLabEngine.preload()
+    .then((info) => {
+      if (!state.videoUrl || !state.autoDetection) return;
+      if (info?.ok) {
+        state.autoDetection.poseStatus = 'ready';
+        state.autoDetection.provider = info.provider || 'pose-mediapipe';
+        refs.cleanHint.textContent = 'Analizando vídeo… pose lista';
+      } else {
+        state.autoDetection.poseStatus = 'preload-failed';
+        state.autoDetection.poseError = info?.error || 'Pose preload failed';
+        refs.cleanHint.textContent = 'Analizando vídeo… fallback preparado';
+      }
+      render();
+      scheduleInitialAutoDetection();
+    })
+    .catch((error) => {
+      if (!state.videoUrl || !state.autoDetection) return;
+      state.autoDetection.poseStatus = 'preload-failed';
+      state.autoDetection.poseError = String(error?.message || error);
+      refs.cleanHint.textContent = 'Analizando vídeo… fallback preparado';
+      render();
+      scheduleInitialAutoDetection();
+    });
+}
+
 function scheduleInitialAutoDetection() {
-  if (state.autoDetection.status !== 'queued') return;
-  if (!videoHasFrameData()) return;
-  window.setTimeout(() => autoDetectPhases(), 90);
+  if (!state.videoUrl) return;
+  if (state.autoDetection.status === 'scheduled' || state.autoDetection.status === 'running' || state.autoDetection.status === 'done') return;
+  if (!videoHasFrameData()) {
+    if (state.autoDetection.status === 'queued') {
+      window.setTimeout(scheduleInitialAutoDetection, 160);
+    }
+    return;
+  }
+  state.autoDetection.status = 'scheduled';
+  refs.cleanHint.textContent = 'Analizando fases…';
+  refs.analysisStatus.textContent = 'Detección inicial automática: analizando el vídeo en segundo plano con pose corporal y movimiento temporal…';
+  render();
+  window.setTimeout(() => autoDetectPhases(), 40);
 }
 
 function waitForVideoReadyForAnalysis(timeoutMs = 2600) {
@@ -1394,11 +1442,17 @@ function detectTimesFromMotion(profile, duration) {
 
 async function autoDetectPhases() {
   if (!state.videoUrl || state.autoDetection.status === 'running' || state.autoDetection.status === 'done') return;
+  if (!videoHasFrameData()) {
+    state.autoDetection.status = 'queued';
+    scheduleInitialAutoDetection();
+    return;
+  }
   setAppState('detecting');
   state.autoDetection.status = 'running';
-  refs.analysisStatus.textContent = 'Detección inicial: leyendo vídeo con Pose Foundation y movimiento temporal…';
+  refs.cleanHint.textContent = 'Analizando fases con Pose…';
+  refs.analysisStatus.textContent = 'Detección inicial: escaneando el vídeo completo con Pose Foundation, refinando la ventana activa y calculando fases…';
   render();
-  await waitForVideoReadyForAnalysis();
+  await waitForVideoReadyForAnalysis(5200);
   try {
     let result = null;
     if (window.SwingLabEngine?.analyze) {
@@ -1407,10 +1461,12 @@ async function autoDetectPhases() {
         fps: ASSUMED_FPS,
         view: state.guideMode,
         phases,
-        maxSamples: 168,
-        maxPoseSamples: 156,
+        maxSamples: 220,
+        maxPoseSamples: 228,
         phaseDetectionMode: 'initial-load',
         preferPose: true,
+        autoStart: true,
+        fullVideoPoseScan: true,
       });
       state.phaseTimes = result.phases || fallbackPhaseTimes(refs.video.duration);
       state.autoDetection = {
@@ -1449,6 +1505,7 @@ async function autoDetectPhases() {
     state.currentPhaseId = 'address';
     await seekVideoTo(state.phaseTimes.address || 0);
     setAppState('detected');
+    refs.cleanHint.textContent = 'Fases listas · toca para revisar';
     refs.analysisStatus.textContent = `Fases detectadas al cargar (${Math.round((state.autoDetection.confidence || 0) * 100)}% confianza) · ${state.autoDetection.poseStatus === 'available' ? 'pose corporal activa usada para fases' : 'fallback heurístico'}. Revisa Top e Impact.`;
     render();
   } catch (error) {
@@ -1457,6 +1514,7 @@ async function autoDetectPhases() {
     state.autoDetection = { status: 'failed', confidence: 0.2, method: 'fallback-percentages', samples: 0, motionPeakTime: null, phaseConfidence: {}, extendedTimes: {}, diagnostics: {} };
     state.analysisMetrics = computeAnalysisMetrics();
     setAppState('marking');
+    refs.cleanHint.textContent = 'Toca para revisar fases estimadas';
     refs.analysisStatus.textContent = 'No se pudo detectar con fiabilidad. Se han colocado fases estimadas por porcentaje para que puedas corregirlas.';
     render();
   }

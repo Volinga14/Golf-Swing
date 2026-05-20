@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  const ENGINE_VERSION = 'v0.9.3 Pose Initial / SwingEngine 4.3';
+  const ENGINE_VERSION = 'v0.9.4 Pose Auto-Start / SwingEngine 4.4';
   const PHASES = ['address', 'takeaway', 'top', 'impact', 'finish'];
 
   function clamp(value, min, max) { return Math.max(min, Math.min(max, value)); }
@@ -157,9 +157,18 @@
     return window.SwingLabHeuristicEngine?.fallbackTimes?.(duration) || { address: 0, takeaway: duration * 0.2, top: duration * 0.45, impact: duration * 0.65, finish: duration * 0.88 };
   }
 
+
+  async function preload() {
+    if (window.SwingLabPoseEngine?.preload) {
+      try { await window.SwingLabPoseEngine.preload(); return { ok: true, provider: 'pose-mediapipe' }; }
+      catch (error) { return { ok: false, provider: 'pose-mediapipe', error: String(error?.message || error) }; }
+    }
+    return { ok: false, provider: 'none', error: 'Pose engine unavailable' };
+  }
   window.SwingLabEngine = {
     version: ENGINE_VERSION,
     providers: ['pose-mediapipe-initial+heuristic', 'pose-mediapipe+heuristic', 'heuristic-fallback'],
+    preload,
     analyze,
     computeMetrics,
     fallbackTimes,

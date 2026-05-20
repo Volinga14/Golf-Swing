@@ -1,7 +1,7 @@
 {
-  "name": "Swing Lab v0.9.3 Pose Initial",
+  "name": "Swing Lab v0.9.4 Pose Auto-Start",
   "short_name": "SwingLab",
-  "description": "PWA fullscreen para revisar swing de golf con detección inicial de fases usando Pose Foundation y fallback heurístico.",
+  "description": "PWA fullscreen para revisar swing de golf con análisis automático desde la carga usando Pose Foundation y fallback heurístico.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",

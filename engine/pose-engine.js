@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  const POSE_ENGINE_VERSION = 'v0.9.3 Pose Foundation / PoseEngine 0.4 pose-first';
+  const POSE_ENGINE_VERSION = 'v0.9.4 Pose Foundation / PoseEngine 0.5 auto-scan';
   const CDN_CANDIDATES = [
     { version: '0.10.14', base: 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14' },
     { version: '0.10.3', base: 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3' },
@@ -57,6 +57,7 @@
     return arr[lo] + (arr[hi] - arr[lo]) * (pos - lo);
   }
   function median(values) { return percentile(values, 0.5); }
+  function mean(values) { const arr = values.filter(Number.isFinite); return arr.length ? arr.reduce((a,b)=>a+b,0) / arr.length : 0; }
   function normalize(value, lo, hi) {
     return clamp((value - lo) / Math.max(hi - lo, 0.0001), 0, 1);
   }
@@ -241,38 +242,70 @@
     return { frame: best, score: bestScore };
   }
 
-  function inferPoseActiveWindow(frames, baseResult, duration) {
+  function inferPoseActiveWindow(frames, baseResult, duration, options = {}) {
+    const initialLoad = options.phaseDetectionMode === 'initial-load';
     const base = baseResult?.phases || {};
     const ext = baseResult?.extendedTimes || baseResult?.metrics?.extendedTimes || {};
     const baseStart = Number.isFinite(ext.activeStart) ? ext.activeStart : (Number.isFinite(base.address) ? base.address : frames[0].time);
     const baseEnd = Number.isFinite(ext.activeEnd) ? ext.activeEnd : (Number.isFinite(base.finish) ? base.finish : frames[frames.length - 1].time);
     const activities = frames.map(f => f.activity || 0);
-    const p50 = percentile(activities, 0.50);
-    const p80 = percentile(activities, 0.80);
-    const p92 = percentile(activities, 0.92);
-    const threshold = Math.max(0.18, p50 * 0.50 + p80 * 0.30 + p92 * 0.08);
+    const p45 = percentile(activities, 0.45);
+    const p70 = percentile(activities, 0.70);
+    const p86 = percentile(activities, 0.86);
+    const p94 = percentile(activities, 0.94);
+    const threshold = Math.max(0.10, p45 * 0.35 + p70 * 0.30 + p86 * 0.24 + p94 * 0.06);
+    const quietThreshold = Math.max(0.055, p45 * 0.45 + p70 * 0.10);
     const peak = frames.reduce((best, f) => (f.activity || 0) > (best.activity || 0) ? f : best, frames[0]);
 
-    let firstIdx = frames.findIndex((f, idx) => {
-      if (f.time > peak.time) return false;
-      const next = frames.slice(idx, Math.min(frames.length, idx + 4));
-      return next.some(n => (n.activity || 0) >= threshold) && f.visibility > 0.18;
-    });
+    const sustainedAbove = (idx, forward = true, count = 4) => {
+      let hits = 0;
+      for (let k = 0; k < count; k += 1) {
+        const j = forward ? idx + k : idx - k;
+        const f = frames[j];
+        if (!f) continue;
+        if ((f.activity || 0) >= threshold && f.visibility > 0.14) hits += 1;
+      }
+      return hits >= Math.max(2, Math.floor(count / 2));
+    };
+
+    let firstIdx = frames.findIndex((f, idx) => f.time <= peak.time && sustainedAbove(idx, true, 5));
+    if (firstIdx < 0) firstIdx = Math.max(0, frames.findIndex(f => (f.activity || 0) >= threshold * 0.75));
     if (firstIdx < 0) firstIdx = 0;
+
     let lastIdx = frames.length - 1;
     for (let i = frames.length - 1; i >= 0; i -= 1) {
-      const f = frames[i];
-      if (f.time < peak.time) break;
-      const prev = frames.slice(Math.max(0, i - 4), i + 1);
-      if (prev.some(n => (n.activity || 0) >= threshold) && f.visibility > 0.18) { lastIdx = i; break; }
+      if (frames[i].time < peak.time) break;
+      if (sustainedAbove(i, false, 5)) { lastIdx = i; break; }
     }
 
     let poseStart = frames[firstIdx]?.time ?? baseStart;
     let poseEnd = frames[lastIdx]?.time ?? baseEnd;
-    // Blend with heuristic only softly. Pose must be the principal source once available.
-    const activeStart = clamp(lerp(baseStart, poseStart, 0.72) - 0.03, 0, duration);
-    const activeEnd = clamp(lerp(baseEnd, poseEnd, 0.68) + 0.06, activeStart + 0.35, duration);
-    return { activeStart, activeEnd, poseStart, poseEnd, peakTime: peak.time, threshold, p80, p92 };
+
+    // Step backwards to include the stable address position just before motion begins.
+    for (let i = firstIdx; i >= 0; i -= 1) {
+      const f = frames[i];
+      if (!f || peak.time - f.time > 1.45) break;
+      if ((f.activity || 0) <= quietThreshold || i === 0) poseStart = f.time;
+      else break;
+    }
+
+    // Step forwards to include a real finish/hold after the impact peak.
+    for (let i = lastIdx; i < frames.length; i += 1) {
+      const f = frames[i];
+      if (!f || f.time - peak.time > 2.40) break;
+      poseEnd = f.time;
+      if ((f.activity || 0) <= quietThreshold && f.time > peak.time + 0.28) break;
+    }
+
+    const prePad = initialLoad ? Math.max(0.12, Math.min(0.38, (poseEnd - poseStart) * 0.07)) : 0.04;
+    const postPad = initialLoad ? Math.max(0.18, Math.min(0.55, (poseEnd - poseStart) * 0.11)) : 0.07;
+    const activeStart = initialLoad
+      ? clamp(poseStart - prePad, 0, duration)
+      : clamp(lerp(baseStart, poseStart, 0.72) - 0.03, 0, duration);
+    const activeEnd = initialLoad
+      ? clamp(poseEnd + postPad, activeStart + 0.42, duration)
+      : clamp(lerp(baseEnd, poseEnd, 0.68) + 0.06, activeStart + 0.35, duration);
+    return { activeStart, activeEnd, poseStart, poseEnd, peakTime: peak.time, threshold, quietThreshold, p70, p86, p94 };
   }
 
   function enforceOrder(times, duration) {
@@ -288,20 +321,24 @@
     return result;
   }
 
-  function derivePosePhases(frames, baseResult, duration, view) {
+  function derivePosePhases(frames, baseResult, duration, view, options = {}) {
     if (!frames.length) throw new Error('No pose frames');
     const base = baseResult?.phases || window.SwingLabHeuristicEngine?.fallbackTimes?.(duration) || {};
-    const windowInfo = inferPoseActiveWindow(frames, baseResult, duration);
+    const windowInfo = inferPoseActiveWindow(frames, baseResult, duration, options);
     const activeStart = windowInfo.activeStart;
     const activeEnd = windowInfo.activeEnd;
     const activeDur = Math.max(activeEnd - activeStart, 0.45);
     const startFrame = closestFrame(frames, activeStart) || frames[0];
 
-    const addressSearchEnd = Math.min(activeStart + Math.max(0.18, activeDur * 0.18), activeEnd);
-    const addressPick = findFrame(frames, Math.max(0, activeStart - 0.08), addressSearchEnd, (f) => {
-      const still = 1 - clamp(f.normHandSpeed / 1.05, 0, 1);
-      const nearBase = 1 - clamp(Math.abs(f.time - (base.address ?? activeStart)) / Math.max(activeDur * 0.30, 0.1), 0, 1);
-      return still * 0.45 + (f.visibility || 0) * 0.26 + nearBase * 0.18 + (1 - clamp(f.normTravel || 0, 0, 1)) * 0.11;
+    const initialLoad = options.phaseDetectionMode === 'initial-load';
+    const addressSearchStart = initialLoad ? Math.max(0, activeStart - 0.10) : Math.max(0, activeStart - 0.08);
+    const addressSearchEnd = Math.min(activeStart + Math.max(0.20, activeDur * 0.22), activeEnd);
+    const addressPick = findFrame(frames, addressSearchStart, addressSearchEnd, (f) => {
+      const still = 1 - clamp((f.normHandSpeed * 0.78 + f.headSpeed * 0.22) / 1.05, 0, 1);
+      const early = 1 - clamp((f.time - addressSearchStart) / Math.max(addressSearchEnd - addressSearchStart, 0.08), 0, 1);
+      const nearBase = 1 - clamp(Math.abs(f.time - (base.address ?? activeStart)) / Math.max(activeDur * 0.34, 0.1), 0, 1);
+      const handsLow = 1 - clamp(f.normHandHeight || 0, 0, 1);
+      return still * 0.38 + (f.visibility || 0) * 0.22 + early * 0.17 + nearBase * 0.12 + handsLow * 0.11;
     });
     const address = addressPick.frame || startFrame;
 
@@ -311,12 +348,13 @@
     const topStart = Math.max(address.time + Math.max(0.08, activeDur * 0.12), activeStart + activeDur * 0.18);
     const topEnd = Math.min(activeStart + activeDur * 0.68, baseImpact - Math.max(0.04, activeDur * 0.04));
     const topPick = findFrame(frames, topStart, Math.max(topStart + 0.05, topEnd), (f) => {
-      const baseProx = 1 - clamp(Math.abs(f.time - baseTop) / Math.max(activeDur * 0.30, 0.1), 0, 1);
-      const slowAtTop = 1 - clamp(f.normHandSpeed / 1.15, 0, 1);
-      const highHands = clamp(f.normHandHeight, 0, 1.2) / 1.2;
-      const turn = clamp(f.normTurn, 0, 1.25) / 1.25;
-      const travel = clamp(f.normTravel, 0, 1.25) / 1.25;
-      return highHands * 0.34 + turn * 0.22 + travel * 0.16 + slowAtTop * 0.14 + baseProx * 0.14;
+      const baseProx = 1 - clamp(Math.abs(f.time - baseTop) / Math.max(activeDur * 0.34, 0.1), 0, 1);
+      const slowAtTop = 1 - clamp(f.normHandSpeed / 1.18, 0, 1);
+      const highHands = clamp(f.normHandHeight, 0, 1.25) / 1.25;
+      const turn = clamp(f.normTurn, 0, 1.30) / 1.30;
+      const travel = clamp(f.normTravel, 0, 1.35) / 1.35;
+      const beforeImpact = scoreRange(baseImpact - f.time, 0.05, activeDur * 0.10, activeDur * 0.46, activeDur * 0.70);
+      return highHands * 0.31 + turn * 0.23 + travel * 0.17 + slowAtTop * 0.13 + beforeImpact * 0.10 + baseProx * 0.06;
     });
     const top = topPick.frame || closestFrame(frames, baseTop) || frames[Math.floor(frames.length * 0.45)];
 
@@ -325,12 +363,13 @@
     const addressHandY = address.hands?.y ?? closestFrame(frames, base.address)?.hands?.y ?? 0.55;
     const addressHandX = address.hands?.x ?? closestFrame(frames, base.address)?.hands?.x ?? 0.50;
     const impactPick = findFrame(frames, impactStart, Math.max(impactStart + 0.05, impactEnd), (f) => {
-      const yProx = 1 - clamp(Math.abs((f.hands?.y ?? addressHandY) - addressHandY) / Math.max(f.bodyScale * 1.25, 0.08), 0, 1);
-      const xProx = 1 - clamp(Math.abs((f.hands?.x ?? addressHandX) - addressHandX) / Math.max(f.bodyScale * 2.20, 0.14), 0, 1);
-      const speed = clamp(f.normHandSpeed, 0, 1.65) / 1.65;
-      const baseProx = 1 - clamp(Math.abs(f.time - baseImpact) / Math.max(activeDur * 0.25, 0.08), 0, 1);
-      const afterTop = scoreRange(f.time - top.time, 0.05, 0.13, 0.65, 0.95);
-      return speed * 0.34 + yProx * 0.25 + xProx * 0.12 + afterTop * 0.17 + baseProx * 0.12;
+      const yProx = 1 - clamp(Math.abs((f.hands?.y ?? addressHandY) - addressHandY) / Math.max(f.bodyScale * 1.18, 0.08), 0, 1);
+      const xProx = 1 - clamp(Math.abs((f.hands?.x ?? addressHandX) - addressHandX) / Math.max(f.bodyScale * 2.00, 0.14), 0, 1);
+      const speed = clamp(f.normHandSpeed, 0, 1.75) / 1.75;
+      const hipReturn = 1 - clamp(Math.abs(f.hipShift || 0) / 3.0, 0, 1);
+      const baseProx = 1 - clamp(Math.abs(f.time - baseImpact) / Math.max(activeDur * 0.30, 0.08), 0, 1);
+      const afterTop = scoreRange(f.time - top.time, 0.045, 0.10, Math.max(0.52, activeDur * 0.38), Math.max(0.82, activeDur * 0.62));
+      return speed * 0.32 + yProx * 0.22 + xProx * 0.12 + afterTop * 0.14 + hipReturn * 0.08 + baseProx * 0.12;
     });
     const impact = impactPick.frame || closestFrame(frames, baseImpact) || top;
 
@@ -359,13 +398,15 @@
     const poseQuality = clamp(median(frames.map(f => f.visibility)), 0, 1);
     const topStrength = clamp(topPick.score || 0, 0, 1.25) / 1.25;
     const impactStrength = clamp(impactPick.score || 0, 0, 1.25) / 1.25;
-    const poseWeight = clamp(0.54 + poseQuality * 0.22 + ((topStrength + impactStrength) / 2) * 0.18, 0.52, 0.92);
+    const poseWeight = clamp((initialLoad ? 0.68 : 0.56) + poseQuality * 0.18 + ((topStrength + impactStrength) / 2) * 0.16, initialLoad ? 0.68 : 0.54, initialLoad ? 0.97 : 0.92);
 
-    // Pose is primary in v0.9.3. The heuristic only stabilises outliers.
+    // Pose is primary in v0.9.4. Heuristic only stabilises outliers, especially after automatic load.
     const blended = {};
     PHASES.forEach(id => {
       const baseTime = Number.isFinite(base[id]) ? base[id] : rawTimes[id];
-      const phaseWeight = id === 'top' || id === 'impact' ? poseWeight : poseWeight * 0.86;
+      let phaseWeight = id === 'top' || id === 'impact' ? poseWeight : poseWeight * 0.90;
+      if (initialLoad && (id === 'top' || id === 'impact')) phaseWeight = Math.max(phaseWeight, 0.90);
+      if (initialLoad && id === 'address') phaseWeight = Math.max(phaseWeight, 0.82);
       blended[id] = lerp(baseTime, rawTimes[id], phaseWeight);
     });
     const times = enforceOrder(blended, duration);
@@ -420,17 +461,19 @@
     lastLoadInfo = landmarker.__swingLabLoadInfo || null;
     const duration = Number.isFinite(video.duration) ? video.duration : 0;
     if (!duration) throw new Error('Video duration unavailable');
+    const initialLoad = input.phaseDetectionMode === 'initial-load';
     const base = input.baseResult || {};
     const ext = base.extendedTimes || base.metrics?.extendedTimes || {};
     const baseStart = Number.isFinite(ext.activeStart) ? ext.activeStart : 0;
     const baseEnd = Number.isFinite(ext.activeEnd) ? ext.activeEnd : duration;
     const marginBefore = Math.max(0.45, duration * 0.10);
     const marginAfter = Math.max(0.65, duration * 0.14);
-    let start = Math.max(0, baseStart - marginBefore);
-    let end = Math.min(duration, baseEnd + marginAfter);
+    let start = initialLoad ? 0 : Math.max(0, baseStart - marginBefore);
+    let end = initialLoad ? duration : Math.min(duration, baseEnd + marginAfter);
     if (duration <= 4.5 || end - start < 1.25) { start = 0; end = duration; }
-    const desired = Math.round((end - start) * 30);
-    const sampleCount = Math.min(input.maxPoseSamples || 156, Math.max(48, desired));
+    const desired = Math.round((end - start) * (initialLoad ? 24 : 30));
+    const cap = input.maxPoseSamples || (initialLoad ? 228 : 156);
+    const sampleCount = Math.min(cap, Math.max(initialLoad ? 86 : 48, desired));
     const frames = [];
     const originalTime = video.currentTime || 0;
     const wasPaused = video.paused;
@@ -446,9 +489,30 @@
       if (features && Number.isFinite(features.visibility) && features.visibility > 0.08) frames.push(features);
       if (i % 6 === 0) await new Promise(r => setTimeout(r, 0));
     }
+    let enriched = enrichKinematics(frames);
+    if (initialLoad && enriched.length >= 24) {
+      // Second pass: once the body motion window is known, sample it more densely.
+      const coarse = inferPoseActiveWindow(enriched, input.baseResult || {}, duration, { phaseDetectionMode: 'initial-load' });
+      const denseStart = clamp(coarse.activeStart - 0.12, 0, duration);
+      const denseEnd = clamp(coarse.activeEnd + 0.18, denseStart + 0.4, duration);
+      const denseCount = Math.min(Math.max(72, Math.round((denseEnd - denseStart) * 42)), Math.max(96, Math.floor((input.maxPoseSamples || 228) * 0.72)));
+      for (let i = 0; i < denseCount; i += 1) {
+        const ratio = denseCount === 1 ? 0 : i / (denseCount - 1);
+        const time = denseStart + (denseEnd - denseStart) * ratio;
+        await seek(video, time);
+        const result = landmarker.detectForVideo(video, nextVideoTimestamp(time));
+        const landmarks = result?.landmarks?.[0];
+        const features = landmarksToFeatures(landmarks, time);
+        if (features && Number.isFinite(features.visibility) && features.visibility > 0.08) frames.push(features);
+        if (i % 8 === 0) await new Promise(r => setTimeout(r, 0));
+      }
+      const byTime = new Map();
+      for (const f of frames) byTime.set(Math.round(f.time * 1000), f);
+      enriched = enrichKinematics([...byTime.values()].sort((a, b) => a.time - b.time));
+    }
     await seek(video, originalTime);
     if (!wasPaused) video.play().catch(() => {});
-    return enrichKinematics(frames);
+    return enriched;
   }
 
   async function analyze(input) {
@@ -457,7 +521,7 @@
     const duration = Number.isFinite(video.duration) ? video.duration : 0;
     const frames = await samplePoseFrames(video, input);
     if (frames.length < 14) throw new Error('No hay suficientes landmarks fiables');
-    const phaseResult = derivePosePhases(frames, input.baseResult, duration, input.view || 'dtl');
+    const phaseResult = derivePosePhases(frames, input.baseResult, duration, input.view || 'dtl', input || {});
     return {
       engineVersion: POSE_ENGINE_VERSION,
       provider: 'pose-mediapipe',
@@ -475,6 +539,7 @@
     version: POSE_ENGINE_VERSION,
     provider: 'pose-mediapipe',
     analyze,
+    preload: loadLandmarker,
     isAvailable: () => typeof window !== 'undefined' && 'WebAssembly' in window,
     config: { cdnCandidates: CDN_CANDIDATES.map(c => c.base), modelCandidates: MODEL_CANDIDATES }
   };
