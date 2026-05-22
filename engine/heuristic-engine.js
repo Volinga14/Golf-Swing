@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  const ENGINE_VERSION = 'v0.9.6 Stable Player Audit / HeuristicEngine 3.2';
+  const ENGINE_VERSION = 'v0.9.8 Client Report / HeuristicEngine 3.4';
   const PHASES = ['address', 'takeaway', 'top', 'impact', 'finish'];
   const REFERENCE = {
     tempoIdealLow: 2.4,

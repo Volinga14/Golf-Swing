@@ -1,4 +1,4 @@
-const CACHE_NAME = 'swing-lab-v097-phase-control-fix';
+const CACHE_NAME = 'swing-lab-v098-client-report-training';
 const APP_ASSETS = [
   './',
   './index.html',

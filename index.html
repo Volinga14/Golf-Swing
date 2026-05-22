@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no" />
-  <title>Swing Lab v0.9.6 Stable Player Audit</title>
-  <meta name="description" content="Swing Lab PWA v0.9.6 - detección en copia oculta del vídeo para mantener reproductor y marcado manual estables." />
+  <title>Swing Lab v0.9.8 Client Report & Training</title>
+  <meta name="description" content="Swing Lab PWA v0.9.8 - análisis estable con Pose Foundation, informe cliente y dataset de entrenamiento." />
   <meta name="theme-color" content="#000000" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -133,11 +133,15 @@
             <div class="analysis-actions">
               <button id="analyzeBtn" class="small-pill" type="button">Generar</button>
               <button id="saveSessionTopBtn" class="small-pill save-pill" type="button">Guardar</button>
+              <button id="downloadReportBtn" class="small-pill" type="button">Informe</button>
             </div>
           </div>
           <div id="recommendations" class="recommendations"></div>
           <div id="capturesGrid" class="captures-grid"></div>
-          <button id="saveSessionBtn" class="wide-action primary-save" type="button">Guardar análisis</button>
+          <div class="analysis-wide-actions">
+            <button id="saveSessionBtn" class="wide-action primary-save" type="button">Guardar análisis</button>
+            <button id="exportDatasetBtn" class="wide-action" type="button">Exportar datos entrenamiento</button>
+          </div>
         </div>
 
         <div id="historyPanel" class="dock-panel hidden">

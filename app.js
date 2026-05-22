@@ -2,7 +2,7 @@
 
 const $ = (id) => document.getElementById(id);
 const DB_NAME = 'swing-lab-db';
-const DB_VERSION = 16;
+const DB_VERSION = 17;
 const STORE = 'sessions';
 const ASSUMED_FPS = 30;
 
@@ -138,6 +138,8 @@ const refs = {
   capturesGrid: $('capturesGrid'),
   saveSessionBtn: $('saveSessionBtn'),
   saveSessionTopBtn: $('saveSessionTopBtn'),
+  downloadReportBtn: $('downloadReportBtn'),
+  exportDatasetBtn: $('exportDatasetBtn'),
   expandSheetBtn: $('expandSheetBtn'), // removed in v0.9.1; kept optional for backwards compatibility
   historySelectBtn: $('historySelectBtn'),
   deleteSelectedHistoryBtn: $('deleteSelectedHistoryBtn'),
@@ -339,7 +341,7 @@ function applyVideoFile(file) {
   refs.video.src = state.videoUrl;
   refs.video.load();
   prepareAnalysisVideo();
-  state.autoDetection = { status: 'queued', confidence: 0, method: 'Pose Foundation v0.9.6 auto-start', provider: '', samples: 0, poseSamples: 0, poseStatus: 'queued', motionPeakTime: null, phaseConfidence: {}, extendedTimes: {}, diagnostics: {}, poseSummary: null };
+  state.autoDetection = { status: 'queued', confidence: 0, method: 'Pose Foundation v0.9.8 auto-start', provider: '', samples: 0, poseSamples: 0, poseStatus: 'queued', motionPeakTime: null, phaseConfidence: {}, extendedTimes: {}, diagnostics: {}, poseSummary: null };
   setAppState('loaded');
   render();
   preWarmPoseEngine();
@@ -492,7 +494,7 @@ function waitForVideoReadyForAnalysis(timeoutMs = 2600, media = refs.video) {
       resolve(videoHasFrameData(media));
     };
     const check = () => {
-      if (videoHasFrameData() || performance.now() - started > timeoutMs) finish();
+      if (videoHasFrameData(media) || performance.now() - started > timeoutMs) finish();
     };
     const cleanup = () => {
       clearInterval(timer);
@@ -626,6 +628,8 @@ function renderReadouts() {
   const canSave = Boolean(Object.keys(state.phaseCaptures).length || (state.videoUrl && markedCount()));
   refs.saveSessionBtn.disabled = !canSave;
   refs.saveSessionTopBtn.disabled = !canSave;
+  if (refs.downloadReportBtn) refs.downloadReportBtn.disabled = !hasCompletePhaseTimes(state.phaseTimes || {});
+  if (refs.exportDatasetBtn) refs.exportDatasetBtn.disabled = !hasCompletePhaseTimes(state.phaseTimes || {});
   if (refs.historySelectBtn) refs.historySelectBtn.textContent = state.historySelectionMode ? 'Cancelar' : 'Seleccionar';
   if (refs.deleteSelectedHistoryBtn) {
     const count = state.selectedSessionIds?.size || 0;
@@ -732,6 +736,7 @@ function markCurrentPhase() {
   const phase = currentPhase();
   const currentIndex = phases.findIndex((item) => item.id === phase.id);
   state.phaseTimes[phase.id] = refs.video.currentTime || 0;
+  state.analysisMetrics = null;
   state.userMarkedPhaseIds.add(phase.id);
 
   const nextPhase = phases[currentIndex + 1];
@@ -756,124 +761,234 @@ function fmtSec(value) {
   return Number.isFinite(value) ? `${value.toFixed(2)} s` : '--';
 }
 
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+function currentVideoDuration() {
+  if (Number.isFinite(refs.video?.duration) && refs.video.duration > 0) return refs.video.duration;
+  if (Number.isFinite(state.analysisMetrics?.duration) && state.analysisMetrics.duration > 0) return state.analysisMetrics.duration;
+  const times = Object.values(state.phaseTimes || {}).filter(Number.isFinite);
+  return times.length ? Math.max(...times) : 0;
+}
+
+function analysisInputForMetrics() {
+  return {
+    times: clone(state.phaseTimes),
+    confidence: state.autoDetection.confidence || 0.45,
+    phaseConfidence: state.autoDetection.phaseConfidence || {},
+    extendedTimes: state.autoDetection.extendedTimes || {},
+    diagnostics: state.autoDetection.diagnostics || {},
+    poseSummary: state.autoDetection.poseSummary || null,
+    provider: state.autoDetection.provider || state.autoDetection.method || 'manual-review',
+  };
+}
+
+function ensureAnalysisMetrics() {
+  state.analysisMetrics = state.analysisMetrics || (window.SwingLabEngine?.computeMetrics
+    ? window.SwingLabEngine.computeMetrics(analysisInputForMetrics(), currentVideoDuration(), ASSUMED_FPS)
+    : computeAnalysisMetrics());
+  return state.analysisMetrics;
+}
+
+function clientStatusFromMetrics(metrics) {
+  const score = metrics?.scores?.overall ?? 0;
+  const phaseConf = metrics?.scores?.phaseQuality ?? 0;
+  const impactConf = Math.round(((metrics?.phaseConfidence || {}).impact ?? metrics?.confidence ?? 0) * 100);
+  if (score >= 78 && phaseConf >= 70 && impactConf >= 62) return { cls: 'good', label: 'Análisis utilizable', detail: 'La sesión tiene suficiente coherencia para revisar conclusiones principales.' };
+  if (score >= 55 || phaseConf >= 55) return { cls: 'warn', label: 'Revisión recomendada', detail: 'Usa las capturas para confirmar Top e Impact antes de compartir el informe.' };
+  return { cls: 'risk', label: 'Baja confianza', detail: 'El vídeo o las fases requieren corrección manual antes de usar conclusiones técnicas.' };
+}
+
+function topClientPriorities(metrics) {
+  const priorities = [];
+  const pc = metrics?.phaseConfidence || {};
+  if ((pc.top ?? metrics?.confidence ?? 0) < 0.62) priorities.push('Confirmar manualmente el frame de Top: es la referencia principal para tempo y backswing.');
+  if ((pc.impact ?? metrics?.confidence ?? 0) < 0.62) priorities.push('Confirmar manualmente Impact: es la fase crítica para manos, eje corporal y delivery.');
+  if (metrics?.tempoRatio && (metrics.tempoRatio < 2.1 || metrics.tempoRatio > 3.8)) priorities.push('Revisar tempo: la relación backswing/downswing está fuera del rango esperado o alguna fase está desplazada.');
+  if (metrics?.followThrough != null && metrics.followThrough < 0.30) priorities.push('Revisar Finish: parece demasiado cerca de Impact o no hay suficiente hold final visible.');
+  if (metrics?.poseStatus !== 'available') priorities.push('Para mejorar el motor, validar fases manualmente y guardar la sesión como ejemplo de entrenamiento.');
+  if (!priorities.length) priorities.push('Usar las capturas Address, Top e Impact para validar postura, secuencia y delivery con líneas simples.');
+  return priorities.slice(0, 4);
+}
+
+function clientDrills(metrics) {
+  const drills = [];
+  if (metrics?.tempoRatio && metrics.tempoRatio < 2.2) drills.push({ name: 'Pausa en Top', detail: 'Haz swings de práctica con una pausa corta en Top para sentir una transición más ordenada.' });
+  if (metrics?.tempoRatio && metrics.tempoRatio > 3.8) drills.push({ name: 'Ritmo 3:1', detail: 'Cuenta 1-2-3 en la subida y 1 en la bajada; busca un tempo más compacto.' });
+  if (metrics?.followThrough != null && metrics.followThrough < 0.45) drills.push({ name: 'Finish hold', detail: 'Mantén el finish 2 segundos. Si pierdes equilibrio, revisa transferencia y rotación.' });
+  drills.push({ name: 'Head box', detail: 'Dibuja una caja alrededor de la cabeza en Address y compárala con Top e Impact.' });
+  drills.push({ name: 'Impact checkpoint', detail: 'Dibuja línea de cadera y manos en Impact para revisar rotación y posición de manos.' });
+  return drills.slice(0, 4);
+}
+
+function metricText(value, suffix = '') {
+  return Number.isFinite(value) ? `${value.toFixed(2)}${suffix}` : '--';
+}
+
+function phaseRowsHtml(metrics) {
+  return phases.map((phase) => {
+    const t = extractPhaseTime(state.phaseTimes?.[phase.id]);
+    const conf = Math.round(((metrics?.phaseConfidence || {})[phase.id] ?? metrics?.confidence ?? 0) * 100);
+    return `<tr><td>${phase.label}</td><td>${Number.isFinite(t) ? formatTime(t) : '--'}</td><td>${Number.isFinite(t) ? `F${frameNumber(t)}` : '--'}</td><td>${conf}%</td><td>${state.userMarkedPhaseIds.has(phase.id) ? 'Manual' : 'Auto/estimada'}</td></tr>`;
+  }).join('');
+}
+
+function phaseCorrections(metrics = null) {
+  const diagnostics = state.autoDetection?.diagnostics || {};
+  const raw = diagnostics.rawDetectedPhases || diagnostics.refinedDetectedPhases || null;
+  const corrections = {};
+  phases.forEach((phase) => {
+    const detected = raw ? extractPhaseTime(raw[phase.id]) : null;
+    const finalTime = extractPhaseTime(state.phaseTimes?.[phase.id]);
+    corrections[phase.id] = {
+      detected,
+      final: finalTime,
+      delta: Number.isFinite(detected) && Number.isFinite(finalTime) ? finalTime - detected : null,
+      manuallyMarked: state.userMarkedPhaseIds.has(phase.id),
+      confidence: (metrics?.phaseConfidence || state.autoDetection?.phaseConfidence || {})[phase.id] ?? null,
+    };
+  });
+  return corrections;
+}
+
+function buildTrainingRecord(metrics = ensureAnalysisMetrics()) {
+  return {
+    schema: 'swing-lab-training-record-v1',
+    createdAt: new Date().toISOString(),
+    appVersion: 'v0.9.8-client-report-training',
+    videoName: state.videoName || 'swing-video',
+    guideMode: state.guideMode,
+    duration: currentVideoDuration(),
+    autoDetection: {
+      provider: state.autoDetection.provider || state.autoDetection.method || 'unknown',
+      status: state.autoDetection.status,
+      confidence: state.autoDetection.confidence || 0,
+      poseStatus: state.autoDetection.poseStatus || metrics.poseStatus || 'unavailable',
+      poseSamples: state.autoDetection.poseSamples || metrics.poseSummary?.samples || 0,
+      samples: state.autoDetection.samples || 0,
+      diagnostics: state.autoDetection.diagnostics || {},
+    },
+    finalPhaseTimes: clone(state.phaseTimes),
+    autoVsFinalCorrections: phaseCorrections(metrics),
+    metrics: clone(metrics),
+    notesForTraining: 'Use finalPhaseTimes as corrected labels. autoVsFinalCorrections shows where the motor was wrong versus the final manual result.',
+  };
+}
+
+function buildReportHtml(metrics = ensureAnalysisMetrics()) {
+  const status = clientStatusFromMetrics(metrics);
+  const priorities = topClientPriorities(metrics);
+  const drills = clientDrills(metrics);
+  const date = new Date().toLocaleString('es-ES');
+  const captures = phases.map((phase) => ({ phase, src: state.phaseCaptures?.[phase.id] })).filter(x => x.src);
+  const score = metrics?.scores || {};
+  const poseLine = metrics.poseStatus === 'available'
+    ? `Pose corporal activa (${metrics.poseSummary?.samples || state.autoDetection.poseSamples || 0} muestras)`
+    : 'Pose no disponible: análisis basado en motor temporal/heurístico y corrección manual';
+  const captureHtml = captures.map(({ phase, src }) => `<figure><img src="${src}" alt="${phase.label}"><figcaption>${phase.label}</figcaption></figure>`).join('');
+  return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Informe Swing Lab</title><style>
+    body{font-family:Inter,Arial,sans-serif;margin:0;background:#f4f4f2;color:#161616}.page{max-width:980px;margin:0 auto;padding:34px}header{background:#101010;color:#fff;border-radius:24px;padding:28px;margin-bottom:18px}h1{margin:0;font-size:34px;letter-spacing:-.04em}h2{margin:26px 0 10px;font-size:20px}.muted{color:#666}.card{background:#fff;border-radius:20px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(0,0,0,.07)}.status{display:inline-block;border-radius:999px;padding:7px 11px;background:#eee;font-weight:800}.status.good{background:#dff5df}.status.warn{background:#fff1c8}.status.risk{background:#ffd9d9}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}.metric{background:#f3f3f1;border-radius:14px;padding:12px}.metric b{font-size:24px;display:block}.metric span{font-size:12px;color:#666}table{width:100%;border-collapse:collapse;background:#fff;border-radius:16px;overflow:hidden}td,th{border-bottom:1px solid #eee;padding:10px;text-align:left;font-size:13px}th{background:#111;color:#fff}.captures{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}.captures figure{margin:0;background:#fff;border-radius:14px;padding:8px}.captures img{width:100%;aspect-ratio:9/16;object-fit:contain;background:#111;border-radius:10px}.captures figcaption{text-align:center;font-weight:800;font-size:12px;margin-top:6px}li{margin:6px 0}.small{font-size:12px;color:#666}@media print{body{background:#fff}.page{padding:0}.card,header{box-shadow:none}.captures{grid-template-columns:repeat(5,1fr)}}@media(max-width:720px){.grid{grid-template-columns:repeat(2,1fr)}.captures{grid-template-columns:repeat(2,1fr)}.page{padding:16px}h1{font-size:28px}}
+  </style></head><body><div class="page"><header><h1>Informe Swing Lab</h1><p>${escapeHtml(state.videoName || 'Swing analysis')} · ${date}</p><span class="status ${status.cls}">${status.label}</span></header>
+  <section class="card"><h2>Resumen ejecutivo</h2><p>${status.detail}</p><p>Tempo estimado <b>${metrics.tempoRatio ? metrics.tempoRatio.toFixed(2)+':1' : '--'}</b>, backswing <b>${metricText(metrics.backswing,' s')}</b>, downswing <b>${metricText(metrics.downswing,' s')}</b>, score global <b>${score.overall ?? '--'}/100</b>.</p><p class="small">${escapeHtml(poseLine)}</p></section>
+  <section class="card"><h2>Dashboard</h2><div class="grid"><div class="metric"><b>${score.overall ?? '--'}</b><span>Score global</span></div><div class="metric"><b>${score.phaseQuality ?? '--'}</b><span>Fases</span></div><div class="metric"><b>${score.tempo ?? '--'}</b><span>Tempo</span></div><div class="metric"><b>${score.finish ?? '--'}</b><span>Finish</span></div></div></section>
+  <section class="card"><h2>Fases y frames</h2><table><thead><tr><th>Fase</th><th>Tiempo</th><th>Frame</th><th>Confianza</th><th>Origen</th></tr></thead><tbody>${phaseRowsHtml(metrics)}</tbody></table></section>
+  <section class="card"><h2>Capturas</h2><div class="captures">${captureHtml || '<p>No hay capturas generadas.</p>'}</div></section>
+  <section class="card"><h2>Prioridades de revisión</h2><ol>${priorities.map(p => `<li>${escapeHtml(p)}</li>`).join('')}</ol></section>
+  <section class="card"><h2>Ejercicios recomendados</h2><ul>${drills.map(d => `<li><b>${escapeHtml(d.name)}:</b> ${escapeHtml(d.detail)}</li>`).join('')}</ul></section>
+  <section class="card"><h2>Datos para mejora del motor</h2><p class="small">Este informe guarda la diferencia entre detección automática y fases finales. Esa información puede alimentar futuras versiones del motor.</p><pre class="small">${escapeHtml(JSON.stringify({ corrections: phaseCorrections(metrics), provider: state.autoDetection.provider, poseStatus: state.autoDetection.poseStatus }, null, 2))}</pre></section>
+  </div></body></html>`;
+}
+
+function downloadText(filename, content, mime = 'text/plain') {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 250);
+}
+
+async function downloadReport() {
+  if (!Object.keys(state.phaseCaptures || {}).length && state.videoUrl && markedCount()) {
+    state.phaseCaptures = await generatePhaseCaptures();
+  }
+  const metrics = ensureAnalysisMetrics();
+  downloadText(`swing-lab-report-${new Date().toISOString().slice(0,10)}.html`, buildReportHtml(metrics), 'text/html');
+}
+
+function exportTrainingDataset() {
+  const metrics = ensureAnalysisMetrics();
+  downloadText(`swing-lab-training-${new Date().toISOString().replace(/[:.]/g,'-')}.json`, JSON.stringify(buildTrainingRecord(metrics), null, 2), 'application/json');
+}
+
 function buildRecommendations() {
-  const marked = markedCount();
-  const missing = phases.filter((phase) => state.phaseTimes[phase.id] == null).map((phase) => phase.label);
-  const metrics = state.analysisMetrics || computeAnalysisMetrics();
-  state.analysisMetrics = metrics;
+  const metrics = ensureAnalysisMetrics();
   const recs = [];
-  const confidence = Math.round((state.autoDetection.confidence || 0) * 100);
-  const diagnostics = metrics.diagnostics || {};
+  const status = clientStatusFromMetrics(metrics);
   const scores = metrics.scores || {};
-  const ext = metrics.extendedTimes || {};
+  const confidence = Math.round((state.autoDetection.confidence || metrics.confidence || 0) * 100);
+  const poseAvailable = metrics.poseStatus === 'available' || state.autoDetection.poseStatus === 'available';
+  const poseSamples = state.autoDetection.poseSamples || metrics.poseSummary?.samples || 0;
 
-  if (state.autoDetection.status === 'done') {
-    const poseText = state.autoDetection.poseStatus === 'available'
-      ? ` · pose activa con ${state.autoDetection.poseSamples || metrics.poseSummary?.samples || 0} muestras corporales`
-      : ' · pose no activa, usando fallback heurístico';
-    recs.push(`<b>Detección inteligente:</b> ${metrics.method || 'Smart Phases'} · ${confidence}% de confianza · ${state.autoDetection.samples || 0} muestras de movimiento${poseText}. Combina movimiento real del vídeo, patrón temporal de referencia y landmarks corporales cuando MediaPipe está disponible.`);
-    if (state.autoDetection.poseStatus !== 'available' && state.autoDetection.poseError) {
-      recs.push(`<b>Nota Pose:</b> no se activó MediaPipe Pose en este análisis. Motivo técnico: ${String(state.autoDetection.poseError).slice(0, 180)}. En GitHub/HTTPS debería cargar; revisa conexión inicial y actualiza la PWA si estaba cacheada.`);
-    }
-  } else if (state.autoDetection.status === 'failed') {
-    recs.push('<b>Motor inteligente:</b> baja confianza. Se han colocado fases estimadas por porcentaje; conviene revisar todos los frames manualmente.');
-  } else if (state.captureOnly) {
-    recs.push('<b>Sesión recuperada:</b> estás viendo capturas guardadas. Puedes activar dibujo y añadir líneas sobre las imágenes aunque no esté cargado el vídeo original.');
-  }
+  recs.push(`<div class="client-summary"><span class="client-status ${status.cls}">${status.label}</span><h3>Resumen ejecutivo</h3><p>${status.detail}</p><p>Resultado orientativo: score global ${scores.overall ?? '--'}/100, tempo ${metrics.tempoRatio ? metrics.tempoRatio.toFixed(2) + ':1' : '--'}, backswing ${fmtSec(metrics.backswing)}, downswing ${fmtSec(metrics.downswing)}.</p></div>`);
 
-  if (scores.overall != null) {
-    recs.push(`<div class="metric-grid metric-grid-wide">
-      <div class="metric-card"><b>${scores.overall}</b><span>Score global</span></div>
-      <div class="metric-card"><b>${scores.phaseQuality}</b><span>Fases</span></div>
-      <div class="metric-card"><b>${scores.tempo}</b><span>Tempo</span></div>
-      <div class="metric-card"><b>${scores.sequence ?? '-'}</b><span>Secuencia</span></div>
-      <div class="metric-card"><b>${scores.downswing ?? '-'}</b><span>Downswing</span></div>
-      <div class="metric-card"><b>${scores.finish}</b><span>Finish</span></div>
-    </div>`);
-    recs.push(`<b>Lectura técnica:</b> ${metrics.scoreLabels?.overall || 'pendiente'}. Setup/fases ${metrics.scoreLabels?.phaseQuality || 'pendiente'}, tempo ${metrics.scoreLabels?.tempo || 'pendiente'}, secuencia ${metrics.scoreLabels?.sequence || 'pendiente'}. Este bloque replica la lógica de dashboard del informe: score global + lectura accionable, no solo tiempos.`);
-    if (scores.pose != null) {
-      recs.push(`<b>Pose Foundation:</b> score pose ${scores.pose}/100 (${metrics.scoreLabels?.pose || 'pendiente'}). ${metrics.poseStatus === 'available' ? 'Se han usado landmarks corporales para refinar fases y métricas.' : 'No se ha podido usar pose; el análisis sigue en fallback heurístico.'}`);
-    }
-  }
+  recs.push(`<div class="report-grid">
+    <div class="report-metric"><b>${scores.overall ?? '--'}</b><span>Score global</span></div>
+    <div class="report-metric"><b>${scores.phaseQuality ?? '--'}</b><span>Calidad de fases</span></div>
+    <div class="report-metric"><b>${scores.tempo ?? '--'}</b><span>Tempo</span></div>
+    <div class="report-metric"><b>${scores.finish ?? '--'}</b><span>Finish</span></div>
+  </div>`);
 
-  if (marked < phases.length) {
-    recs.push(`<b>Fases:</b> ${marked}/${phases.length} marcadas. Pendientes: ${missing.join(', ') || 'ninguna'}. El análisis mejora mucho cuando Address, Top, Impact y Finish están bien ajustadas.`);
-  } else {
-    recs.push('<b>Fases completas:</b> ya hay una estructura mínima para medir tempo, secuencia y capturas. Revisa manualmente Top e Impact, porque son los dos frames críticos del análisis.');
-  }
+  const engineLine = poseAvailable
+    ? `Pose corporal activa · ${poseSamples} muestras corporales · confianza ${confidence}%.`
+    : `Pose no disponible o débil · motor temporal/heurístico · confianza ${confidence}%.`;
+  recs.push(`<b>Motor de análisis:</b> ${engineLine} ${poseAvailable ? 'Se han usado landmarks para apoyar la detección.' : 'El análisis sigue siendo usable, pero Top e Impact deben validarse manualmente.'}`);
+
+  const phaseRows = phases.map((phase) => {
+    const t = extractPhaseTime(state.phaseTimes?.[phase.id]);
+    const conf = Math.round(((metrics.phaseConfidence || {})[phase.id] ?? metrics.confidence ?? 0) * 100);
+    return `${phase.short}: ${Number.isFinite(t) ? `${formatTime(t)} / F${frameNumber(t)}` : '--'} (${conf}%)`;
+  }).join(' · ');
+  recs.push(`<b>Frames clave:</b> ${phaseRows}`);
+
+  const priorities = topClientPriorities(metrics);
+  recs.push(`<b>Prioridades para validar:</b><ul>${priorities.map((item) => `<li>${item}</li>`).join('')}</ul>`);
 
   if (metrics?.tempoRatio) {
-    const tempo = metrics.tempoRatio;
-    let tempoComment = 'tempo razonable para un swing completo.';
-    if (tempo < 2.0) tempoComment = 'backswing demasiado corto respecto al downswing o Top marcado tarde; revisa Top con frame-by-frame.';
-    else if (tempo > 4.3) tempoComment = 'backswing muy largo respecto al downswing o Impact marcado tarde; revisa Impact y Finish.';
-    recs.push(`<b>Tempo avanzado:</b> ${tempo.toFixed(2)}:1 · referencia ${metrics.reference?.tempoBand || '2.4:1–3.1:1'} · backswing ${fmtSec(metrics.backswing)} · downswing ${fmtSec(metrics.downswing)} · follow-through ${fmtSec(metrics.followThrough)}. ${tempoComment}`);
+    const tempoRead = metrics.tempoRatio < 2.1 ? 'rápido/compacto' : metrics.tempoRatio > 3.8 ? 'lento o fase desplazada' : 'dentro de rango razonable';
+    recs.push(`<b>Tempo y secuencia:</b> ${metrics.tempoRatio.toFixed(2)}:1 (${tempoRead}). Backswing ${fmtSec(metrics.backswing)}, downswing ${fmtSec(metrics.downswing)}, follow-through ${fmtSec(metrics.followThrough)}.`);
   }
 
   if (metrics?.activeWindow) {
-    recs.push(`<b>Ventana activa:</b> ${fmtSec(metrics.activeWindow)} detectados entre ${formatTime(ext.activeStart)} y ${formatTime(ext.activeEnd)}. Esto evita que vídeos largos contaminen el análisis con preparación o pausas antes del swing.`);
+    const ext = metrics.extendedTimes || {};
+    recs.push(`<b>Ventana activa:</b> ${fmtSec(metrics.activeWindow)} entre ${formatTime(ext.activeStart)} y ${formatTime(ext.activeEnd)}. Si el vídeo es largo, esta ventana es la parte que el motor considera swing real.`);
   }
-
-  if (Number.isFinite(ext.midBackswing) || Number.isFinite(ext.transition) || Number.isFinite(ext.preImpact)) {
-    const parts = [];
-    if (Number.isFinite(ext.midBackswing)) parts.push(`mid-backswing F${frameNumber(ext.midBackswing)}`);
-    if (Number.isFinite(ext.transition)) parts.push(`transition F${frameNumber(ext.transition)}`);
-    if (Number.isFinite(ext.preImpact)) parts.push(`pre-impact F${frameNumber(ext.preImpact)}`);
-    recs.push(`<b>Microfases internas:</b> ${parts.join(' · ')}. No añaden botones nuevos, pero ayudan a interpretar secuencia y aceleración entre Top e Impact.`);
-  }
-
-  if (metrics?.phaseConfidence) {
-    const parts = phases.map((phase) => `${phase.short} ${Math.round((metrics.phaseConfidence[phase.id] ?? metrics.confidence) * 100)}%`).join(' · ');
-    recs.push(`<b>Confianza por fase:</b> ${parts}. Prioriza corregir cualquier fase por debajo de 60%, especialmente Top e Impact.`);
-  }
-
-  if (metrics?.phasePercentages?.length) {
-    const parts = metrics.phasePercentages.map((p) => `${p.label} ${p.percent}%`).join(' · ');
-    recs.push(`<b>Distribución temporal:</b> ${parts}. Si un tramo sale extremadamente corto o largo, normalmente indica una fase desplazada.`);
-  }
-
-  if (metrics?.impactFrame != null) {
-    const impactConf = Math.round(((metrics.phaseConfidence || {}).impact ?? metrics.confidence ?? 0) * 100);
-    recs.push(`<b>Impact:</b> frame estimado F${metrics.impactFrame} · confianza ${impactConf}%. Es el frame principal para analizar manos, eje cabeza/cadera, shaft lean y orientación del cuerpo.`);
-  }
-
-  if (diagnostics.motionContrast != null) {
-    const contrastPct = Math.round(diagnostics.motionContrast * 100);
-    const read = contrastPct < 25 ? 'bajo: revisa manualmente porque el fondo/luz dificulta separar el movimiento.' : contrastPct < 55 ? 'medio: detección útil pero Top/Impact deben auditarse.' : 'alto: el vídeo ofrece buena señal de movimiento para detectar fases.';
-    recs.push(`<b>Calidad de señal:</b> contraste de movimiento ${contrastPct}% · ${read}`);
-  }
-
-  if (metrics.downswing) {
-    const downRead = metrics.downswing < SWING_REFERENCE.downSwingIdealLow ? 'demasiado rápida o Top tardío' : metrics.downswing > SWING_REFERENCE.downSwingIdealHigh ? 'lenta o Impact tardío' : 'dentro de rango de referencia';
-    recs.push(`<b>Delivery / Impact:</b> downswing ${fmtSec(metrics.downswing)} (${downRead}). Este tramo se usa para priorizar la revisión frame a frame del impacto.`);
-  }
-
-  if (metrics?.consistencyWarnings?.length) {
-    recs.push(`<b>Revisión obligatoria:</b> ${metrics.consistencyWarnings.join(' ')}`);
-  }
-
-
 
   if (Array.isArray(metrics?.technicalFindings) && metrics.technicalFindings.length) {
-    recs.push(`<b>Resultados del swing:</b><ul>${metrics.technicalFindings.map((item) => `<li>${item}</li>`).join('')}</ul>`);
+    recs.push(`<b>Resultados técnicos:</b><ul>${metrics.technicalFindings.slice(0, 5).map((item) => `<li>${item}</li>`).join('')}</ul>`);
   }
 
-  if (Array.isArray(metrics?.tips) && metrics.tips.length) {
-    recs.push(`<b>Tips / recomendaciones:</b><ul>${metrics.tips.map((item) => `<li>${item}</li>`).join('')}</ul>`);
+  const drills = clientDrills(metrics);
+  recs.push(`<b>Ejercicios recomendados:</b><div class="drill-list">${drills.map((drill) => `<div class="drill-card"><b>${drill.name}</b><span>${drill.detail}</span></div>`).join('')}</div>`);
+
+  if (metrics?.consistencyWarnings?.length) {
+    recs.push(`<b>Control de calidad:</b><ul>${metrics.consistencyWarnings.slice(0, 4).map((item) => `<li>${item}</li>`).join('')}</ul>`);
   }
 
-  if (Array.isArray(metrics?.drills) && metrics.drills.length) {
-    recs.push(`<b>Ejercicios sugeridos:</b><div class="drill-list">${metrics.drills.map((drill) => `<div class="drill-card"><b>${drill.name}</b><span>${drill.detail}</span></div>`).join('')}</div>`);
-  }
+  recs.push(`<div class="training-note"><b>Dato útil para entrenar el motor:</b> guarda la sesión después de corregir fases. El historial almacena detección automática, resultado final y delta por fase para aprender dónde se equivocó el motor.</div>`);
 
-  if (state.guideMode === 'dtl') {
-    recs.push('<b>Lectura DTL recomendada:</b> usa 2–3 líneas: plano del palo, línea de pies/target y eje corporal. En Top revisa anchura; en Impact revisa si el palo vuelve por una zona coherente y si el cuerpo sigue rotando.');
-  } else {
-    recs.push('<b>Lectura Face-On recomendada:</b> usa línea vertical de cabeza, línea de cadera y posición de manos. En Impact revisa presión/transferencia y manos delante de la bola.');
-  }
-
-  if (Object.keys(state.phaseCaptures).length) {
-    recs.push('<b>Capturas:</b> toca una imagen para verla grande, desliza entre fases y activa Dibujo para añadir o mover líneas directamente sobre la captura. Guarda solo cuando Top e Impact estén validados.');
+  if (Object.keys(state.phaseCaptures || {}).length) {
+    recs.push('<b>Informe descargable:</b> pulsa “Informe” para descargar un HTML profesional con resumen, métricas, fases, capturas, prioridades, ejercicios y datos de entrenamiento. Puedes abrirlo y exportarlo/imprimirlo como PDF desde el navegador.');
   }
 
   return recs;
@@ -1286,7 +1401,7 @@ async function sampleMotionProfile(media = null) {
     }
   }
 
-  await seekMediaTo(video, originalTime);
+  await seekMediaTo(refs.video, originalTime);
   return enrichMotionProfile(smoothMotionProfile(raw));
 }
 
@@ -1613,6 +1728,36 @@ function detectTimesFromMotion(profile, duration) {
 }
 
 
+
+function refineDetectedPhaseTimes(detectedTimes, duration, result = {}) {
+  const safe = Number.isFinite(duration) && duration > 0 ? duration : 2;
+  const detected = normalizePhaseTimes(detectedTimes, safe, initialLoadPhaseTimes(safe));
+  const ext = result.extendedTimes || result.metrics?.extendedTimes || {};
+  const confidence = Number.isFinite(result.confidence) ? result.confidence : 0.35;
+  const phaseConf = result.phaseConfidence || {};
+  const activeStart = Number.isFinite(ext.activeStart) ? ext.activeStart : detected.address;
+  const activeEnd = Number.isFinite(ext.activeEnd) ? ext.activeEnd : detected.finish;
+  const activeSpan = Math.max(0.65, activeEnd - activeStart);
+  const impact = Number.isFinite(detected.impact) ? detected.impact : activeStart + activeSpan * 0.70;
+  const modelDown = clamp(activeSpan * 0.18, SWING_REFERENCE.downSwingMin, SWING_REFERENCE.downSwingMax);
+  const modelTop = clamp(impact - modelDown, activeStart + 0.12, impact - 0.06);
+  const modelAddress = clamp(Math.min(activeStart, modelTop - modelDown * 2.65), 0, modelTop - 0.08);
+  const modelTakeaway = clamp(modelAddress + (modelTop - modelAddress) * 0.24, modelAddress + 0.04, modelTop - 0.04);
+  const modelFinish = clamp(Math.max(activeEnd, impact + Math.max(0.32, modelDown * 1.55)), impact + 0.15, safe);
+  const model = enforceIncreasing({ address: modelAddress, takeaway: modelTakeaway, top: modelTop, impact, finish: modelFinish }, safe);
+
+  const poorTempo = (detected.impact - detected.top) < 0.08 || (detected.impact - detected.top) > 0.75 || (detected.top - detected.address) < 0.20;
+  const lowPhaseQuality = ['top', 'impact'].some((id) => Number.isFinite(phaseConf[id]) && phaseConf[id] < 0.55);
+  const modelWeight = clamp((poorTempo ? 0.68 : 0.38) + (lowPhaseQuality ? 0.16 : 0) + (confidence < 0.55 ? 0.16 : 0), 0.18, 0.82);
+  const out = {};
+  phases.forEach((phase) => {
+    const phaseConfidence = phaseConf[phase.id] ?? confidence;
+    const phaseModelWeight = phaseConfidence > 0.74 ? modelWeight * 0.45 : modelWeight;
+    out[phase.id] = lerp(detected[phase.id], model[phase.id], phase.id === 'impact' ? Math.min(0.25, phaseModelWeight) : phaseModelWeight);
+  });
+  return enforceIncreasing(out, safe);
+}
+
 function applyDetectedPhaseTimes(detectedTimes, duration) {
   const previousActivePhase = state.currentPhaseId;
   const normalized = normalizePhaseTimes(detectedTimes, duration, initialLoadPhaseTimes(duration));
@@ -1635,6 +1780,7 @@ function applyDetectedPhaseTimes(detectedTimes, duration) {
     if (Number.isFinite(manualTime)) enforced[phaseId] = manualTime;
   });
   state.phaseTimes = enforced;
+  state.analysisMetrics = null;
 
   if (state.userPhaseControl && phases.some((phase) => phase.id === previousActivePhase)) {
     state.currentPhaseId = previousActivePhase;
@@ -1678,7 +1824,8 @@ async function autoDetectPhases() {
       });
       if (state.autoDetectionRunId !== runId || !state.videoUrl) return;
       const rawPhases = result.phases || result.times || result.metrics?.phaseTable || null;
-      applyDetectedPhaseTimes(rawPhases, refs.video.duration);
+      const refinedPhases = refineDetectedPhaseTimes(rawPhases, refs.video.duration, result);
+      applyDetectedPhaseTimes(refinedPhases, refs.video.duration);
       state.autoDetection = {
         status: 'done',
         confidence: result.confidence || 0.3,
@@ -1692,7 +1839,7 @@ async function autoDetectPhases() {
         motionPeakTime: result.phases?.impact || null,
         phaseConfidence: result.phaseConfidence || phaseConfidenceFallback(result.confidence || 0.35),
         extendedTimes: result.extendedTimes || {},
-        diagnostics: Object.assign({}, result.diagnostics || {}, { backgroundVideo: true, protectedManualPhases: Array.from(state.userMarkedPhaseIds) }),
+        diagnostics: Object.assign({}, result.diagnostics || {}, { backgroundVideo: true, protectedManualPhases: Array.from(state.userMarkedPhaseIds), rawDetectedPhases: rawPhases, refinedDetectedPhases: refinedPhases }),
       };
       state.analysisMetrics = result.metrics || computeAnalysisMetrics();
     } else {
@@ -1700,7 +1847,8 @@ async function autoDetectPhases() {
       const profile = await sampleMotionProfile(analysisVideo);
       if (state.autoDetectionRunId !== runId || !state.videoUrl) return;
       const legacy = detectTimesFromMotion(profile, duration);
-      applyDetectedPhaseTimes(legacy.times, duration);
+      const refinedLegacy = refineDetectedPhaseTimes(legacy.times, duration, legacy);
+      applyDetectedPhaseTimes(refinedLegacy, duration);
       state.autoDetection = {
         status: 'done',
         confidence: legacy.confidence,
@@ -1709,7 +1857,7 @@ async function autoDetectPhases() {
         motionPeakTime: legacy.peakTime,
         phaseConfidence: legacy.phaseConfidence || phaseConfidenceFallback(legacy.confidence || 0.28),
         extendedTimes: legacy.extendedTimes || {},
-        diagnostics: Object.assign({}, legacy.diagnostics || {}, { backgroundVideo: true }),
+        diagnostics: Object.assign({}, legacy.diagnostics || {}, { backgroundVideo: true, rawDetectedPhases: legacy.times, refinedDetectedPhases: refinedLegacy }),
       };
       state.analysisMetrics = computeAnalysisMetrics();
     }
@@ -1759,20 +1907,24 @@ function seekVideoTo(time) {
 }
 
 async function captureFrameAt(time) {
-  const video = refs.video;
-  if (!state.videoUrl || !video.videoWidth || !video.videoHeight) return null;
+  const media = state.videoUrl ? (prepareAnalysisVideo() || refs.video) : refs.video;
+  if (!media) return null;
+  await waitForMediaReady(media, 4500);
+  if (!media.videoWidth || !media.videoHeight) return null;
   const canvas = refs.analysisCanvas || (refs.analysisCanvas = document.createElement('canvas'));
-  const maxWidth = Math.min(video.videoWidth, 1440);
-  const scale = maxWidth / video.videoWidth;
-  const width = Math.max(1, Math.round(video.videoWidth * scale));
-  const height = Math.max(1, Math.round(video.videoHeight * scale));
+  const maxWidth = Math.min(media.videoWidth, 1440);
+  const scale = maxWidth / media.videoWidth;
+  const width = Math.max(1, Math.round(media.videoWidth * scale));
+  const height = Math.max(1, Math.round(media.videoHeight * scale));
 
-  await seekVideoTo(time);
+  const originalTime = media.currentTime || 0;
+  await seekMediaTo(media, time);
   canvas.width = width;
   canvas.height = height;
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, width, height);
-  ctx.drawImage(video, 0, 0, width, height);
+  ctx.drawImage(media, 0, 0, width, height);
+  await seekMediaTo(media, originalTime);
   return canvas.toDataURL('image/jpeg', 0.92);
 }
 
@@ -1790,7 +1942,7 @@ async function generatePhaseCaptures() {
     if (image) results[phase.id] = image;
   }
 
-  await seekMediaTo(video, originalTime);
+  await seekMediaTo(refs.video, originalTime);
   renderReadouts();
   renderTimeline();
   return results;
@@ -1860,6 +2012,12 @@ async function saveSession() {
           }, refs.video.duration || 0, ASSUMED_FPS)
         : computeAnalysisMetrics())),
       autoDetection: clone(state.autoDetection),
+      trainingRecord: clone(buildTrainingRecord(state.analysisMetrics || ensureAnalysisMetrics())),
+      reportSnapshot: {
+        status: clientStatusFromMetrics(state.analysisMetrics || ensureAnalysisMetrics()),
+        priorities: topClientPriorities(state.analysisMetrics || ensureAnalysisMetrics()),
+        savedAt: new Date().toISOString(),
+      },
       lines: clone(state.lines),
       thumbnail: previewCapture,
     });
@@ -1930,7 +2088,7 @@ async function loadHistory() {
       <img class="history-thumb" src="${session.thumbnail || 'icons/icon-192.png'}" alt="Miniatura" />
       <div>
         <div class="history-title">${session.videoName || 'Swing guardado'}</div>
-        <div class="history-meta">${date} · ${capturesCount} capturas · ${Object.keys(session.phaseTimes || {}).length}/${phases.length} fases</div>
+        <div class="history-meta">${date} · ${capturesCount} capturas · ${Object.keys(session.phaseTimes || {}).length}/${phases.length} fases${session.trainingRecord ? ' · dataset' : ''}</div>
       </div>`;
     item.addEventListener('click', () => {
       if (state.historySelectionMode) toggleSessionSelection(session.id);
@@ -2409,6 +2567,8 @@ function bindEvents() {
   refs.analyzeBtn.addEventListener('click', analyze);
   refs.saveSessionBtn.addEventListener('click', saveSession);
   refs.saveSessionTopBtn.addEventListener('click', saveSession);
+  if (refs.downloadReportBtn) refs.downloadReportBtn.addEventListener('click', downloadReport);
+  if (refs.exportDatasetBtn) refs.exportDatasetBtn.addEventListener('click', exportTrainingDataset);
   if (refs.expandSheetBtn) refs.expandSheetBtn.addEventListener('click', () => { state.sheetExpanded = !state.sheetExpanded; render(); });
   refs.historySelectBtn.addEventListener('click', toggleHistorySelectionMode);
   refs.deleteSelectedHistoryBtn.addEventListener('click', deleteSelectedSessions);

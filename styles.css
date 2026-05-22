@@ -852,3 +852,20 @@ button:disabled { opacity: .42; cursor: not-allowed; }
   font-size: 12px;
 }
 .analysis-actions { gap: 6px; }
+
+
+/* v0.9.8 client report + training export */
+.analysis-wide-actions { display: grid; grid-template-columns: 1fr; gap: 8px; margin-top: 10px; }
+.client-summary { border-radius: 18px; padding: 12px; background: linear-gradient(135deg, rgba(255,255,255,.18), rgba(255,255,255,.06)); border: 1px solid rgba(255,255,255,.12); }
+.client-summary h3 { margin: 0 0 6px; font-size: 14px; letter-spacing: -.01em; }
+.client-summary p { margin: 0; color: rgba(255,255,255,.76); font-size: 12px; line-height: 1.45; }
+.client-status { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; padding: 5px 9px; margin-bottom: 8px; background: rgba(255,255,255,.13); font-size: 11px; font-weight: 900; }
+.client-status.good { background: rgba(255,255,255,.92); color: #000; }
+.client-status.warn { background: rgba(255,203,107,.20); color: #ffe2a8; }
+.client-status.risk { background: rgba(255,103,103,.18); color: #ffd0d0; }
+.report-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+.report-metric { border-radius: 14px; padding: 9px; background: rgba(255,255,255,.08); }
+.report-metric b { display: block; font-size: 16px; line-height: 1; }
+.report-metric span { display: block; margin-top: 5px; font-size: 10px; color: rgba(255,255,255,.58); }
+.training-note { border-left: 3px solid rgba(255,255,255,.55); padding-left: 9px; color: rgba(255,255,255,.72); }
+@media (min-width: 430px) { .analysis-wide-actions { grid-template-columns: 1fr 1fr; } }

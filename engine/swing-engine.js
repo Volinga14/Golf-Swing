@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  const ENGINE_VERSION = 'v0.9.6 Stable Player Audit / SwingEngine 4.5';
+  const ENGINE_VERSION = 'v0.9.8 Client Report / SwingEngine 4.8';
   const PHASES = ['address', 'takeaway', 'top', 'impact', 'finish'];
 
   function clamp(value, min, max) { return Math.max(min, Math.min(max, value)); }

@@ -1,8 +1,10 @@
 (function () {
   'use strict';
 
-  const POSE_ENGINE_VERSION = 'v0.9.6 Stable Player Audit / PoseEngine 0.6 auto-scan';
+  const POSE_ENGINE_VERSION = 'v0.9.8 Client Report / PoseEngine 0.8 tolerant-scan';
   const CDN_CANDIDATES = [
+    { version: '0.10.22', base: 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22' },
+    { version: '0.10.21', base: 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.21' },
     { version: '0.10.14', base: 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14' },
     { version: '0.10.3', base: 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3' },
     { version: 'latest', base: 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision' },
@@ -105,9 +107,9 @@
       baseOptions,
       runningMode: 'VIDEO',
       numPoses: 1,
-      minPoseDetectionConfidence: 0.25,
-      minPosePresenceConfidence: 0.25,
-      minTrackingConfidence: 0.25
+      minPoseDetectionConfidence: 0.18,
+      minPosePresenceConfidence: 0.18,
+      minTrackingConfidence: 0.18
     });
   }
 
@@ -494,7 +496,7 @@
       const result = landmarker.detectForVideo(video, nextVideoTimestamp(time));
       const landmarks = result?.landmarks?.[0];
       const features = landmarksToFeatures(landmarks, time);
-      if (features && Number.isFinite(features.visibility) && features.visibility > 0.08) frames.push(features);
+      if (features && Number.isFinite(features.visibility) && features.visibility > 0.035) frames.push(features);
       if (i % 6 === 0) await new Promise(r => setTimeout(r, 0));
     }
     let enriched = enrichKinematics(frames);
@@ -511,7 +513,7 @@
         const result = landmarker.detectForVideo(video, nextVideoTimestamp(time));
         const landmarks = result?.landmarks?.[0];
         const features = landmarksToFeatures(landmarks, time);
-        if (features && Number.isFinite(features.visibility) && features.visibility > 0.08) frames.push(features);
+        if (features && Number.isFinite(features.visibility) && features.visibility > 0.035) frames.push(features);
         if (i % 8 === 0) await new Promise(r => setTimeout(r, 0));
       }
       const byTime = new Map();
@@ -528,7 +530,7 @@
     const video = input.video;
     const duration = Number.isFinite(video.duration) ? video.duration : 0;
     const frames = await samplePoseFrames(video, input);
-    if (frames.length < 14) throw new Error('No hay suficientes landmarks fiables');
+    if (frames.length < 8) throw new Error(`No hay suficientes landmarks fiables (${frames.length})`);
     const phaseResult = derivePosePhases(frames, input.baseResult, duration, input.view || 'dtl', input || {});
     return {
       engineVersion: POSE_ENGINE_VERSION,
