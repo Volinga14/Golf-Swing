@@ -40,6 +40,7 @@ const state = {
   autoDetection: { status: 'idle', confidence: 0, method: '', samples: 0, motionPeakTime: null, phaseConfidence: {}, extendedTimes: {}, diagnostics: {} },
   autoDetectionRunId: 0,
   userMarkedPhaseIds: new Set(),
+  userPhaseControl: false,
   viewingCapture: false,
   activeCaptureIndex: 0,
   captureSwipeStart: null,
@@ -284,6 +285,7 @@ function resetSessionState() {
   state.autoDetection = { status: 'idle', confidence: 0, method: '', provider: '', samples: 0, poseSamples: 0, poseStatus: 'idle', poseSummary: null, motionPeakTime: null, phaseConfidence: {}, extendedTimes: {}, diagnostics: {} };
   state.autoDetectionRunId += 1;
   state.userMarkedPhaseIds.clear();
+  state.userPhaseControl = false;
   state.viewingCapture = false;
   state.activeCaptureIndex = 0;
   state.sheetExpanded = false;
@@ -675,14 +677,20 @@ function render() {
 }
 
 
-function jumpToPhase(phaseId) {
+function jumpToPhase(phaseId, options = {}) {
+  const phase = phases.find((item) => item.id === phaseId);
+  if (!phase) return;
+
+  // Once the user selects/marks a phase, the automatic detector may update
+  // detected times, but it must never steal the active phase back to Address.
+  if (!options.system) state.userPhaseControl = true;
+
   state.currentPhaseId = phaseId;
   if (state.videoUrl) state.viewingCapture = false;
-  const time = state.phaseTimes[phaseId];
-  if (state.videoUrl && time != null) {
+  const time = extractPhaseTime(state.phaseTimes?.[phaseId]);
+  if (state.videoUrl && Number.isFinite(time)) {
     refs.video.currentTime = time;
   } else if (state.videoUrl && Number.isFinite(refs.video.duration) && refs.video.duration > 0) {
-    const phase = phases.find((item) => item.id === phaseId) || phases[0];
     refs.video.currentTime = refs.video.duration * phase.pct;
   } else if (!state.videoUrl && state.phaseCaptures[phaseId]) {
     openCaptureViewer(phaseId);
@@ -720,15 +728,17 @@ function stepFrame(direction) {
 
 function markCurrentPhase() {
   if (!state.videoUrl) return;
+  state.userPhaseControl = true;
   const phase = currentPhase();
   const currentIndex = phases.findIndex((item) => item.id === phase.id);
   state.phaseTimes[phase.id] = refs.video.currentTime || 0;
   state.userMarkedPhaseIds.add(phase.id);
-  render();
 
   const nextPhase = phases[currentIndex + 1];
   if (nextPhase) {
-    setTimeout(() => jumpToPhase(nextPhase.id), 90);
+    jumpToPhase(nextPhase.id);
+  } else {
+    render();
   }
 }
 
@@ -1143,9 +1153,27 @@ function hasCompletePhaseTimes(times) {
 
 function installImmediatePhaseDefaults(reason = 'defaults') {
   if (!state.videoUrl || !Number.isFinite(refs.video.duration) || refs.video.duration <= 0) return false;
+
   const defaults = initialLoadPhaseTimes(refs.video.duration);
-  state.phaseTimes = normalizePhaseTimes(state.phaseTimes, refs.video.duration, defaults);
-  state.currentPhaseId = 'address';
+  const previousActivePhase = state.currentPhaseId;
+  const existing = state.phaseTimes || {};
+  const next = {};
+
+  phases.forEach((phase) => {
+    const existingTime = extractPhaseTime(existing[phase.id]);
+    const defaultTime = extractPhaseTime(defaults[phase.id]);
+    // Defaults should only fill gaps. They must not keep re-normalising or
+    // moving user-selected/marked phases after the video metadata/canplay events.
+    next[phase.id] = Number.isFinite(existingTime) ? existingTime : defaultTime;
+  });
+
+  state.phaseTimes = normalizePhaseTimes(next, refs.video.duration, defaults);
+  if (state.userPhaseControl && phases.some((phase) => phase.id === previousActivePhase)) {
+    state.currentPhaseId = previousActivePhase;
+  } else if (!phases.some((phase) => phase.id === state.currentPhaseId)) {
+    state.currentPhaseId = 'address';
+  }
+
   if (!state.autoDetection || state.autoDetection.status === 'idle') {
     state.autoDetection = { status: 'defaults-ready', confidence: 0.18, method: 'Initial defaults', samples: 0, motionPeakTime: null, phaseConfidence: {}, extendedTimes: {}, diagnostics: { reason } };
   } else if (!['running', 'done'].includes(state.autoDetection.status)) {
@@ -1157,6 +1185,7 @@ function installImmediatePhaseDefaults(reason = 'defaults') {
   render();
   return true;
 }
+
 
 function phaseConfidenceFallback(value = 0.18) {
   return Object.fromEntries(phases.map((phase) => [phase.id, value]));
@@ -1585,14 +1614,31 @@ function detectTimesFromMotion(profile, duration) {
 
 
 function applyDetectedPhaseTimes(detectedTimes, duration) {
+  const previousActivePhase = state.currentPhaseId;
   const normalized = normalizePhaseTimes(detectedTimes, duration, initialLoadPhaseTimes(duration));
   const merged = Object.assign({}, state.phaseTimes || {});
+
   phases.forEach((phase) => {
-    if (!state.userMarkedPhaseIds.has(phase.id) || !Number.isFinite(merged[phase.id])) {
+    const existingTime = extractPhaseTime(merged[phase.id]);
+    // User-marked phases are authoritative. Auto-detection may fill missing
+    // values and improve untouched phases, but not overwrite manual work.
+    if (!state.userMarkedPhaseIds.has(phase.id) || !Number.isFinite(existingTime)) {
       merged[phase.id] = normalized[phase.id];
     }
   });
-  state.phaseTimes = enforceIncreasing(merged, duration);
+
+  const enforced = enforceIncreasing(merged, duration);
+  // Restore exact user-marked timings after consistency enforcement so the
+  // detector cannot subtly move phases the user already corrected.
+  state.userMarkedPhaseIds.forEach((phaseId) => {
+    const manualTime = extractPhaseTime(merged[phaseId]);
+    if (Number.isFinite(manualTime)) enforced[phaseId] = manualTime;
+  });
+  state.phaseTimes = enforced;
+
+  if (state.userPhaseControl && phases.some((phase) => phase.id === previousActivePhase)) {
+    state.currentPhaseId = previousActivePhase;
+  }
 }
 
 async function autoDetectPhases() {

@@ -1,5 +1,5 @@
 {
-  "name": "Swing Lab v0.9.6 Stable Player Audit",
+  "name": "Swing Lab v0.9.7 Phase Control Fix",
   "short_name": "SwingLab",
   "description": "PWA fullscreen para revisar swing de golf con detección automática en segundo plano sin bloquear el reproductor visible.",
   "start_url": "./index.html",

@@ -21,3 +21,10 @@ MediaPipe se carga desde CDN; para usar pose corporal real se necesita conexión
 - La detección automática usa una copia oculta del vídeo para no mover el reproductor visible.
 - Las fases manuales quedan protegidas: el motor no las sobrescribe cuando termina.
 - El reproductor, timeline y marcado deben poder usarse mientras el motor termina en segundo plano.
+
+
+## v0.9.7 Phase Control Fix
+- The auto-detection engine no longer resets the active phase to Address after the user selects or marks a phase.
+- Manual phase selection is now authoritative for the active UI state.
+- Manual phase timings are protected from automatic overwrites.
+- Phase defaults only fill missing times; they do not repeatedly re-normalize the active selection after metadata/canplay events.

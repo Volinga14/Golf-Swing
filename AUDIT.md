@@ -26,3 +26,21 @@ After deploying to GitHub Pages or reinstalling the PWA:
 3. Press Play: the visible player should not jump around.
 4. When detection finishes, manually marked phases should remain unchanged.
 5. Review Top and Impact manually.
+
+
+# v0.9.7 Phase Control Audit
+
+Issue fixed: the background detector/default installer was resetting `currentPhaseId` back to `address` after the user selected or marked another phase. This made it look as if the engine was still controlling the phase workflow.
+
+Changes:
+- Added `state.userPhaseControl` to detect manual phase interaction.
+- `jumpToPhase()` now locks active phase control to the user unless explicitly called as a system operation.
+- `markCurrentPhase()` now auto-advances immediately to the next phase without a delayed timeout that could race against video events.
+- `installImmediatePhaseDefaults()` no longer forces `currentPhaseId = 'address'` after user interaction.
+- `applyDetectedPhaseTimes()` preserves the active phase and exact user-marked times when auto-detection completes.
+- Defaults now fill missing values instead of repeatedly re-controlling the phase workflow.
+
+Static checks completed:
+- JavaScript syntax validation for app and engine files.
+- Service worker version bumped to avoid old cache.
+- Verified automatic detection still runs on hidden analysis video, not visible player.
