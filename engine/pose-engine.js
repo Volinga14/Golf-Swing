@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  const POSE_ENGINE_VERSION = 'v0.9.5 Phase Auto-Detect / PoseEngine 0.6 auto-scan';
+  const POSE_ENGINE_VERSION = 'v0.9.6 Stable Player Audit / PoseEngine 0.6 auto-scan';
   const CDN_CANDIDATES = [
     { version: '0.10.14', base: 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14' },
     { version: '0.10.3', base: 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3' },
@@ -408,7 +408,7 @@
     const impactStrength = clamp(impactPick.score || 0, 0, 1.25) / 1.25;
     const poseWeight = clamp((initialLoad ? 0.68 : 0.56) + poseQuality * 0.18 + ((topStrength + impactStrength) / 2) * 0.16, initialLoad ? 0.68 : 0.54, initialLoad ? 0.97 : 0.92);
 
-    // Pose is primary in v0.9.4. Heuristic only stabilises outliers, especially after automatic load.
+    // Pose is primary in v0.9.6. Heuristic only stabilises outliers, especially after automatic load.
     const blended = {};
     PHASES.forEach(id => {
       const baseTime = Number.isFinite(base[id]) ? base[id] : rawTimes[id];

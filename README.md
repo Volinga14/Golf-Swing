@@ -1,4 +1,4 @@
-# Swing Lab PWA v0.9.5 Phase Auto-Detect Fix
+# Swing Lab PWA v0.9.6 Phase Auto-Detect Fix
 
 Versión incremental sobre v0.9.4. Mantiene la UX de la línea v0.8.x/v0.9.x y corrige el flujo de fases al cargar vídeo.
 
@@ -15,3 +15,9 @@ Versión incremental sobre v0.9.4. Mantiene la UX de la línea v0.8.x/v0.9.x y c
 ## Nota técnica
 
 MediaPipe se carga desde CDN; para usar pose corporal real se necesita conexión inicial y servir la app por HTTPS/GitHub Pages. Si falla, el motor vuelve al análisis heurístico, pero las fases preliminares siempre quedan disponibles.
+
+
+## v0.9.6 Stable Player Audit
+- La detección automática usa una copia oculta del vídeo para no mover el reproductor visible.
+- Las fases manuales quedan protegidas: el motor no las sobrescribe cuando termina.
+- El reproductor, timeline y marcado deben poder usarse mientras el motor termina en segundo plano.

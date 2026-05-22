@@ -1,7 +1,7 @@
 {
-  "name": "Swing Lab v0.9.5 Phase Auto-Detect Fix",
+  "name": "Swing Lab v0.9.6 Stable Player Audit",
   "short_name": "SwingLab",
-  "description": "PWA fullscreen para revisar swing de golf con fases preliminares inmediatas y detección automática reforzada con Pose Foundation.",
+  "description": "PWA fullscreen para revisar swing de golf con detección automática en segundo plano sin bloquear el reproductor visible.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",

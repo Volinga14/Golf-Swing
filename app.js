@@ -2,7 +2,7 @@
 
 const $ = (id) => document.getElementById(id);
 const DB_NAME = 'swing-lab-db';
-const DB_VERSION = 15;
+const DB_VERSION = 16;
 const STORE = 'sessions';
 const ASSUMED_FPS = 30;
 
@@ -38,6 +38,8 @@ const state = {
   phaseCaptures: {},
   analysisMetrics: null,
   autoDetection: { status: 'idle', confidence: 0, method: '', samples: 0, motionPeakTime: null, phaseConfidence: {}, extendedTimes: {}, diagnostics: {} },
+  autoDetectionRunId: 0,
+  userMarkedPhaseIds: new Set(),
   viewingCapture: false,
   activeCaptureIndex: 0,
   captureSwipeStart: null,
@@ -75,6 +77,8 @@ const refs = {
   app: $('app'),
   emptyState: $('emptyState'),
   video: $('video'),
+  analysisVideo: null,
+  analysisCanvas: null,
   captureViewer: $('captureViewer'),
   captureBadge: $('captureBadge'),
   drawingCanvas: $('drawingCanvas'),
@@ -256,7 +260,17 @@ function markedCount() {
   return Object.keys(state.phaseTimes).length;
 }
 
+function teardownAnalysisVideo() {
+  if (!refs.analysisVideo) return;
+  try {
+    refs.analysisVideo.pause();
+    refs.analysisVideo.removeAttribute('src');
+    refs.analysisVideo.load();
+  } catch (_) {}
+}
+
 function revokeVideoUrl() {
+  teardownAnalysisVideo();
   if (state.videoUrl) URL.revokeObjectURL(state.videoUrl);
 }
 
@@ -268,6 +282,8 @@ function resetSessionState() {
   state.phaseCaptures = {};
   state.analysisMetrics = null;
   state.autoDetection = { status: 'idle', confidence: 0, method: '', provider: '', samples: 0, poseSamples: 0, poseStatus: 'idle', poseSummary: null, motionPeakTime: null, phaseConfidence: {}, extendedTimes: {}, diagnostics: {} };
+  state.autoDetectionRunId += 1;
+  state.userMarkedPhaseIds.clear();
   state.viewingCapture = false;
   state.activeCaptureIndex = 0;
   state.sheetExpanded = false;
@@ -320,7 +336,8 @@ function applyVideoFile(file) {
   refs.capturesGrid.innerHTML = '';
   refs.video.src = state.videoUrl;
   refs.video.load();
-  state.autoDetection = { status: 'queued', confidence: 0, method: 'Pose Foundation v0.9.5 auto-start', provider: '', samples: 0, poseSamples: 0, poseStatus: 'queued', motionPeakTime: null, phaseConfidence: {}, extendedTimes: {}, diagnostics: {}, poseSummary: null };
+  prepareAnalysisVideo();
+  state.autoDetection = { status: 'queued', confidence: 0, method: 'Pose Foundation v0.9.6 auto-start', provider: '', samples: 0, poseSamples: 0, poseStatus: 'queued', motionPeakTime: null, phaseConfidence: {}, extendedTimes: {}, diagnostics: {}, poseSummary: null };
   setAppState('loaded');
   render();
   preWarmPoseEngine();
@@ -346,8 +363,71 @@ function setMode(mode) {
 }
 
 
-function videoHasFrameData() {
-  return Boolean(state.videoUrl) && Number.isFinite(refs.video.duration) && refs.video.duration > 0 && refs.video.readyState >= 2;
+function videoHasFrameData(media = refs.video) {
+  return Boolean(state.videoUrl) && media && Number.isFinite(media.duration) && media.duration > 0 && media.readyState >= 2;
+}
+
+function ensureAnalysisVideo() {
+  if (!refs.analysisVideo) {
+    const video = document.createElement('video');
+    video.muted = true;
+    video.playsInline = true;
+    video.preload = 'auto';
+    video.setAttribute('playsinline', '');
+    video.setAttribute('webkit-playsinline', '');
+    video.setAttribute('aria-hidden', 'true');
+    video.style.position = 'fixed';
+    video.style.width = '1px';
+    video.style.height = '1px';
+    video.style.opacity = '0';
+    video.style.pointerEvents = 'none';
+    video.style.left = '-9999px';
+    video.style.top = '-9999px';
+    document.body.appendChild(video);
+    refs.analysisVideo = video;
+  }
+  return refs.analysisVideo;
+}
+
+function prepareAnalysisVideo() {
+  if (!state.videoUrl) return null;
+  const video = ensureAnalysisVideo();
+  if (video.src !== state.videoUrl) {
+    video.pause();
+    video.src = state.videoUrl;
+    video.load();
+  }
+  return video;
+}
+
+function waitForMediaReady(media, timeoutMs = 4500) {
+  return new Promise((resolve) => {
+    if (videoHasFrameData(media)) return resolve(true);
+    const started = performance.now();
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      cleanup();
+      resolve(videoHasFrameData(media));
+    };
+    const check = () => {
+      if (videoHasFrameData(media) || performance.now() - started > timeoutMs) finish();
+    };
+    const cleanup = () => {
+      clearInterval(timer);
+      media?.removeEventListener('loadedmetadata', check);
+      media?.removeEventListener('durationchange', check);
+      media?.removeEventListener('loadeddata', finish);
+      media?.removeEventListener('canplay', finish);
+    };
+    const timer = setInterval(check, 120);
+    media?.addEventListener('loadedmetadata', check);
+    media?.addEventListener('durationchange', check);
+    media?.addEventListener('loadeddata', finish, { once: true });
+    media?.addEventListener('canplay', finish, { once: true });
+    check();
+  });
 }
 
 function preWarmPoseEngine() {
@@ -401,25 +481,25 @@ function scheduleInitialAutoDetection() {
   window.setTimeout(() => autoDetectPhases(), 40);
 }
 
-function waitForVideoReadyForAnalysis(timeoutMs = 2600) {
+function waitForVideoReadyForAnalysis(timeoutMs = 2600, media = refs.video) {
   return new Promise((resolve) => {
-    if (videoHasFrameData()) return resolve(true);
+    if (videoHasFrameData(media)) return resolve(true);
     const started = performance.now();
     const finish = () => {
       cleanup();
-      resolve(videoHasFrameData());
+      resolve(videoHasFrameData(media));
     };
     const check = () => {
       if (videoHasFrameData() || performance.now() - started > timeoutMs) finish();
     };
     const cleanup = () => {
       clearInterval(timer);
-      refs.video.removeEventListener('loadeddata', finish);
-      refs.video.removeEventListener('canplay', finish);
+      media?.removeEventListener('loadeddata', finish);
+      media?.removeEventListener('canplay', finish);
     };
     const timer = setInterval(check, 120);
-    refs.video.addEventListener('loadeddata', finish, { once: true });
-    refs.video.addEventListener('canplay', finish, { once: true });
+    media?.addEventListener('loadeddata', finish, { once: true });
+    media?.addEventListener('canplay', finish, { once: true });
   });
 }
 
@@ -643,6 +723,7 @@ function markCurrentPhase() {
   const phase = currentPhase();
   const currentIndex = phases.findIndex((item) => item.id === phase.id);
   state.phaseTimes[phase.id] = refs.video.currentTime || 0;
+  state.userMarkedPhaseIds.add(phase.id);
   render();
 
   const nextPhase = phases[currentIndex + 1];
@@ -1097,13 +1178,13 @@ function enforceIncreasing(times, duration) {
   return output;
 }
 
-async function sampleMotionProfile() {
-  const video = refs.video;
+async function sampleMotionProfile(media = null) {
+  const video = media || refs.analysisVideo || refs.video;
   const duration = video.duration;
   if (!state.videoUrl || !Number.isFinite(duration) || duration <= 0.25) return null;
   const originalTime = video.currentTime || 0;
   const samples = Math.min(168, Math.max(54, Math.round(duration * 20)));
-  const canvas = refs.captureCanvas;
+  const canvas = refs.analysisCanvas || (refs.analysisCanvas = document.createElement('canvas'));
   const w = 128;
   const h = 192;
   canvas.width = w;
@@ -1114,7 +1195,7 @@ async function sampleMotionProfile() {
 
   for (let i = 0; i < samples; i += 1) {
     const t = duration * (i / (samples - 1));
-    await seekVideoTo(t);
+    await seekMediaTo(video, t);
     ctx.drawImage(video, 0, 0, w, h);
     const data = ctx.getImageData(0, 0, w, h).data;
     let diff = 0;
@@ -1176,7 +1257,7 @@ async function sampleMotionProfile() {
     }
   }
 
-  await seekVideoTo(originalTime);
+  await seekMediaTo(video, originalTime);
   return enrichMotionProfile(smoothMotionProfile(raw));
 }
 
@@ -1502,40 +1583,60 @@ function detectTimesFromMotion(profile, duration) {
   return { times, confidence, peakTime: impact.time, thresholds, phaseConfidence, extendedTimes, diagnostics };
 }
 
+
+function applyDetectedPhaseTimes(detectedTimes, duration) {
+  const normalized = normalizePhaseTimes(detectedTimes, duration, initialLoadPhaseTimes(duration));
+  const merged = Object.assign({}, state.phaseTimes || {});
+  phases.forEach((phase) => {
+    if (!state.userMarkedPhaseIds.has(phase.id) || !Number.isFinite(merged[phase.id])) {
+      merged[phase.id] = normalized[phase.id];
+    }
+  });
+  state.phaseTimes = enforceIncreasing(merged, duration);
+}
+
 async function autoDetectPhases() {
   if (!state.videoUrl || state.autoDetection.status === 'running' || state.autoDetection.status === 'done') return;
-  if (!videoHasFrameData()) {
+  const runId = state.autoDetectionRunId;
+  const analysisVideo = prepareAnalysisVideo();
+  if (!videoHasFrameData(refs.video)) {
     state.autoDetection.status = 'queued';
     scheduleInitialAutoDetection();
     return;
   }
   setAppState('detecting');
   state.autoDetection.status = 'running';
-  refs.cleanHint.textContent = 'Analizando fases con Pose…';
-  refs.analysisStatus.textContent = 'Detección inicial: escaneando el vídeo completo con Pose Foundation, refinando la ventana activa y calculando fases…';
+  refs.cleanHint.textContent = 'Analizando fases en segundo plano…';
+  refs.analysisStatus.textContent = 'Detección inicial: analizando en una copia oculta del vídeo para no afectar el reproductor. Puedes reproducir y marcar fases mientras termina.';
   render();
-  await waitForVideoReadyForAnalysis(5200);
+
   try {
+    const ready = await waitForMediaReady(analysisVideo, 6500);
+    if (state.autoDetectionRunId !== runId || !state.videoUrl) return;
+    if (!ready) throw new Error('analysis-video-not-ready');
+
     let result = null;
     if (window.SwingLabEngine?.analyze) {
       result = await window.SwingLabEngine.analyze({
-        video: refs.video,
+        video: analysisVideo,
         fps: ASSUMED_FPS,
         view: state.guideMode,
         phases,
-        maxSamples: 300,
-        maxPoseSamples: 320,
+        maxSamples: 220,
+        maxPoseSamples: 240,
         phaseDetectionMode: 'initial-load',
         preferPose: true,
         autoStart: true,
-        fullVideoPoseScan: true,
+        fullVideoPoseScan: false,
+        usePose: true,
       });
+      if (state.autoDetectionRunId !== runId || !state.videoUrl) return;
       const rawPhases = result.phases || result.times || result.metrics?.phaseTable || null;
-      state.phaseTimes = normalizePhaseTimes(rawPhases, refs.video.duration, initialLoadPhaseTimes(refs.video.duration));
+      applyDetectedPhaseTimes(rawPhases, refs.video.duration);
       state.autoDetection = {
         status: 'done',
         confidence: result.confidence || 0.3,
-        method: result.engineVersion || window.SwingLabEngine.version || 'Pose Active Engine',
+        method: result.engineVersion || window.SwingLabEngine.version || 'Pose Stable Engine',
         provider: result.provider || 'unknown',
         samples: result.profileSummary?.samples || 0,
         poseSamples: result.profileSummary?.poseSamples || 0,
@@ -1545,61 +1646,76 @@ async function autoDetectPhases() {
         motionPeakTime: result.phases?.impact || null,
         phaseConfidence: result.phaseConfidence || phaseConfidenceFallback(result.confidence || 0.35),
         extendedTimes: result.extendedTimes || {},
-        diagnostics: result.diagnostics || {},
+        diagnostics: Object.assign({}, result.diagnostics || {}, { backgroundVideo: true, protectedManualPhases: Array.from(state.userMarkedPhaseIds) }),
       };
       state.analysisMetrics = result.metrics || computeAnalysisMetrics();
     } else {
-      const duration = refs.video.duration;
-      const profile = await sampleMotionProfile();
+      const duration = analysisVideo.duration || refs.video.duration;
+      const profile = await sampleMotionProfile(analysisVideo);
+      if (state.autoDetectionRunId !== runId || !state.videoUrl) return;
       const legacy = detectTimesFromMotion(profile, duration);
-      state.phaseTimes = normalizePhaseTimes(legacy.times, duration, initialLoadPhaseTimes(duration));
+      applyDetectedPhaseTimes(legacy.times, duration);
       state.autoDetection = {
         status: 'done',
         confidence: legacy.confidence,
-        method: 'Legacy Smart Phases fallback',
+        method: 'Legacy Smart Phases fallback background',
         samples: profile?.length || 0,
         motionPeakTime: legacy.peakTime,
         phaseConfidence: legacy.phaseConfidence || phaseConfidenceFallback(legacy.confidence || 0.28),
         extendedTimes: legacy.extendedTimes || {},
-        diagnostics: legacy.diagnostics || {},
+        diagnostics: Object.assign({}, legacy.diagnostics || {}, { backgroundVideo: true }),
       };
       state.analysisMetrics = computeAnalysisMetrics();
     }
-    state.currentPhaseId = 'address';
+
     if (!hasCompletePhaseTimes(state.phaseTimes)) {
       state.phaseTimes = normalizePhaseTimes(null, refs.video.duration, initialLoadPhaseTimes(refs.video.duration));
     }
-    await seekVideoTo(state.phaseTimes.address || 0);
+    // Do not seek the visible video here. The player must remain fully usable while detection finishes.
     setAppState('detected');
-    refs.cleanHint.textContent = 'Fases listas · toca para revisar';
-    refs.analysisStatus.textContent = `Fases detectadas al cargar (${Math.round((state.autoDetection.confidence || 0) * 100)}% confianza) · ${state.autoDetection.poseStatus === 'available' ? 'pose corporal activa usada para fases' : 'fallback heurístico'}. Revisa Top e Impact.`;
+    refs.cleanHint.textContent = state.controlsVisible ? 'Fases listas' : 'Fases listas · toca para revisar';
+    refs.analysisStatus.textContent = `Fases detectadas al cargar (${Math.round((state.autoDetection.confidence || 0) * 100)}% confianza) · ${state.autoDetection.poseStatus === 'available' ? 'pose corporal activa' : 'fallback heurístico'} · reproductor no bloqueado. Revisa Top e Impact.`;
     render();
   } catch (error) {
+    if (state.autoDetectionRunId !== runId || !state.videoUrl) return;
     console.warn('Auto detection failed', error);
-    state.phaseTimes = normalizePhaseTimes(null, refs.video.duration, initialLoadPhaseTimes(refs.video.duration));
-    state.autoDetection = { status: 'failed', confidence: 0.2, method: 'fallback-percentages', samples: 0, motionPeakTime: null, phaseConfidence: phaseConfidenceFallback(0.20), extendedTimes: {}, diagnostics: { error: String(error?.message || error) } };
+    if (!hasCompletePhaseTimes(state.phaseTimes)) state.phaseTimes = normalizePhaseTimes(null, refs.video.duration, initialLoadPhaseTimes(refs.video.duration));
+    state.autoDetection = { status: 'failed', confidence: 0.2, method: 'fallback-percentages', samples: 0, motionPeakTime: null, phaseConfidence: phaseConfidenceFallback(0.20), extendedTimes: {}, diagnostics: { error: String(error?.message || error), backgroundVideo: true } };
     state.analysisMetrics = computeAnalysisMetrics();
     setAppState('marking');
     refs.cleanHint.textContent = 'Toca para revisar fases estimadas';
-    refs.analysisStatus.textContent = 'No se pudo detectar con fiabilidad. Se han colocado fases estimadas por porcentaje para que puedas corregirlas.';
+    refs.analysisStatus.textContent = 'No se pudo detectar con fiabilidad. Se han colocado fases estimadas por porcentaje y puedes corregirlas manualmente sin bloqueo.';
     render();
   }
 }
 
-function seekVideoTo(time) {
+function seekMediaTo(media, time) {
   return new Promise((resolve) => {
-    const safeTime = Math.max(0, Math.min(time, Number.isFinite(refs.video.duration) ? refs.video.duration : time));
-    if (Math.abs((refs.video.currentTime || 0) - safeTime) < 0.03) return resolve();
-    const onSeeked = () => resolve();
-    refs.video.addEventListener('seeked', onSeeked, { once: true });
-    refs.video.currentTime = safeTime;
+    if (!media) return resolve();
+    const duration = Number.isFinite(media.duration) ? media.duration : time;
+    const safeTime = Math.max(0, Math.min(time, duration));
+    if (Math.abs((media.currentTime || 0) - safeTime) < 0.03) return resolve();
+    const timer = window.setTimeout(() => {
+      media.removeEventListener('seeked', onSeeked);
+      resolve();
+    }, 900);
+    const onSeeked = () => {
+      window.clearTimeout(timer);
+      resolve();
+    };
+    media.addEventListener('seeked', onSeeked, { once: true });
+    media.currentTime = safeTime;
   });
+}
+
+function seekVideoTo(time) {
+  return seekMediaTo(refs.video, time);
 }
 
 async function captureFrameAt(time) {
   const video = refs.video;
   if (!state.videoUrl || !video.videoWidth || !video.videoHeight) return null;
-  const canvas = refs.captureCanvas;
+  const canvas = refs.analysisCanvas || (refs.analysisCanvas = document.createElement('canvas'));
   const maxWidth = Math.min(video.videoWidth, 1440);
   const scale = maxWidth / video.videoWidth;
   const width = Math.max(1, Math.round(video.videoWidth * scale));
@@ -1628,7 +1744,7 @@ async function generatePhaseCaptures() {
     if (image) results[phase.id] = image;
   }
 
-  await seekVideoTo(originalTime);
+  await seekMediaTo(video, originalTime);
   renderReadouts();
   renderTimeline();
   return results;
@@ -2362,5 +2478,18 @@ function init() {
   loadHistory();
   registerServiceWorker();
 }
+
+
+window.SwingLabAudit = {
+  version: 'v0.9.6 Stable Player Audit',
+  checks: () => ({
+    hasVideo: Boolean(state.videoUrl),
+    autoDetection: Object.assign({}, state.autoDetection),
+    phaseTimes: Object.assign({}, state.phaseTimes),
+    userMarkedPhases: Array.from(state.userMarkedPhaseIds || []),
+    visibleVideoTime: refs.video?.currentTime || 0,
+    analysisVideoReady: Boolean(refs.analysisVideo && Number.isFinite(refs.analysisVideo.duration)),
+  })
+};
 
 init();
