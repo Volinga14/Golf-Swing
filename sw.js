@@ -1,9 +1,11 @@
-const CACHE_NAME = 'swing-lab-v098-client-report-training';
+const CACHE_NAME = 'swing-lab-hybrid-v110-pipeline';
 const APP_ASSETS = [
   './',
   './index.html',
+  './config.js',
   './styles.css',
   './app.js',
+  './engine/online-engine.js',
   './engine/heuristic-engine.js',
   './engine/pose-engine.js',
   './engine/swing-engine.js',
@@ -28,9 +30,8 @@ self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
   const url = new URL(event.request.url);
 
-  // MediaPipe JS, WASM and model assets are intentionally network-first.
-  // This avoids stale/opaque cache responses when the PWA is installed from GitHub Pages.
-  if (url.origin !== self.location.origin) {
+  // External assets and online engine API calls must remain network-first.
+  if (url.origin !== self.location.origin || url.pathname.includes('/api/')) {
     event.respondWith(fetch(event.request));
     return;
   }

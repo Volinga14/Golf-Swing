@@ -1,27 +1,61 @@
-# Swing Lab PWA v0.9.8 Client Report & Training
+# Swing Lab Hybrid v1.1.0
 
-Base estable heredada de v0.9.7 con mejoras incrementales:
+PWA móvil + backend Python local para análisis de swing.
 
-- Reproductor visible protegido: el análisis automático usa vídeo oculto y no bloquea el player.
-- Fases manuales protegidas: el motor no sobrescribe fases marcadas por el usuario.
-- Refino temporal adicional: detección automática + patrón de swing para evitar fases absurdas.
-- Pose Foundation más tolerante: más candidatos CDN, umbrales de landmarks menos estrictos y mensajes de fallback claros.
-- Análisis cliente más limpio: resumen ejecutivo, scores, fases, prioridades, drills y QC.
-- Informe descargable en HTML, imprimible/exportable a PDF desde el navegador.
-- Exportación JSON para entrenamiento del motor: detección automática vs. fases finales corregidas.
-- Historial guarda datos de entrenamiento junto con capturas y métricas.
+## Qué incluye
 
-## Recomendación de prueba
+- PWA estática lista para GitHub Pages.
+- Backend FastAPI/Python en `online-engine/`.
+- Motor backend con OpenCV + MediaPipe.
+- Guardado local de vídeos, capturas, informes, features y correcciones.
+- Botón **Motor** en la app para configurar la URL del backend.
+- Botón **Enviar** en análisis para guardar correcciones como dataset de entrenamiento.
 
-1. Subir vídeo.
-2. Esperar a que aparezcan fases preliminares/detectadas.
-3. Corregir manualmente Address, Top e Impact como mínimo.
-4. Generar análisis.
-5. Descargar informe y guardar sesión.
-6. Exportar datos de entrenamiento si quieres alimentar el futuro motor.
+## Uso rápido backend local
+
+```powershell
+cd online-engine
+.venv\Scripts\activate
+python -m uvicorn main:app --host 0.0.0.0 --port 8000
+```
+
+Comprueba:
+
+```text
+http://localhost:8000/api/health
+```
+
+## Conectar la app
+
+En la PWA, botón **Motor**:
+
+- mismo PC: `http://localhost:8000`
+- móvil/GitHub Pages: usa Cloudflare Tunnel/ngrok y pega la URL HTTPS.
+
+Ver `CONNECT_PWA_LOCAL_BACKEND.md`.
+
+## Flujo de entrenamiento
+
+1. Subes vídeo en la PWA.
+2. La PWA manda vídeo al backend.
+3. Backend detecta fases y genera capturas/informe.
+4. Corriges fases en la PWA.
+5. Botón **Enviar**.
+6. Backend guarda detección automática vs corrección manual en `online-engine/data/training/`.
+
+## Carpetas importantes
+
+```text
+online-engine/data/videos      vídeos analizados
+online-engine/data/captures    capturas por fase
+online-engine/data/reports     informes HTML
+online-engine/data/features    features y pose samples
+online-engine/data/training    dataset de correcciones
+online-engine/data/db          SQLite local
+```
 
 ## Notas
 
-- Pose corporal requiere HTTPS/GitHub Pages y conexión inicial para cargar MediaPipe.
-- Si Pose no está disponible, el motor cae a heurística temporal sin bloquear la app.
-- Para móvil/PWA instalada, borrar caché o reinstalar tras cada versión.
+- Mantener Python 3.12 para máxima compatibilidad con OpenCV/MediaPipe.
+- El backend debe estar encendido para usar motor online.
+- Si no hay backend, la app mantiene fallback local.

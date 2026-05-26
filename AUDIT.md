@@ -1,34 +1,49 @@
-# Audit v0.9.8
+# Swing Lab Hybrid v1.1.0 - Audit
 
-## Problemas detectados en v0.9.7
+## Objetivo
 
-- El reproductor ya era estable, pero el reconocimiento de fases seguía siendo débil.
-- Pose podía no activarse y el análisis visible daba demasiada información técnica poco útil para cliente.
-- No existía una salida tipo informe profesional ni un dataset claro para mejorar el motor.
-- Existía un bug potencial en generación de capturas: referencia a `video` no definido al restaurar tiempo.
+Conectar la PWA estática con el backend Python local y automatizar:
 
-## Correcciones aplicadas
+- análisis de vídeo en backend;
+- devolución de fases a la app;
+- corrección manual desde PWA;
+- envío de correcciones al dataset de entrenamiento;
+- mantenimiento de fallback local.
 
-- `captureFrameAt()` usa vídeo oculto de análisis, no el reproductor visible.
-- Corregida restauración de tiempo tras capturas: `refs.video` en lugar de variable inexistente.
-- Añadido refino `refineDetectedPhaseTimes()` para mezclar detección con patrón temporal de swing cuando el resultado es incoherente.
-- Guardado de `rawDetectedPhases` y `refinedDetectedPhases` en diagnostics.
-- PoseEngine más tolerante: umbrales más bajos, menos frames mínimos, más candidatos CDN.
-- Análisis visible orientado a cliente: resumen ejecutivo, dashboard, prioridades y ejercicios.
-- Añadidos botones `Informe` y `Exportar datos entrenamiento`.
-- Sesión guardada incluye `trainingRecord` y `reportSnapshot`.
+## Cambios principales
 
-## Validaciones realizadas
+### PWA
 
-- `node --check` OK para:
-  - app.js
-  - engine/heuristic-engine.js
-  - engine/pose-engine.js
-  - engine/swing-engine.js
-  - sw.js
-- Estructura ZIP verificada.
-- Manifest JSON parseado correctamente.
+- `engine/online-engine.js` actualizado a `OnlineEngineClient v1.1.0-local-pc-compatible`.
+- `/api/analyze` usa ahora el campo `file`, compatible con backend FastAPI v0.1.1/v0.1.2.
+- Se envían `view`, `club`, `user_id`, `save_video` y `metadata`.
+- Se normalizan fases recibidas como `PhaseMark` del backend `{time, confidence, source}`.
+- Se guarda `backendSessionId` dentro del training record.
+- El botón **Enviar** manda JSON compatible con `TrainingCorrection`.
 
-## Limitación conocida
+### Backend
 
-No se ha podido ejecutar una prueba visual completa en navegador desde este entorno porque Chromium/Playwright bloquea navegación local por política de administración. La validación automática realizada es de sintaxis, estructura, referencias principales y empaquetado.
+- `api/main.py` actualizado a API v0.1.2.
+- `/api/analyze` acepta `file` y también `video` por compatibilidad.
+- `/api/analyze` acepta `metadata` JSON opcional.
+- `/api/training/submit` acepta:
+  - JSON `TrainingCorrection` directo;
+  - JSON training record generado por la PWA;
+  - multipart con campo `record`.
+- CORS abierto para desarrollo local.
+
+## Comprobaciones realizadas
+
+- `app.js` validado con `node --check`.
+- `engine/online-engine.js` validado con `node --check`.
+- `sw.js` validado con `node --check`.
+- Backend importado correctamente.
+- `GET /api/health` probado con FastAPI TestClient.
+- `POST /api/training/submit` probado con JSON.
+- ZIP verificado.
+
+## Limitaciones
+
+- El motor de fases todavía necesita mejorar con más vídeos corregidos.
+- Para móvil con GitHub Pages, se recomienda usar túnel HTTPS hacia el PC.
+- El backend local debe estar encendido para análisis online.

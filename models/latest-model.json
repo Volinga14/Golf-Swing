@@ -1,0 +1,16 @@
+{
+  "modelVersion": "phase-model-v001-bootstrap",
+  "createdAt": "2026-05-25",
+  "description": "Bootstrap temporal model. Updated server-side as corrected swings are collected.",
+  "reference": {
+    "dtl": {
+      "unknown": { "addressPct": 0.05, "takeawayPct": 0.20, "topPct": 0.44, "impactPct": 0.67, "finishPct": 0.92 },
+      "iron": { "addressPct": 0.05, "takeawayPct": 0.21, "topPct": 0.45, "impactPct": 0.66, "finishPct": 0.91 },
+      "driver": { "addressPct": 0.05, "takeawayPct": 0.20, "topPct": 0.46, "impactPct": 0.67, "finishPct": 0.93 }
+    },
+    "fo": {
+      "unknown": { "addressPct": 0.05, "takeawayPct": 0.20, "topPct": 0.44, "impactPct": 0.67, "finishPct": 0.92 }
+    }
+  },
+  "publishPolicy": "Only promote a model if benchmark mean absolute phase error improves versus previous active model."
+}

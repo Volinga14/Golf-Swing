@@ -869,3 +869,7 @@ button:disabled { opacity: .42; cursor: not-allowed; }
 .report-metric span { display: block; margin-top: 5px; font-size: 10px; color: rgba(255,255,255,.58); }
 .training-note { border-left: 3px solid rgba(255,255,255,.55); padding-left: 9px; color: rgba(255,255,255,.72); }
 @media (min-width: 430px) { .analysis-wide-actions { grid-template-columns: 1fr 1fr; } }
+.hud-btn.online-ok { background: rgba(42, 180, 96, .72); color: #fff; }
+.hud-btn.online-warn { background: rgba(245, 180, 40, .78); color: #111; }
+.small-pill.save-pill { background: rgba(255,255,255,.24); }
+.training-note { border-left: 3px solid rgba(255,255,255,.6); padding-left: 10px; }

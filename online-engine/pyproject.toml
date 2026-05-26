@@ -1,0 +1,8 @@
+[project]
+name = "swinglab-engine"
+version = "0.1.1"
+description = "Hybrid backend analysis engine for Swing Lab"
+requires-python = ">=3.10"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]

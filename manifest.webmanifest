@@ -1,7 +1,7 @@
 {
-  "name": "Swing Lab v0.9.7 Phase Control Fix",
+  "name": "Swing Lab v1.0 Online Engine Pipeline",
   "short_name": "SwingLab",
-  "description": "PWA fullscreen para revisar swing de golf con detección automática en segundo plano sin bloquear el reproductor visible.",
+  "description": "PWA fullscreen para swing de golf con motor online, fallback local, informes y dataset de entrenamiento.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
@@ -9,17 +9,7 @@
   "background_color": "#000000",
   "theme_color": "#000000",
   "icons": [
-    {
-      "src": "icons/icon-192.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "any maskable"
-    },
-    {
-      "src": "icons/icon-512.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any maskable"
-    }
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
   ]
 }

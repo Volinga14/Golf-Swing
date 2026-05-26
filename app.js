@@ -2,7 +2,7 @@
 
 const $ = (id) => document.getElementById(id);
 const DB_NAME = 'swing-lab-db';
-const DB_VERSION = 17;
+const DB_VERSION = 18;
 const STORE = 'sessions';
 const ASSUMED_FPS = 30;
 
@@ -72,6 +72,9 @@ const state = {
   sheetDragging: false,
   historySelectionMode: false,
   selectedSessionIds: new Set(),
+  onlineEngineStatus: { mode: 'unknown', available: false, url: '', modelVersion: null, lastSync: null, lastError: null },
+  lastOnlineResult: null,
+  trainingSubmittedAt: null,
 };
 
 const refs = {
@@ -99,6 +102,7 @@ const refs = {
   foGuides: $('foGuides'),
   stateText: $('stateText'),
   uploadBtn: $('uploadBtn'),
+  engineStatusBtn: $('engineStatusBtn'),
   pickVideoBtn: $('pickVideoBtn'),
   openCameraBtn: $('openCameraBtn'),
   openHistoryStartBtn: $('openHistoryStartBtn'),
@@ -139,6 +143,7 @@ const refs = {
   saveSessionBtn: $('saveSessionBtn'),
   saveSessionTopBtn: $('saveSessionTopBtn'),
   downloadReportBtn: $('downloadReportBtn'),
+  submitTrainingBtn: $('submitTrainingBtn'),
   exportDatasetBtn: $('exportDatasetBtn'),
   expandSheetBtn: $('expandSheetBtn'), // removed in v0.9.1; kept optional for backwards compatibility
   historySelectBtn: $('historySelectBtn'),
@@ -155,6 +160,51 @@ function clone(value) {
 function uid() {
   if (crypto?.randomUUID) return crypto.randomUUID();
   return `session-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function onlineEngineUrl() {
+  return window.SwingLabOnlineEngine?.getBaseUrl?.() || '';
+}
+
+function updateOnlineStatus(patch = {}) {
+  state.onlineEngineStatus = Object.assign({}, state.onlineEngineStatus || {}, patch, { url: onlineEngineUrl() });
+  renderOnlineEngineStatus();
+}
+
+function renderOnlineEngineStatus() {
+  if (!refs.engineStatusBtn) return;
+  const status = state.onlineEngineStatus || {};
+  const configured = Boolean(onlineEngineUrl());
+  let text = 'Motor';
+  if (!configured) text = 'Local';
+  else if (status.available) text = 'Online';
+  else if (status.mode === 'checking') text = 'Check';
+  else text = 'Fallback';
+  refs.engineStatusBtn.textContent = text;
+  refs.engineStatusBtn.classList.toggle('online-ok', Boolean(status.available));
+  refs.engineStatusBtn.classList.toggle('online-warn', configured && !status.available);
+}
+
+async function checkOnlineEngine({ quiet = false } = {}) {
+  if (!window.SwingLabOnlineEngine) return updateOnlineStatus({ available: false, mode: 'missing-client', lastError: 'online-client-missing' });
+  updateOnlineStatus({ mode: 'checking', available: false, lastError: null });
+  const result = await window.SwingLabOnlineEngine.ping();
+  if (result?.ok) {
+    updateOnlineStatus({ mode: 'online', available: true, modelVersion: result.modelVersion || result.model_version || null, lastSync: new Date().toISOString(), lastError: null });
+    if (!quiet) alert(`Motor online activo${result.modelVersion ? `: ${result.modelVersion}` : ''}`);
+  } else {
+    updateOnlineStatus({ mode: onlineEngineUrl() ? 'fallback' : 'local-only', available: false, lastError: result?.error || 'not-configured' });
+    if (!quiet) alert(`Motor online no disponible. La app usará fallback local.\n\n${result?.error || 'Configura la URL del motor.'}`);
+  }
+}
+
+function configureOnlineEngine() {
+  const current = onlineEngineUrl();
+  const next = prompt('URL del motor online Swing Lab\n\nEjemplo: https://swing-lab-engine.tu-dominio.com\n\nDéjalo vacío para usar solo motor local.', current || '');
+  if (next === null) return;
+  window.SwingLabOnlineEngine?.configure?.(next.trim());
+  updateOnlineStatus({ mode: next.trim() ? 'configured' : 'local-only', available: false, lastError: null });
+  checkOnlineEngine({ quiet: false });
 }
 
 function openDb() {
@@ -335,13 +385,13 @@ function applyVideoFile(file) {
   state.videoBlob = file;
   state.videoUrl = URL.createObjectURL(file);
   state.videoName = file.name || `swing-${new Date().toISOString().slice(0, 10)}.mp4`;
-  refs.analysisStatus.textContent = 'Vídeo cargado. Preparando detección inicial con pose corporal… podrás corregir las fases manualmente.';
+  refs.analysisStatus.textContent = onlineEngineUrl() ? 'Vídeo cargado. Enviando al motor online si está disponible; podrás corregir fases manualmente.' : 'Vídeo cargado. Preparando detección local; podrás corregir fases manualmente.';
   refs.recommendations.innerHTML = '';
   refs.capturesGrid.innerHTML = '';
   refs.video.src = state.videoUrl;
   refs.video.load();
   prepareAnalysisVideo();
-  state.autoDetection = { status: 'queued', confidence: 0, method: 'Pose Foundation v0.9.8 auto-start', provider: '', samples: 0, poseSamples: 0, poseStatus: 'queued', motionPeakTime: null, phaseConfidence: {}, extendedTimes: {}, diagnostics: {}, poseSummary: null };
+  state.autoDetection = { status: 'queued', confidence: 0, method: 'Pose Foundation v1.0.0 auto-start', provider: '', samples: 0, poseSamples: 0, poseStatus: 'queued', motionPeakTime: null, phaseConfidence: {}, extendedTimes: {}, diagnostics: {}, poseSummary: null };
   setAppState('loaded');
   render();
   preWarmPoseEngine();
@@ -862,7 +912,7 @@ function buildTrainingRecord(metrics = ensureAnalysisMetrics()) {
   return {
     schema: 'swing-lab-training-record-v1',
     createdAt: new Date().toISOString(),
-    appVersion: 'v0.9.8-client-report-training',
+    appVersion: 'v1.1.0-hybrid-local-backend',
     videoName: state.videoName || 'swing-video',
     guideMode: state.guideMode,
     duration: currentVideoDuration(),
@@ -878,6 +928,11 @@ function buildTrainingRecord(metrics = ensureAnalysisMetrics()) {
     finalPhaseTimes: clone(state.phaseTimes),
     autoVsFinalCorrections: phaseCorrections(metrics),
     metrics: clone(metrics),
+    onlineEngine: clone(state.onlineEngineStatus || {}),
+    backendSessionId: state.lastOnlineResult?.sessionId || state.lastOnlineResult?.raw?.session_id || state.analysisMetrics?.backendSessionId || null,
+    userId: localStorage.getItem('swingLabUserId') || 'victor',
+    club: localStorage.getItem('swingLabClub') || 'iron',
+    onlineResultSummary: state.lastOnlineResult ? { sessionId: state.lastOnlineResult.sessionId || state.lastOnlineResult.raw?.session_id || null, provider: state.lastOnlineResult.provider, engineVersion: state.lastOnlineResult.engineVersion, confidence: state.lastOnlineResult.confidence } : null,
     notesForTraining: 'Use finalPhaseTimes as corrected labels. autoVsFinalCorrections shows where the motor was wrong versus the final manual result.',
   };
 }
@@ -931,6 +986,30 @@ function exportTrainingDataset() {
   downloadText(`swing-lab-training-${new Date().toISOString().replace(/[:.]/g,'-')}.json`, JSON.stringify(buildTrainingRecord(metrics), null, 2), 'application/json');
 }
 
+async function submitTrainingDataset() {
+  const metrics = ensureAnalysisMetrics();
+  const record = buildTrainingRecord(metrics);
+  if (!window.SwingLabOnlineEngine?.isEnabled?.()) {
+    alert('Configura primero la URL del motor online con el botón Motor. Mientras tanto puedes usar Exportar datos entrenamiento.');
+    return;
+  }
+  try {
+    if (refs.submitTrainingBtn) refs.submitTrainingBtn.textContent = 'Enviando…';
+    const includeVideo = true; // private trusted test group: send full video to improve the model.
+    const res = await window.SwingLabOnlineEngine.submitTraining(record, { includeVideo, file: state.videoBlob });
+    state.trainingSubmittedAt = new Date().toISOString();
+    updateOnlineStatus({ mode: 'training-submitted', available: true, lastSync: state.trainingSubmittedAt, lastError: null });
+    refs.analysisStatus.textContent = `Datos enviados al motor online. Session ID: ${res.sessionId || res.session_id || res.record?.session_id || 'ok'} · correcciones guardadas: ${res.stats?.training_corrections ?? '--'}.`;
+    alert('Datos de entrenamiento enviados correctamente.');
+  } catch (error) {
+    updateOnlineStatus({ mode: 'training-submit-failed', lastError: String(error?.message || error) });
+    alert(`No se pudieron enviar los datos.\n\n${String(error?.message || error)}\n\nPuedes exportar el JSON manualmente.`);
+  } finally {
+    if (refs.submitTrainingBtn) refs.submitTrainingBtn.textContent = 'Enviar';
+    render();
+  }
+}
+
 function buildRecommendations() {
   const metrics = ensureAnalysisMetrics();
   const recs = [];
@@ -953,6 +1032,8 @@ function buildRecommendations() {
     ? `Pose corporal activa · ${poseSamples} muestras corporales · confianza ${confidence}%.`
     : `Pose no disponible o débil · motor temporal/heurístico · confianza ${confidence}%.`;
   recs.push(`<b>Motor de análisis:</b> ${engineLine} ${poseAvailable ? 'Se han usado landmarks para apoyar la detección.' : 'El análisis sigue siendo usable, pero Top e Impact deben validarse manualmente.'}`);
+  const online = state.onlineEngineStatus || {};
+  recs.push(`<b>Motor online:</b> ${online.url ? (online.available ? `activo · ${online.modelVersion || 'latest'} · datos listos para entrenamiento` : `configurado pero en fallback · ${online.lastError || 'sin conexión'}`) : 'no configurado; se usa motor local/fallback. Configúralo con el botón Motor para que cada análisis alimente el dataset.'}`);
 
   const phaseRows = phases.map((phase) => {
     const t = extractPhaseTime(state.phaseTimes?.[phase.id]);
@@ -1787,6 +1868,61 @@ function applyDetectedPhaseTimes(detectedTimes, duration) {
   }
 }
 
+
+async function tryOnlineAutoDetection(runId) {
+  if (!state.videoBlob || !window.SwingLabOnlineEngine?.isEnabled?.()) return null;
+  updateOnlineStatus({ mode: 'uploading', available: state.onlineEngineStatus?.available || false, lastError: null });
+  refs.cleanHint.textContent = 'Motor online… subiendo vídeo';
+  refs.analysisStatus.textContent = 'Motor online: subiendo vídeo y analizando en servidor. Puedes seguir usando el reproductor.';
+  render();
+
+  const metadata = {
+    appVersion: 'v1.1.0-hybrid-local-backend',
+    videoName: state.videoName,
+    duration: Number.isFinite(refs.video.duration) ? refs.video.duration : null,
+    fps: ASSUMED_FPS,
+    view: state.guideMode,
+    club: localStorage.getItem('swingLabClub') || 'unknown',
+    existingManualPhases: clone(state.phaseTimes || {}),
+    userMarkedPhaseIds: Array.from(state.userMarkedPhaseIds || []),
+    clientTime: new Date().toISOString()
+  };
+
+  const result = await window.SwingLabOnlineEngine.analyze({ file: state.videoBlob, metadata });
+  if (state.autoDetectionRunId !== runId || !state.videoUrl) return null;
+  state.lastOnlineResult = result;
+  updateOnlineStatus({ mode: 'online', available: true, modelVersion: result.engineVersion || result.metrics?.engineVersion || null, lastSync: new Date().toISOString(), lastError: null });
+  return result;
+}
+
+function applyEngineResult(result, providerLabel = 'engine') {
+  const rawPhases = result.phases || result.times || result.metrics?.phaseTable || null;
+  const refinedPhases = refineDetectedPhaseTimes(rawPhases, refs.video.duration, result);
+  applyDetectedPhaseTimes(refinedPhases, refs.video.duration);
+  state.autoDetection = {
+    status: 'done',
+    confidence: result.confidence || 0.3,
+    method: result.engineVersion || providerLabel,
+    provider: result.provider || providerLabel,
+    samples: result.profileSummary?.samples || result.samples || 0,
+    poseSamples: result.profileSummary?.poseSamples || result.poseSamples || 0,
+    poseStatus: result.poseStatus || result.poseSummary?.status || 'unknown',
+    poseSummary: result.poseSummary || result.metrics?.poseSummary || null,
+    poseError: result.poseError || null,
+    motionPeakTime: result.phases?.impact || null,
+    phaseConfidence: result.phaseConfidence || phaseConfidenceFallback(result.confidence || 0.35),
+    extendedTimes: result.extendedTimes || {},
+    diagnostics: Object.assign({}, result.diagnostics || {}, {
+      provider: result.provider || providerLabel,
+      protectedManualPhases: Array.from(state.userMarkedPhaseIds),
+      rawDetectedPhases: rawPhases,
+      refinedDetectedPhases: refinedPhases,
+      onlineResult: providerLabel.includes('online')
+    }),
+  };
+  state.analysisMetrics = result.metrics || computeAnalysisMetrics();
+}
+
 async function autoDetectPhases() {
   if (!state.videoUrl || state.autoDetection.status === 'running' || state.autoDetection.status === 'done') return;
   const runId = state.autoDetectionRunId;
@@ -1807,8 +1943,18 @@ async function autoDetectPhases() {
     if (state.autoDetectionRunId !== runId || !state.videoUrl) return;
     if (!ready) throw new Error('analysis-video-not-ready');
 
-    let result = null;
-    if (window.SwingLabEngine?.analyze) {
+    let onlineResult = null;
+    try {
+      onlineResult = await tryOnlineAutoDetection(runId);
+    } catch (onlineError) {
+      console.warn('Online engine unavailable, using local fallback', onlineError);
+      updateOnlineStatus({ mode: 'fallback', available: false, lastError: String(onlineError?.message || onlineError) });
+    }
+
+    if (onlineResult) {
+      applyEngineResult(onlineResult, 'online-engine');
+    } else if (window.SwingLabEngine?.analyze) {
+      let result = null;
       result = await window.SwingLabEngine.analyze({
         video: analysisVideo,
         fps: ASSUMED_FPS,
@@ -1823,25 +1969,7 @@ async function autoDetectPhases() {
         usePose: true,
       });
       if (state.autoDetectionRunId !== runId || !state.videoUrl) return;
-      const rawPhases = result.phases || result.times || result.metrics?.phaseTable || null;
-      const refinedPhases = refineDetectedPhaseTimes(rawPhases, refs.video.duration, result);
-      applyDetectedPhaseTimes(refinedPhases, refs.video.duration);
-      state.autoDetection = {
-        status: 'done',
-        confidence: result.confidence || 0.3,
-        method: result.engineVersion || window.SwingLabEngine.version || 'Pose Stable Engine',
-        provider: result.provider || 'unknown',
-        samples: result.profileSummary?.samples || 0,
-        poseSamples: result.profileSummary?.poseSamples || 0,
-        poseStatus: result.poseStatus || result.poseSummary?.status || 'unavailable',
-        poseSummary: result.poseSummary || result.metrics?.poseSummary || null,
-        poseError: result.poseError || null,
-        motionPeakTime: result.phases?.impact || null,
-        phaseConfidence: result.phaseConfidence || phaseConfidenceFallback(result.confidence || 0.35),
-        extendedTimes: result.extendedTimes || {},
-        diagnostics: Object.assign({}, result.diagnostics || {}, { backgroundVideo: true, protectedManualPhases: Array.from(state.userMarkedPhaseIds), rawDetectedPhases: rawPhases, refinedDetectedPhases: refinedPhases }),
-      };
-      state.analysisMetrics = result.metrics || computeAnalysisMetrics();
+      applyEngineResult(result, 'local-pose-engine');
     } else {
       const duration = analysisVideo.duration || refs.video.duration;
       const profile = await sampleMotionProfile(analysisVideo);
@@ -2508,6 +2636,7 @@ function bindEvents() {
   refs.openCameraBtn.addEventListener('click', () => refs.cameraInput.click());
   refs.openHistoryStartBtn.addEventListener('click', openHistoryFromStart);
   refs.uploadBtn.addEventListener('click', () => refs.videoInput.click());
+  if (refs.engineStatusBtn) refs.engineStatusBtn.addEventListener('click', configureOnlineEngine);
   refs.videoInput.addEventListener('change', (event) => applyVideoFile(event.target.files?.[0]));
   refs.cameraInput.addEventListener('change', (event) => applyVideoFile(event.target.files?.[0]));
 
@@ -2568,6 +2697,7 @@ function bindEvents() {
   refs.saveSessionBtn.addEventListener('click', saveSession);
   refs.saveSessionTopBtn.addEventListener('click', saveSession);
   if (refs.downloadReportBtn) refs.downloadReportBtn.addEventListener('click', downloadReport);
+  if (refs.submitTrainingBtn) refs.submitTrainingBtn.addEventListener('click', submitTrainingDataset);
   if (refs.exportDatasetBtn) refs.exportDatasetBtn.addEventListener('click', exportTrainingDataset);
   if (refs.expandSheetBtn) refs.expandSheetBtn.addEventListener('click', () => { state.sheetExpanded = !state.sheetExpanded; render(); });
   refs.historySelectBtn.addEventListener('click', toggleHistorySelectionMode);
@@ -2680,8 +2810,10 @@ async function registerServiceWorker() {
 
 function init() {
   bindEvents();
+  updateOnlineStatus({ mode: onlineEngineUrl() ? 'configured' : 'local-only', available: false });
   render();
   loadHistory();
+  checkOnlineEngine({ quiet: true });
   registerServiceWorker();
 }
 

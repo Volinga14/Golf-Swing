@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no" />
-  <title>Swing Lab v0.9.8 Client Report & Training</title>
-  <meta name="description" content="Swing Lab PWA v0.9.8 - análisis estable con Pose Foundation, informe cliente y dataset de entrenamiento." />
+  <title>Swing Lab v1.0 Online Engine Pipeline</title>
+  <meta name="description" content="Swing Lab PWA v1.0 - motor online, dataset de entrenamiento, informe cliente y fallback local estable." />
   <meta name="theme-color" content="#000000" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -21,7 +21,7 @@
       <section id="emptyState" class="empty-state">
         <div class="empty-logo">⛳</div>
         <h1>Swing Lab</h1>
-        <p>Sube o graba un swing. La app prepara fases desde la carga y analiza el vídeo en segundo plano con Pose Foundation, manteniendo el formato simple tipo short para revisar, corregir y analizar.</p>
+        <p>Sube o graba un swing. La app puede usar un motor online para analizar, aprender de las correcciones y mantener fallback local estable para revisar, corregir e informar.</p>
         <div class="empty-actions">
           <button id="pickVideoBtn" class="btn primary" type="button">Subir vídeo</button>
           <button id="openCameraBtn" class="btn secondary" type="button">Grabar con cámara</button>
@@ -63,6 +63,7 @@
           <div id="stateText" class="state-text">Vídeo cargado</div>
         </div>
         <div class="hud-actions">
+          <button id="engineStatusBtn" class="hud-btn" type="button">Motor</button>
           <button id="installBtn" class="hud-btn hidden" type="button">Instalar</button>
           <button id="uploadBtn" class="hud-btn" type="button">Subir</button>
         </div>
@@ -134,6 +135,7 @@
               <button id="analyzeBtn" class="small-pill" type="button">Generar</button>
               <button id="saveSessionTopBtn" class="small-pill save-pill" type="button">Guardar</button>
               <button id="downloadReportBtn" class="small-pill" type="button">Informe</button>
+              <button id="submitTrainingBtn" class="small-pill" type="button">Enviar</button>
             </div>
           </div>
           <div id="recommendations" class="recommendations"></div>
@@ -164,6 +166,8 @@
     <input id="cameraInput" type="file" accept="video/*" capture="environment" class="hidden" />
   </div>
 
+  <script src="config.js" defer></script>
+  <script src="engine/online-engine.js" defer></script>
   <script src="engine/heuristic-engine.js" defer></script>
   <script src="engine/pose-engine.js" defer></script>
   <script src="engine/swing-engine.js" defer></script>
