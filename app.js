@@ -103,6 +103,7 @@ const refs = {
   stateText: $('stateText'),
   uploadBtn: $('uploadBtn'),
   engineStatusBtn: $('engineStatusBtn'),
+  engineStatusBtnStart: $('engineStatusBtnStart'),
   pickVideoBtn: $('pickVideoBtn'),
   openCameraBtn: $('openCameraBtn'),
   openHistoryStartBtn: $('openHistoryStartBtn'),
@@ -172,17 +173,21 @@ function updateOnlineStatus(patch = {}) {
 }
 
 function renderOnlineEngineStatus() {
-  if (!refs.engineStatusBtn) return;
+  const buttons = [refs.engineStatusBtn, refs.engineStatusBtnStart].filter(Boolean);
+  if (!buttons.length) return;
   const status = state.onlineEngineStatus || {};
   const configured = Boolean(onlineEngineUrl());
   let text = 'Motor';
-  if (!configured) text = 'Local';
-  else if (status.available) text = 'Online';
-  else if (status.mode === 'checking') text = 'Check';
-  else text = 'Fallback';
-  refs.engineStatusBtn.textContent = text;
-  refs.engineStatusBtn.classList.toggle('online-ok', Boolean(status.available));
-  refs.engineStatusBtn.classList.toggle('online-warn', configured && !status.available);
+  if (!configured) text = 'Motor: Local';
+  else if (status.available) text = 'Motor: Online';
+  else if (status.mode === 'checking') text = 'Motor: Check';
+  else text = 'Motor: Fallback';
+  for (const btn of buttons) {
+    btn.textContent = text;
+    btn.title = configured ? onlineEngineUrl() : 'Configurar motor online';
+    btn.classList.toggle('online-ok', Boolean(status.available));
+    btn.classList.toggle('online-warn', configured && !status.available);
+  }
 }
 
 async function checkOnlineEngine({ quiet = false } = {}) {
@@ -200,10 +205,10 @@ async function checkOnlineEngine({ quiet = false } = {}) {
 
 function configureOnlineEngine() {
   const current = onlineEngineUrl();
-  const next = prompt('URL del motor online Swing Lab\n\nEjemplo: https://swing-lab-engine.tu-dominio.com\n\nDéjalo vacío para usar solo motor local.', current || '');
+  const next = prompt('URL base del motor online Swing Lab\n\nPega SOLO la URL base de Cloudflare, por ejemplo:\nhttps://docs-great-operating-garden.trycloudflare.com\n\nSi pegas /api/health por error, la app lo corregirá automáticamente. Déjalo vacío para usar solo motor local.', current || '');
   if (next === null) return;
-  window.SwingLabOnlineEngine?.configure?.(next.trim());
-  updateOnlineStatus({ mode: next.trim() ? 'configured' : 'local-only', available: false, lastError: null });
+  const saved = window.SwingLabOnlineEngine?.configure?.(next.trim()) || '';
+  updateOnlineStatus({ mode: saved ? 'configured' : 'local-only', available: false, lastError: null });
   checkOnlineEngine({ quiet: false });
 }
 
@@ -912,7 +917,7 @@ function buildTrainingRecord(metrics = ensureAnalysisMetrics()) {
   return {
     schema: 'swing-lab-training-record-v1',
     createdAt: new Date().toISOString(),
-    appVersion: 'v1.1.0-hybrid-local-backend',
+    appVersion: 'v1.1.1-hybrid-url-fix',
     videoName: state.videoName || 'swing-video',
     guideMode: state.guideMode,
     duration: currentVideoDuration(),
@@ -1877,7 +1882,7 @@ async function tryOnlineAutoDetection(runId) {
   render();
 
   const metadata = {
-    appVersion: 'v1.1.0-hybrid-local-backend',
+    appVersion: 'v1.1.1-hybrid-url-fix',
     videoName: state.videoName,
     duration: Number.isFinite(refs.video.duration) ? refs.video.duration : null,
     fps: ASSUMED_FPS,
@@ -2637,6 +2642,7 @@ function bindEvents() {
   refs.openHistoryStartBtn.addEventListener('click', openHistoryFromStart);
   refs.uploadBtn.addEventListener('click', () => refs.videoInput.click());
   if (refs.engineStatusBtn) refs.engineStatusBtn.addEventListener('click', configureOnlineEngine);
+  if (refs.engineStatusBtnStart) refs.engineStatusBtnStart.addEventListener('click', configureOnlineEngine);
   refs.videoInput.addEventListener('change', (event) => applyVideoFile(event.target.files?.[0]));
   refs.cameraInput.addEventListener('change', (event) => applyVideoFile(event.target.files?.[0]));
 

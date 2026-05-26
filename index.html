@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no" />
-  <title>Swing Lab v1.0 Online Engine Pipeline</title>
-  <meta name="description" content="Swing Lab PWA v1.0 - motor online, dataset de entrenamiento, informe cliente y fallback local estable." />
+  <title>Swing Lab v1.1.1 Hybrid Engine Fix</title>
+  <meta name="description" content="Swing Lab PWA v1.1.1 - motor online visible desde inicio, URL normalizada y fallback local estable." />
   <meta name="theme-color" content="#000000" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -26,7 +26,10 @@
           <button id="pickVideoBtn" class="btn primary" type="button">Subir vídeo</button>
           <button id="openCameraBtn" class="btn secondary" type="button">Grabar con cámara</button>
         </div>
-        <button id="openHistoryStartBtn" class="history-empty-btn" type="button">Cargar sesión anterior</button>
+        <div class="empty-secondary-actions">
+          <button id="engineStatusBtnStart" class="history-empty-btn engine-empty-btn" type="button">Motor: Local</button>
+          <button id="openHistoryStartBtn" class="history-empty-btn" type="button">Cargar sesión anterior</button>
+        </div>
         <button id="installBtnEmpty" class="install-empty hidden" type="button">Instalar PWA</button>
         <p class="empty-tip">Recomendado: móvil vertical, cuerpo completo, cámara quieta y buena luz.</p>
       </section>

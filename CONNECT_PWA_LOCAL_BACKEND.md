@@ -99,3 +99,15 @@ La sesión debe haber sido analizada primero con el backend online. Si se analiz
 ### GitHub Pages + http://192.168.x.x:8000 no conecta
 
 Usa Cloudflare Tunnel/ngrok. Es lo más limpio para móvil.
+
+## v1.1.1 connection fix
+
+The Motor button is now visible on the start screen before uploading a video.
+
+When using a Cloudflare quick tunnel, paste only the base URL in the app, for example:
+
+```text
+https://xxxx.trycloudflare.com
+```
+
+Do not include `/api/health`. If you paste it by mistake, the app will now sanitize it automatically.

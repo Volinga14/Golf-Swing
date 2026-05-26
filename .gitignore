@@ -1,83 +1,51 @@
-# Swing Lab / Golf-Swing repository ignore rules
-# Keep GitHub clean: upload source code, not local environments or generated analysis data.
-
-# -----------------------------
 # Python virtual environments
-# -----------------------------
 .venv/
 venv/
 env/
-ENV/
 
-# -----------------------------
-# Python cache / tooling
-# -----------------------------
+# Python cache
 __pycache__/
-*.py[cod]
+*.pyc
 *.pyo
 *.pyd
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
-.coverage
-htmlcov/
 
-# -----------------------------
 # Local backend generated data
-# -----------------------------
-online-engine/data/videos/
-online-engine/data/uploads/
-online-engine/data/captures/
-online-engine/data/reports/
-online-engine/data/features/
-online-engine/data/training/
-online-engine/data/db/
-online-engine/data/tmp/
-online-engine/data/cache/
+online-engine/data/videos/*
+online-engine/data/captures/*
+online-engine/data/reports/*
+online-engine/data/features/*
+online-engine/data/training/*
+online-engine/data/db/*
+online-engine/data/tmp/*
+online-engine/data/uploads/*
 
-# Keep the data folder structure if you create this placeholder file
-!online-engine/data/.gitkeep
+# Keep folder placeholders
+!online-engine/data/**/.gitkeep
 
-# -----------------------------
 # Local databases
-# -----------------------------
 *.sqlite
 *.sqlite3
 *.db
 
-# -----------------------------
 # Environment variables / secrets
-# -----------------------------
 .env
 .env.local
-.env.*.local
 
-# -----------------------------
 # Logs
-# -----------------------------
 *.log
 logs/
 
-# -----------------------------
-# Large media files
-# -----------------------------
+# Large video files
 *.mp4
 *.mov
 *.avi
 *.mkv
 *.webm
-*.m4v
 
-# -----------------------------
-# Node / frontend dependencies if added later
-# -----------------------------
-node_modules/
-dist/
-build/
-
-# -----------------------------
 # OS / editor
-# -----------------------------
 .DS_Store
 Thumbs.db
 .vscode/

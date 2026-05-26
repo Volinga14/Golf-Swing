@@ -4,10 +4,21 @@
   const STORAGE_KEY = 'swingLabOnlineEngineUrl';
   const USER_KEY = 'swingLabUserId';
   const CLUB_KEY = 'swingLabClub';
-  const VERSION = 'OnlineEngineClient v1.1.0-local-pc-compatible';
+  const VERSION = 'OnlineEngineClient v1.1.1-base-url-sanitized';
 
   function cleanUrl(url) {
-    return String(url || '').trim().replace(/\/+$/, '');
+    let value = String(url || '').trim();
+    if (!value) return '';
+
+    // Users often paste a test endpoint such as:
+    //   https://xxxx.trycloudflare.com/api/health
+    // The client itself appends /api/health and /api/analyze, so we must keep only
+    // the API base URL. Otherwise requests become /api/health/api/health.
+    value = value.replace(/\/+$/, '');
+    value = value.replace(/\/api\/(health|analyze|model\/latest|training\/submit|training\/stats)$/i, '');
+    value = value.replace(/\/api$/i, '');
+    value = value.replace(/\/+$/, '');
+    return value;
   }
 
   function getBaseUrl() {

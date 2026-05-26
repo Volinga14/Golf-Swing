@@ -1,49 +1,41 @@
-# Swing Lab Hybrid v1.1.0 - Audit
+# Swing Lab Hybrid v1.1.1 - Connection Fix Audit
 
-## Objetivo
+## Problem detected
 
-Conectar la PWA estática con el backend Python local y automatizar:
+The PWA was sometimes configured with a full endpoint URL such as `/api/health` instead of the engine base URL. The frontend then appended `/api/health` and `/api/analyze`, causing invalid backend requests such as:
 
-- análisis de vídeo en backend;
-- devolución de fases a la app;
-- corrección manual desde PWA;
-- envío de correcciones al dataset de entrenamiento;
-- mantenimiento de fallback local.
+- `GET /api/health/api/health`
+- `POST /api/health/api/analyze`
 
-## Cambios principales
+The Motor button was also only visible after video load, making setup inconvenient before uploading a mobile video.
 
-### PWA
+## Fixes applied
 
-- `engine/online-engine.js` actualizado a `OnlineEngineClient v1.1.0-local-pc-compatible`.
-- `/api/analyze` usa ahora el campo `file`, compatible con backend FastAPI v0.1.1/v0.1.2.
-- Se envían `view`, `club`, `user_id`, `save_video` y `metadata`.
-- Se normalizan fases recibidas como `PhaseMark` del backend `{time, confidence, source}`.
-- Se guarda `backendSessionId` dentro del training record.
-- El botón **Enviar** manda JSON compatible con `TrainingCorrection`.
+- Added Motor configuration button to the start screen before video upload.
+- Status is synchronized between the start-screen Motor button and the in-video HUD button.
+- Engine URL is sanitized client-side. If the user pastes `/api/health`, `/api/analyze`, `/api/model/latest`, `/api/training/submit`, `/api/training/stats`, or `/api`, the app stores only the base URL.
+- Backend version updated to `0.1.3`.
+- Added temporary backend compatibility aliases for malformed URLs during transition.
+- Service worker cache version updated to force refresh.
 
-### Backend
+## Correct Cloudflare URL format
 
-- `api/main.py` actualizado a API v0.1.2.
-- `/api/analyze` acepta `file` y también `video` por compatibilidad.
-- `/api/analyze` acepta `metadata` JSON opcional.
-- `/api/training/submit` acepta:
-  - JSON `TrainingCorrection` directo;
-  - JSON training record generado por la PWA;
-  - multipart con campo `record`.
-- CORS abierto para desarrollo local.
+Use this format in the app:
 
-## Comprobaciones realizadas
+```text
+https://xxxx.trycloudflare.com
+```
 
-- `app.js` validado con `node --check`.
-- `engine/online-engine.js` validado con `node --check`.
-- `sw.js` validado con `node --check`.
-- Backend importado correctamente.
-- `GET /api/health` probado con FastAPI TestClient.
-- `POST /api/training/submit` probado con JSON.
-- ZIP verificado.
+Do not use:
 
-## Limitaciones
+```text
+https://xxxx.trycloudflare.com/api/health
+```
 
-- El motor de fases todavía necesita mejorar con más vídeos corregidos.
-- Para móvil con GitHub Pages, se recomienda usar túnel HTTPS hacia el PC.
-- El backend local debe estar encendido para análisis online.
+The app now corrects this automatically, but the base URL is still the preferred input.
+
+## Verification performed
+
+- JavaScript syntax check passed.
+- Python backend syntax compile passed.
+- ZIP generated without `.venv`, generated videos, reports, captures, or database files.

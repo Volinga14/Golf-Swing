@@ -15,7 +15,7 @@ from ..core.analyzer import SwingAnalyzer
 from ..core.schemas import AnalysisResult, TrainingCorrection
 from ..db.sqlite import save_session, save_correction, training_stats
 
-app = FastAPI(title="Swing Lab Hybrid Engine", version="0.1.2")
+app = FastAPI(title="Swing Lab Hybrid Engine", version="0.1.3")
 
 app.add_middleware(
     CORSMiddleware,
@@ -80,12 +80,22 @@ def health() -> dict:
     return {
         "status": "ok",
         "engine_version": settings.engine_version,
-        "api_version": "0.1.2",
+        "api_version": "0.1.3",
         "data_dir": str(settings.data_dir),
         "origins": settings.origins,
         "message": "Swing Lab backend running. Connect PWA Motor to this URL.",
     }
 
+
+
+
+# Compatibility aliases: if a frontend was accidentally configured with
+# .../api/health as base URL, it may request /api/health/api/health.
+# The fixed PWA sanitizes this, but these aliases make the backend more tolerant
+# during transition/testing.
+@app.get("/api/health/api/health")
+def health_alias() -> dict:
+    return health()
 
 @app.get("/api/model/latest")
 def latest_model() -> dict:
@@ -99,6 +109,7 @@ def latest_model() -> dict:
     }
 
 
+@app.post("/api/health/api/analyze", response_model=AnalysisResult)
 @app.post("/api/analyze", response_model=AnalysisResult)
 async def analyze(
     file: UploadFile | None = File(None),
@@ -142,6 +153,7 @@ async def analyze(
             pass
 
 
+@app.post("/api/health/api/training/submit")
 @app.post("/api/training/submit")
 async def submit_training(request: Request) -> dict:
     """Accept both direct JSON TrainingCorrection and PWA training records.

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'swing-lab-hybrid-v110-pipeline';
+const CACHE_NAME = 'swing-lab-hybrid-v111-url-fix';
 const APP_ASSETS = [
   './',
   './index.html',

@@ -1,5 +1,5 @@
 {
-  "name": "Swing Lab v1.0 Online Engine Pipeline",
+  "name": "Swing Lab v1.1 Online Engine Pipeline",
   "short_name": "SwingLab",
   "description": "PWA fullscreen para swing de golf con motor online, fallback local, informes y dataset de entrenamiento.",
   "start_url": "./index.html",
