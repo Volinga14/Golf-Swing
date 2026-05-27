@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     allowed_origins: str = "*"
     save_original_video: bool = True
     max_upload_mb: int = 250
-    engine_version: str = "backend-hybrid-v0.1.2"
+    engine_version: str = "backend-hybrid-v0.1.4-calibrated"
     frame_sample_fps: float = 30.0
     pose_sample_fps: float = 20.0
     max_analysis_width: int = 720

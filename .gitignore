@@ -21,6 +21,7 @@ online-engine/data/training/*
 online-engine/data/db/*
 online-engine/data/tmp/*
 online-engine/data/uploads/*
+online-engine/data/models/*.json
 
 # Keep folder placeholders
 !online-engine/data/**/.gitkeep

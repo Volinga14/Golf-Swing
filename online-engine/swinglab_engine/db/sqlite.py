@@ -138,15 +138,29 @@ def training_stats() -> dict[str, Any]:
     for row in rows:
         errors = json.loads(row["error_json"] or "{}")
         for phase, value in errors.items():
-            by_phase.setdefault(phase, []).append(abs(float(value)))
-    phase_stats = {
-        phase: {
+            try:
+                by_phase.setdefault(phase, []).append(float(value))
+            except Exception:
+                pass
+    phase_stats = {}
+    for phase, values in by_phase.items():
+        abs_values = [abs(v) for v in values]
+        mean_signed = sum(values) / len(values) if values else None
+        if mean_signed is None:
+            tendency = "no_data"
+        elif mean_signed < -0.05:
+            tendency = "engine_late"
+        elif mean_signed > 0.05:
+            tendency = "engine_early"
+        else:
+            tendency = "balanced"
+        phase_stats[phase] = {
             "count": len(values),
-            "mean_abs_error_s": sum(values) / len(values) if values else None,
-            "max_abs_error_s": max(values) if values else None,
+            "mean_signed_error_s": mean_signed,
+            "mean_abs_error_s": sum(abs_values) / len(abs_values) if abs_values else None,
+            "max_abs_error_s": max(abs_values) if abs_values else None,
+            "tendency": tendency,
         }
-        for phase, values in by_phase.items()
-    }
     return {"sessions": sessions, "training_corrections": corrections, "phase_stats": phase_stats}
 
 

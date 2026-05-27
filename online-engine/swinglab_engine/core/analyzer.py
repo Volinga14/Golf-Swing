@@ -13,6 +13,7 @@ from .pose import PoseExtractor, add_velocity_features
 from .phase_detector import DetectionContext, PhaseDetector
 from .metrics import compute_metrics, generate_findings
 from ..reporting.report_builder import build_html_report
+from ..training.calibration import apply_calibration_to_phases, load_latest_model
 
 
 class SwingAnalyzer:
@@ -55,6 +56,13 @@ class SwingAnalyzer:
 
         ctx = DetectionContext(meta=meta, motion_samples=motion, pose_samples=pose_samples, view=view, club=club)
         phases, detect_debug = self.detector.detect(ctx)
+        calibration_debug = apply_calibration_to_phases(
+            phases,
+            view=view,
+            club=club,
+            duration=meta.duration,
+            model=load_latest_model(),
+        )
         active = detect_debug.get("active_window") or [0.0, meta.duration]
         pose_quality = float(sum(s.confidence for s in pose_samples) / len(pose_samples)) if pose_samples else 0.0
         metrics = compute_metrics(phases, (float(active[0]), float(active[1])), pose_quality, motion_quality)
@@ -79,6 +87,7 @@ class SwingAnalyzer:
                 "video_meta": meta.__dict__,
                 "pose": pose_debug,
                 "detection": detect_debug,
+                "calibration": calibration_debug,
             },
         )
         report_path = build_html_report(result)

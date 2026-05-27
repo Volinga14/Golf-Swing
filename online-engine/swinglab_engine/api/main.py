@@ -7,15 +7,17 @@ from typing import Any
 
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import ValidationError
 
 from ..config import settings
 from ..core.analyzer import SwingAnalyzer
 from ..core.schemas import AnalysisResult, TrainingCorrection
 from ..db.sqlite import save_session, save_correction, training_stats
+from ..training.calibration import load_latest_model, recalibrate_and_save, estimate_model_error
+from ..training.dashboard import build_dashboard_html
 
-app = FastAPI(title="Swing Lab Hybrid Engine", version="0.1.3")
+app = FastAPI(title="Swing Lab Hybrid Engine", version="0.1.4")
 
 app.add_middleware(
     CORSMiddleware,
@@ -80,7 +82,7 @@ def health() -> dict:
     return {
         "status": "ok",
         "engine_version": settings.engine_version,
-        "api_version": "0.1.3",
+        "api_version": "0.1.4",
         "data_dir": str(settings.data_dir),
         "origins": settings.origins,
         "message": "Swing Lab backend running. Connect PWA Motor to this URL.",
@@ -99,14 +101,32 @@ def health_alias() -> dict:
 
 @app.get("/api/model/latest")
 def latest_model() -> dict:
-    model_file = settings.data_dir / "models" / "latest-model.json"
-    if model_file.exists():
-        return json.loads(model_file.read_text(encoding="utf-8"))
+    model = load_latest_model()
+    if model:
+        return model
     return {
         "version": settings.engine_version,
         "type": "server-pose-rules",
-        "description": "Backend pose + motion detector; app should call /api/analyze for best results.",
+        "description": "Backend pose + motion detector; app should call /api/analyze for best results. No calibration model has been generated yet.",
+        "training_corrections": training_stats().get("training_corrections", 0),
     }
+
+
+@app.post("/api/model/recalibrate")
+def recalibrate_model() -> dict:
+    result = recalibrate_and_save(min_group_samples=3, include_doubtful=True)
+    benchmark = estimate_model_error(result.get("model"))
+    return {"status": result["status"], "model": result["model"], "benchmark": benchmark}
+
+
+@app.get("/api/model/evaluate")
+def evaluate_model() -> dict:
+    return estimate_model_error(load_latest_model())
+
+
+@app.get("/dashboard", response_class=HTMLResponse)
+def dashboard() -> HTMLResponse:
+    return HTMLResponse(build_dashboard_html())
 
 
 @app.post("/api/health/api/analyze", response_model=AnalysisResult)
