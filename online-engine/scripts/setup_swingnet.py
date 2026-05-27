@@ -45,7 +45,11 @@ def download_weights() -> None:
         return
     url = f"https://drive.google.com/uc?id={SWINGNET_FILE_ID}"
     print(f"Downloading SwingNet pretrained weights to {SWINGNET_OUT}")
-    gdown.download(url, str(SWINGNET_OUT), quiet=False)
+    try:
+        gdown.download(url, str(SWINGNET_OUT), quiet=False, fuzzy=True)
+    except TypeError:
+        # Older gdown versions do not support fuzzy=.
+        gdown.download(url, str(SWINGNET_OUT), quiet=False)
     if not SWINGNET_OUT.exists() or SWINGNET_OUT.stat().st_size < 1024:
         raise SystemExit(
             "Weights download did not complete. Google Drive may require browser confirmation. "

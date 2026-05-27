@@ -19,7 +19,7 @@ from ..training.dashboard import build_dashboard_html
 from ..external.swingnet_runtime import swingnet_status
 from ..training.golfdb_export import build_golfdb_style_dataset
 
-app = FastAPI(title="Swing Lab Hybrid Engine", version="0.2.0")
+app = FastAPI(title="Swing Lab Hybrid Engine", version="0.2.2")
 
 app.add_middleware(
     CORSMiddleware,
@@ -84,10 +84,10 @@ def health() -> dict:
     return {
         "status": "ok",
         "engine_version": settings.engine_version,
-        "api_version": "0.2.0",
+        "api_version": "0.2.2",
         "data_dir": str(settings.data_dir),
         "origins": settings.origins,
-        "message": "Swing Lab backend running. v2.0 can use GolfDB/SwingNet if installed; otherwise it falls back.",
+        "message": "Swing Lab backend running. v2.2 uses GolfDB/SwingNet full pipeline if installed; otherwise it falls back.",
     }
 
 
@@ -108,8 +108,8 @@ def latest_model() -> dict:
         return model
     return {
         "version": settings.engine_version,
-        "type": "server-pose-dtl-v2-swingnet-foundation",
-        "description": "Backend v2.0 with optional GolfDB/SwingNet event detector plus pose/motion fallback. No calibration model has been generated yet.",
+        "type": "server-dtl-v22-swingnet-full-pipeline",
+        "description": "Backend v2.2 with SwingNet full pipeline: multi-window, motion crop and ordered GolfDB event decoding. No calibration model has been generated yet.",
         "training_corrections": training_stats().get("training_corrections", 0),
     }
 

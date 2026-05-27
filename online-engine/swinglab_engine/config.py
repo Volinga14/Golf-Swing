@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     allowed_origins: str = "*"
     save_original_video: bool = True
     max_upload_mb: int = 250
-    engine_version: str = "backend-hybrid-v0.2.0-swingnet-foundation"
+    engine_version: str = "backend-hybrid-v0.2.2-swingnet-full-pipeline"
 
     # Local fallback detector settings
     frame_sample_fps: float = 30.0
@@ -20,15 +20,19 @@ class Settings(BaseSettings):
     max_analysis_width: int = 860
     min_pose_visibility: float = 0.30
 
-    # Optional GolfDB/SwingNet integration. It is disabled only if use_swingnet=False
-    # or if dependencies/repo/weights are not installed. The backend then falls back.
+    # Optional GolfDB/SwingNet integration.
     use_swingnet: bool = True
     swingnet_repo_dir: Path = Path("./external/golfdb")
     swingnet_weights_path: Path = Path("./external/golfdb/models/swingnet_1800.pth.tar")
     swingnet_seq_length: int = 64
-    swingnet_max_frames: int = 260
-    swingnet_clip_margin_s: float = 0.45
-    swingnet_min_mean_confidence: float = 0.035
+    swingnet_max_frames: int = 240
+    swingnet_clip_margin_s: float = 0.65
+    swingnet_wide_margin_s: float = 1.25
+    swingnet_full_video_max_s: float = 8.5
+    swingnet_max_window_candidates: int = 8
+    swingnet_max_crop_variants: int = 4
+    swingnet_temporal_prior_weight: float = 0.42
+    swingnet_min_mean_confidence: float = 0.020
     swingnet_allow_cuda: bool = True
 
     @property

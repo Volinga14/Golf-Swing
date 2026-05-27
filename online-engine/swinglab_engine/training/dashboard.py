@@ -6,6 +6,7 @@ from typing import Any
 
 from .calibration import load_latest_model, summarize_examples, load_training_examples, estimate_model_error
 from ..db.sqlite import training_stats
+from ..external.swingnet_runtime import swingnet_status
 from ..core.phases import PHASES
 
 
@@ -108,6 +109,7 @@ def _session_rows(examples) -> str:
 
 def build_dashboard_html() -> str:
     base_stats = training_stats()
+    sn_status = swingnet_status()
     examples = load_training_examples(include_doubtful=True, latest_per_session=True)
     advanced = summarize_examples(examples)
     model = load_latest_model()
@@ -151,7 +153,7 @@ def build_dashboard_html() -> str:
 <body>
   <div class="wrap">
     <h1>Swing Lab Training Dashboard</h1>
-    <div class="muted">Local backend dashboard · v1.3 DTL phase detector · use this to measure whether the engine is improving.</div>
+    <div class="muted">Local backend dashboard · v2.2 SwingNet full pipeline · multi-window, motion crop, ordered GolfDB event decoding.</div>
 
     <div class="cards">
       <div class="card"><div class="muted">Sessions analyzed</div><div class="big">{base_stats.get('sessions', 0)}</div></div>
@@ -159,6 +161,8 @@ def build_dashboard_html() -> str:
       <div class="card"><div class="muted">Usable latest examples</div><div class="big">{len(examples)}</div></div>
       <div class="card"><div class="muted">Worst phase</div><div class="big">{html.escape(str(advanced.get('worst_phase') or '—')).title()}</div></div>
       <div class="card"><div class="muted">Active model</div><div style="font-weight:700;margin-top:8px;word-break:break-word;">{html.escape(model_version)}</div></div>
+      <div class="card"><div class="muted">SwingNet status</div><div class="big">{'ON' if sn_status.get('enabled') and sn_status.get('repo_present') and sn_status.get('weights_present') and sn_status.get('torch_available') else 'OFF'}</div></div>
+      <div class="card"><div class="muted">SwingNet pipeline</div><div style="font-weight:700;margin-top:8px;word-break:break-word;">{html.escape(str(sn_status.get('runtime_version') or '—'))}</div></div>
       <div class="card"><div class="muted">Overall MAE before</div><div class="big">{_fmt(overall.get('before_mean_abs_error_s'))}s</div></div>
       <div class="card"><div class="muted">Overall MAE after</div><div class="big">{_fmt(overall.get('after_mean_abs_error_s'))}s</div></div>
       <div class="card"><div class="muted">Estimated improvement</div><div class="big">{_fmt(overall.get('improvement_s'))}s</div></div>
@@ -191,6 +195,9 @@ def build_dashboard_html() -> str:
       <thead><tr><th>Session</th><th>View / Club</th><th>Quality</th><th>Worst phase</th><th>Worst abs</th><th>Errors</th></tr></thead>
       <tbody>{_session_rows(examples)}</tbody>
     </table>
+
+    <h2>SwingNet/GolfDB runtime</h2>
+    <pre>{html.escape(json.dumps(sn_status, ensure_ascii=False, indent=2))}</pre>
 
     <h2>Raw latest model</h2>
     <pre>{html.escape(raw_model)}</pre>

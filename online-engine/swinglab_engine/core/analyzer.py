@@ -28,8 +28,8 @@ class SwingAnalyzer:
                 time=float(event.time),
                 frame=int(event.frame),
                 confidence=float(event.confidence),
-                source="golfdb_swingnet_v2",
-                reason=f"GolfDB/SwingNet event={event.event}",
+                source="golfdb_swingnet_v2_2",
+                reason=f"GolfDB/SwingNet v2.2 event={event.event}",
             )
         return out
 
@@ -98,7 +98,7 @@ class SwingAnalyzer:
         swingnet_result = run_swingnet(stored_path, clip_start=clip_start, clip_end=clip_end)
         if swingnet_result.used and all(p in swingnet_result.phases for p in ["address", "takeaway", "top", "impact", "finish"]):
             phases = self._phase_marks_from_swingnet(swingnet_result)
-            primary_source = "golfdb_swingnet_v2"
+            primary_source = "golfdb_swingnet_v2_2"
             active = [phases["address"].time, phases["finish"].time]
             detect_debug = {
                 **detect_debug,
@@ -132,8 +132,8 @@ class SwingAnalyzer:
         pose_quality = float(sum(s.confidence for s in pose_samples) / len(pose_samples)) if pose_samples else 0.0
         metrics = compute_metrics(phases, (float(active[0]), float(active[1])), pose_quality, motion_quality)
         findings, recs, drills, warnings = generate_findings(metrics, phases, bool(pose_samples))
-        if primary_source == "golfdb_swingnet_v2":
-            findings.insert(0, "Fases detectadas con motor GolfDB/SwingNet especializado para secuencia de swing.")
+        if primary_source == "golfdb_swingnet_v2_2":
+            findings.insert(0, "Fases detectadas con motor GolfDB/SwingNet v2.2: multi-window, crop inteligente y decodificación ordenada de 8 eventos.")
         else:
             warnings.append(f"SwingNet/GolfDB no produjo una secuencia válida; se usó fallback pose/motion. Motivo: {swingnet_result.reason or 'unknown'}")
 
