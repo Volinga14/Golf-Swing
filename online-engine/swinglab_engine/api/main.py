@@ -16,8 +16,10 @@ from ..core.schemas import AnalysisResult, TrainingCorrection
 from ..db.sqlite import save_session, save_correction, training_stats
 from ..training.calibration import load_latest_model, recalibrate_and_save, estimate_model_error
 from ..training.dashboard import build_dashboard_html
+from ..external.swingnet_runtime import swingnet_status
+from ..training.golfdb_export import build_golfdb_style_dataset
 
-app = FastAPI(title="Swing Lab Hybrid Engine", version="0.1.5")
+app = FastAPI(title="Swing Lab Hybrid Engine", version="0.2.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -82,10 +84,10 @@ def health() -> dict:
     return {
         "status": "ok",
         "engine_version": settings.engine_version,
-        "api_version": "0.1.5",
+        "api_version": "0.2.0",
         "data_dir": str(settings.data_dir),
         "origins": settings.origins,
-        "message": "Swing Lab backend running. Connect PWA Motor to this URL.",
+        "message": "Swing Lab backend running. v2.0 can use GolfDB/SwingNet if installed; otherwise it falls back.",
     }
 
 
@@ -106,11 +108,22 @@ def latest_model() -> dict:
         return model
     return {
         "version": settings.engine_version,
-        "type": "server-pose-dtl-v13",
-        "description": "Backend DTL pose + motion detector v1.3. App should call /api/analyze for best results. No calibration model has been generated yet.",
+        "type": "server-pose-dtl-v2-swingnet-foundation",
+        "description": "Backend v2.0 with optional GolfDB/SwingNet event detector plus pose/motion fallback. No calibration model has been generated yet.",
         "training_corrections": training_stats().get("training_corrections", 0),
     }
 
+
+
+
+@app.get("/api/research/swingnet/status")
+def swingnet_runtime_status() -> dict:
+    return swingnet_status()
+
+
+@app.post("/api/research/export-golfdb-dataset")
+def export_golfdb_dataset() -> dict:
+    return build_golfdb_style_dataset()
 
 @app.post("/api/model/recalibrate")
 def recalibrate_model() -> dict:

@@ -22,6 +22,12 @@ online-engine/data/db/*
 online-engine/data/tmp/*
 online-engine/data/uploads/*
 online-engine/data/models/*.json
+online-engine/external/
+online-engine/data/dataset/
+online-engine/data/models/*.json
+*.pth
+*.pth.tar
+*.pt
 
 # Keep folder placeholders
 !online-engine/data/**/.gitkeep
