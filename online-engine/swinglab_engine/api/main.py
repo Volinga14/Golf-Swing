@@ -17,7 +17,7 @@ from ..db.sqlite import save_session, save_correction, training_stats
 from ..training.calibration import load_latest_model, recalibrate_and_save, estimate_model_error
 from ..training.dashboard import build_dashboard_html
 
-app = FastAPI(title="Swing Lab Hybrid Engine", version="0.1.4")
+app = FastAPI(title="Swing Lab Hybrid Engine", version="0.1.5")
 
 app.add_middleware(
     CORSMiddleware,
@@ -82,7 +82,7 @@ def health() -> dict:
     return {
         "status": "ok",
         "engine_version": settings.engine_version,
-        "api_version": "0.1.4",
+        "api_version": "0.1.5",
         "data_dir": str(settings.data_dir),
         "origins": settings.origins,
         "message": "Swing Lab backend running. Connect PWA Motor to this URL.",
@@ -106,8 +106,8 @@ def latest_model() -> dict:
         return model
     return {
         "version": settings.engine_version,
-        "type": "server-pose-rules",
-        "description": "Backend pose + motion detector; app should call /api/analyze for best results. No calibration model has been generated yet.",
+        "type": "server-pose-dtl-v13",
+        "description": "Backend DTL pose + motion detector v1.3. App should call /api/analyze for best results. No calibration model has been generated yet.",
         "training_corrections": training_stats().get("training_corrections", 0),
     }
 

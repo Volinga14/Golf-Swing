@@ -11,11 +11,12 @@ class Settings(BaseSettings):
     allowed_origins: str = "*"
     save_original_video: bool = True
     max_upload_mb: int = 250
-    engine_version: str = "backend-hybrid-v0.1.4-calibrated"
+    engine_version: str = "backend-hybrid-v0.1.5-dtl-phase-upgrade"
+    # More temporal resolution helps impact/top detection. It is still light enough for local PC testing.
     frame_sample_fps: float = 30.0
-    pose_sample_fps: float = 20.0
-    max_analysis_width: int = 720
-    min_pose_visibility: float = 0.35
+    pose_sample_fps: float = 24.0
+    max_analysis_width: int = 760
+    min_pose_visibility: float = 0.30
 
     @property
     def origins(self) -> list[str]:
