@@ -135,7 +135,7 @@ class SwingAnalyzer:
         if primary_source == "golfdb_swingnet_v2":
             findings.insert(0, "Fases detectadas con motor GolfDB/SwingNet especializado para secuencia de swing.")
         else:
-            warnings.append("SwingNet/GolfDB no está activo o no produjo una secuencia válida; se usó fallback pose/motion.")
+            warnings.append(f"SwingNet/GolfDB no produjo una secuencia válida; se usó fallback pose/motion. Motivo: {swingnet_result.reason or 'unknown'}")
 
         captures = self._save_captures(stored_path, sid, phases)
         result = AnalysisResult(
