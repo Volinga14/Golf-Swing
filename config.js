@@ -1,9 +1,10 @@
 // Swing Lab PWA configuration for GLAB neural backend.
-// Press "Motor" in the app and paste only the backend base URL:
+// In the app, press "Motor" and paste ONLY the backend base URL:
 //   http://localhost:8000
 //   https://xxxxx.trycloudflare.com
+// Never paste /api/health or /api/analyze.
 window.SWING_LAB_CONFIG = {
-  APP_VERSION: 'v1.2.0-glab-neural',
+  APP_VERSION: 'v1.2.1-glab-neural-client-inline-fix',
   ONLINE_ENGINE_URL: '',
   USE_ONLINE_ENGINE: true,
   SUBMIT_TRAINING_BY_DEFAULT: false,

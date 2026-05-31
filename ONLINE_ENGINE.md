@@ -1,16 +1,36 @@
-# Swing Lab PWA + GLAB Online Engine
+# Swing Lab PWA + GLAB Neural Backend
 
-Esta versión conecta la PWA original con el backend neural GLAB, manteniendo la misma experiencia móvil: botón **Motor**, carga/grabación de vídeo, detección automática, corrección manual, capturas, informe e historial.
+PWA móvil basada en los archivos originales de Swing Lab y conectada al backend neural GLAB.
 
-## Endpoints GLAB usados
+## Uso
 
-```text
-GET  /api/health
-POST /api/analyze
+1. Arranca GLAB:
+
+```powershell
+cd "C:\Users\v.borges\OneDrive - SEA & PORTS\Documentos\GLAB\online-engine"
+.\.venv\Scripts\Activate.ps1
+python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-`engine/online-engine.js` adapta la respuesta de GLAB (`events_8`, `phases`, `window`, `meta`) al formato esperado por la PWA.
+2. Para móvil/GitHub Pages, abre túnel:
 
-## Training
+```powershell
+cloudflared tunnel --url http://localhost:8000
+```
 
-La PWA conserva el botón **Enviar**, pero si GLAB todavía no tiene `/api/training/submit`, usa **Exportar datos entrenamiento** por ahora.
+3. En la PWA pulsa **Motor** y pega solo la URL base:
+
+```text
+https://xxxxx.trycloudflare.com
+```
+
+No añadas `/api/health`.
+
+## Endpoint usado
+
+- `GET /api/health`
+- `POST /api/analyze`
+
+## Nota
+
+El motor Python/modelos/vídeos no deben estar en este repo. Todo eso vive en GLAB.

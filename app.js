@@ -1,5 +1,105 @@
 'use strict';
 
+// Inline GLAB client fallback. This makes the Motor button work even if engine/online-engine.js is not loaded because of cache or deployment issues.
+if (!window.SwingLabOnlineEngine) {
+(function () {
+  const CONFIG = window.SWING_LAB_CONFIG || {};
+  const STORAGE_KEY = 'swing-lab-online-engine-url';
+  const SUFFIXES = ['/api/health', '/api/analyze', '/api/model/latest', '/api/training/submit', '/api/training/stats', '/api'];
+
+  function trimSlash(v) { return String(v || '').trim().replace(/\/+$/, ''); }
+  function sanitizeBaseUrl(input) {
+    let value = trimSlash(input);
+    if (!value) return '';
+    for (const suffix of SUFFIXES) {
+      if (value.toLowerCase().endsWith(suffix.toLowerCase())) {
+        value = trimSlash(value.slice(0, -suffix.length));
+        break;
+      }
+    }
+    return value;
+  }
+  function getBaseUrl() { return sanitizeBaseUrl(localStorage.getItem(STORAGE_KEY) || CONFIG.ONLINE_ENGINE_URL || ''); }
+  function configure(url) {
+    const clean = sanitizeBaseUrl(url);
+    if (clean) localStorage.setItem(STORAGE_KEY, clean);
+    else localStorage.removeItem(STORAGE_KEY);
+    return clean;
+  }
+  function isEnabled() { return Boolean(CONFIG.USE_ONLINE_ENGINE !== false && getBaseUrl()); }
+  async function parseResponse(response) {
+    const text = await response.text();
+    try { return text ? JSON.parse(text) : {}; } catch (_) { return { rawText: text }; }
+  }
+  async function ping() {
+    const base = getBaseUrl();
+    if (!base) return { ok: false, error: 'not-configured' };
+    try {
+      const response = await fetch(`${base}/api/health`, { method: 'GET', cache: 'no-store' });
+      const data = await parseResponse(response);
+      const ok = response.ok && data && data.ok !== false;
+      return Object.assign({}, data, {
+        ok, url: base, status: response.status,
+        modelVersion: data.api_version || data.engine || data.model_version || data.checkpoint_name || 'glab-neural'
+      });
+    } catch (error) { return { ok: false, url: base, error: String(error?.message || error) }; }
+  }
+  function phasesFromEvents(events) {
+    if (!events) return null;
+    return { address: events.address, takeaway: events.toe_up ?? events.takeaway, top: events.top, impact: events.impact, finish: events.finish };
+  }
+  function phaseConfidence(defaultConfidence) {
+    const value = Number.isFinite(defaultConfidence) ? defaultConfidence : 0.82;
+    return { address: value, takeaway: value, top: value, impact: value, finish: value };
+  }
+  function normalizeAnalyzeResult(data) {
+    const phases = data.phases || phasesFromEvents(data.events_8) || {};
+    const confidence = Number.isFinite(data.score) ? Math.max(0.2, Math.min(0.96, data.score)) : (data.ok ? 0.82 : 0.25);
+    const extendedTimes = { activeStart: data.window?.start_s ?? null, activeEnd: data.window?.end_s ?? null };
+    return {
+      ok: Boolean(data.ok), raw: data, sessionId: data.session_id || null,
+      provider: 'glab-neural', engineVersion: data.engine_version || data.source || 'glab-neural-api',
+      confidence, phases, times: phases, events8: data.events_8 || null,
+      phaseConfidence: data.confidence || phaseConfidence(confidence), extendedTimes,
+      diagnostics: { source: data.source, checkpointName: data.checkpoint_name, uploadedFilename: data.uploaded_filename, meta: data.meta || null, window: data.window || null, debug: data.debug || null, events_8: data.events_8 || null, raw: data },
+      metrics: { engineVersion: data.engine_version || data.source || 'glab-neural-api', backendSessionId: data.session_id || null, duration: data.meta?.duration_s ?? null, extendedTimes, glabMeta: data.meta || null },
+      profileSummary: { samples: data.debug?.num_frames || CONFIG.GLAB_DEFAULT_NUM_FRAMES || 48, poseSamples: 0 },
+      poseStatus: 'not-used', poseSummary: null
+    };
+  }
+  async function analyze({ file, metadata = {} } = {}) {
+    const base = getBaseUrl();
+    if (!base) throw new Error('Motor GLAB no configurado. Pulsa Motor y pega la URL base.');
+    if (!file) throw new Error('No hay vídeo para analizar.');
+    const form = new FormData();
+    form.append('file', file, file.name || metadata.videoName || 'swing.mp4');
+    form.append('view', metadata.view || 'dtl');
+    form.append('club', metadata.club || localStorage.getItem('swingLabClub') || 'unknown');
+    form.append('num_frames', String(CONFIG.GLAB_DEFAULT_NUM_FRAMES || 48));
+    form.append('image_size', String(CONFIG.GLAB_DEFAULT_IMAGE_SIZE || 144));
+    form.append('use_motion_window', String(CONFIG.GLAB_USE_MOTION_WINDOW !== false));
+    form.append('metadata_json', JSON.stringify(metadata || {}));
+    const response = await fetch(`${base}/api/analyze`, { method: 'POST', body: form });
+    const data = await parseResponse(response);
+    if (!response.ok || data.ok === false) throw new Error(data.error || data.detail || `GLAB analyze failed (${response.status})`);
+    return normalizeAnalyzeResult(data);
+  }
+  async function submitTraining(record, { includeVideo = false, file = null } = {}) {
+    const base = getBaseUrl();
+    if (!base) throw new Error('Motor GLAB no configurado.');
+    const form = new FormData();
+    form.append('record_json', JSON.stringify(record || {}));
+    if (includeVideo && file) form.append('file', file, file.name || 'swing.mp4');
+    const response = await fetch(`${base}/api/training/submit`, { method: 'POST', body: form });
+    const data = await parseResponse(response);
+    if (!response.ok || data.ok === false) throw new Error(data.error || data.detail || 'GLAB todavía no tiene activo /api/training/submit. Usa Exportar datos entrenamiento por ahora.');
+    return data;
+  }
+  window.SwingLabOnlineEngine = { version: 'v1.2.1-glab-neural-client', getBaseUrl, configure, isEnabled, ping, analyze, submitTraining, sanitizeBaseUrl };
+})();
+}
+
+
 const $ = (id) => document.getElementById(id);
 const DB_NAME = 'swing-lab-db';
 const DB_VERSION = 18;
@@ -184,7 +284,7 @@ function renderOnlineEngineStatus() {
   else text = 'Motor: Fallback';
   for (const btn of buttons) {
     btn.textContent = text;
-    btn.title = configured ? onlineEngineUrl() : 'Configurar motor online';
+    btn.title = configured ? onlineEngineUrl() : 'Configurar motor GLAB';
     btn.classList.toggle('online-ok', Boolean(status.available));
     btn.classList.toggle('online-warn', configured && !status.available);
   }
@@ -196,16 +296,16 @@ async function checkOnlineEngine({ quiet = false } = {}) {
   const result = await window.SwingLabOnlineEngine.ping();
   if (result?.ok) {
     updateOnlineStatus({ mode: 'online', available: true, modelVersion: result.modelVersion || result.model_version || null, lastSync: new Date().toISOString(), lastError: null });
-    if (!quiet) alert(`Motor online activo${result.modelVersion ? `: ${result.modelVersion}` : ''}`);
+    if (!quiet) alert(`Motor GLAB activo${result.modelVersion ? `: ${result.modelVersion}` : ''}`);
   } else {
     updateOnlineStatus({ mode: onlineEngineUrl() ? 'fallback' : 'local-only', available: false, lastError: result?.error || 'not-configured' });
-    if (!quiet) alert(`Motor online no disponible. La app usará fallback local.\n\n${result?.error || 'Configura la URL del motor.'}`);
+    if (!quiet) alert(`Motor GLAB no disponible. La app usará fallback local.\n\n${result?.error || 'Configura la URL del motor.'}`);
   }
 }
 
 function configureOnlineEngine() {
   const current = onlineEngineUrl();
-  const next = prompt('URL base del motor GLAB\n\nPega SOLO la URL base, por ejemplo:\nhttp://localhost:8000\no\nhttps://xxxxx.trycloudflare.com\n\nNo incluyas /api/health ni /api/analyze. Si lo pegas por error, la app lo corregirá automáticamente. Déjalo vacío para usar solo fallback local.', current || '');
+  const next = prompt('URL base del motor GLAB Swing Lab\n\nPega SOLO la URL base de Cloudflare, por ejemplo:\nhttps://docs-great-operating-garden.trycloudflare.com\n\nSi pegas /api/health por error, la app lo corregirá automáticamente. Déjalo vacío para usar solo motor local.', current || '');
   if (next === null) return;
   const saved = window.SwingLabOnlineEngine?.configure?.(next.trim()) || '';
   updateOnlineStatus({ mode: saved ? 'configured' : 'local-only', available: false, lastError: null });
@@ -390,7 +490,7 @@ function applyVideoFile(file) {
   state.videoBlob = file;
   state.videoUrl = URL.createObjectURL(file);
   state.videoName = file.name || `swing-${new Date().toISOString().slice(0, 10)}.mp4`;
-  refs.analysisStatus.textContent = onlineEngineUrl() ? 'Vídeo cargado. Enviando al motor GLAB si está disponible; podrás corregir fases manualmente.' : 'Vídeo cargado. Motor GLAB no configurado; se usará fallback local para revisar y marcar.';
+  refs.analysisStatus.textContent = onlineEngineUrl() ? 'Vídeo cargado. Enviando al motor GLAB si está disponible; podrás corregir fases manualmente.' : 'Vídeo cargado. Preparando detección local; podrás corregir fases manualmente.';
   refs.recommendations.innerHTML = '';
   refs.capturesGrid.innerHTML = '';
   refs.video.src = state.videoUrl;
@@ -917,7 +1017,7 @@ function buildTrainingRecord(metrics = ensureAnalysisMetrics()) {
   return {
     schema: 'swing-lab-training-record-v1',
     createdAt: new Date().toISOString(),
-    appVersion: 'v1.2.0-glab-neural',
+    appVersion: 'v1.2.1-glab-neural',
     videoName: state.videoName || 'swing-video',
     guideMode: state.guideMode,
     duration: currentVideoDuration(),
@@ -995,7 +1095,7 @@ async function submitTrainingDataset() {
   const metrics = ensureAnalysisMetrics();
   const record = buildTrainingRecord(metrics);
   if (!window.SwingLabOnlineEngine?.isEnabled?.()) {
-    alert('Configura primero la URL del motor online con el botón Motor. Mientras tanto puedes usar Exportar datos entrenamiento.');
+    alert('Configura primero la URL del motor GLAB con el botón Motor. Mientras tanto puedes usar Exportar datos entrenamiento.');
     return;
   }
   try {
@@ -1004,7 +1104,7 @@ async function submitTrainingDataset() {
     const res = await window.SwingLabOnlineEngine.submitTraining(record, { includeVideo, file: state.videoBlob });
     state.trainingSubmittedAt = new Date().toISOString();
     updateOnlineStatus({ mode: 'training-submitted', available: true, lastSync: state.trainingSubmittedAt, lastError: null });
-    refs.analysisStatus.textContent = `Datos enviados al motor online. Session ID: ${res.sessionId || res.session_id || res.record?.session_id || 'ok'} · correcciones guardadas: ${res.stats?.training_corrections ?? '--'}.`;
+    refs.analysisStatus.textContent = `Datos enviados al motor GLAB. Session ID: ${res.sessionId || res.session_id || res.record?.session_id || 'ok'} · correcciones guardadas: ${res.stats?.training_corrections ?? '--'}.`;
     alert('Datos de entrenamiento enviados correctamente.');
   } catch (error) {
     updateOnlineStatus({ mode: 'training-submit-failed', lastError: String(error?.message || error) });
@@ -1038,7 +1138,7 @@ function buildRecommendations() {
     : `Pose no disponible o débil · motor temporal/heurístico · confianza ${confidence}%.`;
   recs.push(`<b>Motor de análisis:</b> ${engineLine} ${poseAvailable ? 'Se han usado landmarks para apoyar la detección.' : 'El análisis sigue siendo usable, pero Top e Impact deben validarse manualmente.'}`);
   const online = state.onlineEngineStatus || {};
-  recs.push(`<b>Motor online:</b> ${online.url ? (online.available ? `activo · ${online.modelVersion || 'latest'} · datos listos para entrenamiento` : `configurado pero en fallback · ${online.lastError || 'sin conexión'}`) : 'no configurado; se usa motor local/fallback. Configúralo con el botón Motor para que cada análisis alimente el dataset.'}`);
+  recs.push(`<b>Motor GLAB:</b> ${online.url ? (online.available ? `activo · ${online.modelVersion || 'latest'} · datos listos para entrenamiento` : `configurado pero en fallback · ${online.lastError || 'sin conexión'}`) : 'no configurado; se usa motor local/fallback. Configúralo con el botón Motor para que cada análisis alimente el dataset.'}`);
 
   const phaseRows = phases.map((phase) => {
     const t = extractPhaseTime(state.phaseTimes?.[phase.id]);
@@ -1877,12 +1977,12 @@ function applyDetectedPhaseTimes(detectedTimes, duration) {
 async function tryOnlineAutoDetection(runId) {
   if (!state.videoBlob || !window.SwingLabOnlineEngine?.isEnabled?.()) return null;
   updateOnlineStatus({ mode: 'uploading', available: state.onlineEngineStatus?.available || false, lastError: null });
-  refs.cleanHint.textContent = 'Motor online… subiendo vídeo';
-  refs.analysisStatus.textContent = 'Motor GLAB: subiendo vídeo y analizando con red neuronal en servidor. Puedes seguir usando el reproductor.';
+  refs.cleanHint.textContent = 'Motor GLAB… subiendo vídeo';
+  refs.analysisStatus.textContent = 'Motor GLAB: subiendo vídeo y analizando en servidor. Puedes seguir usando el reproductor.';
   render();
 
   const metadata = {
-    appVersion: 'v1.2.0-glab-neural',
+    appVersion: 'v1.2.1-glab-neural',
     videoName: state.videoName,
     duration: Number.isFinite(refs.video.duration) ? refs.video.duration : null,
     fps: ASSUMED_FPS,
@@ -2001,7 +2101,7 @@ async function autoDetectPhases() {
     // Do not seek the visible video here. The player must remain fully usable while detection finishes.
     setAppState('detected');
     refs.cleanHint.textContent = state.controlsVisible ? 'Fases listas' : 'Fases listas · toca para revisar';
-    refs.analysisStatus.textContent = `Fases detectadas al cargar (${Math.round((state.autoDetection.confidence || 0) * 100)}% confianza) · ${state.autoDetection.provider === 'glab-neural' || state.autoDetection.method?.includes('glab') ? 'GLAB neural online' : (state.autoDetection.poseStatus === 'available' ? 'pose corporal activa' : 'fallback local')} · reproductor no bloqueado. Revisa Top e Impact.`;
+    refs.analysisStatus.textContent = `Fases detectadas al cargar (${Math.round((state.autoDetection.confidence || 0) * 100)}% confianza) · ${state.autoDetection.poseStatus === 'available' ? 'pose corporal activa' : 'fallback heurístico'} · reproductor no bloqueado. Revisa Top e Impact.`;
     render();
   } catch (error) {
     if (state.autoDetectionRunId !== runId || !state.videoUrl) return;

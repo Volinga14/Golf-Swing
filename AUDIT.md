@@ -1,24 +1,16 @@
-# Swing Lab PWA v1.2.0 GLAB Audit
+# Swing Lab PWA v1.2.1 GLAB Audit
 
-## Cambios realizados
+## Problema corregido
 
-- Conservada la estructura móvil original de la PWA.
-- `config.js` actualizado a `v1.2.0-glab-neural`.
-- Añadido `engine/online-engine.js` compatible con GLAB.
-- Eliminadas referencias a engines locales no incluidos:
-  - `engine/heuristic-engine.js`
-  - `engine/pose-engine.js`
-  - `engine/swing-engine.js`
-- `sw.js` actualizado para cachear solo archivos presentes.
-- La URL del botón **Motor** se sanea automáticamente si se pega `/api/health` o `/api/analyze`.
+En algunos despliegues el botón **Motor** seguía mostrando `Motor: Local` porque el cliente `SwingLabOnlineEngine` no estaba cargando, normalmente por caché/service worker o porque faltaba la carpeta `engine/`.
 
-## Backend esperado
+## Solución
 
-```text
-GET  /api/health
-POST /api/analyze
-```
+- Se mantiene `engine/online-engine.js`.
+- Además, `app.js` incluye un cliente GLAB inline de seguridad.
+- Aunque `engine/online-engine.js` no cargue, el botón **Motor** puede guardar la URL y llamar a `/api/health`.
+- Cache del service worker actualizado a `swing-lab-glab-v121`.
 
-## Pendiente
+## Comprobación esperada
 
-- Añadir `/api/training/submit` en GLAB para que el botón **Enviar** guarde correcciones directamente.
+Al pulsar **Motor** y pegar `https://xxxxx.trycloudflare.com`, la terminal de `cloudflared` debe mostrar una llamada a `/api/health` y GLAB debe responder.

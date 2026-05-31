@@ -1,12 +1,10 @@
 # Swing Lab PWA + GLAB Neural Backend
 
-PWA móvil para analizar swings con el backend neural GLAB.
+PWA móvil basada en los archivos originales de Swing Lab y conectada al backend neural GLAB.
 
-Esta carpeta está pensada para GitHub Pages y debe contener solo el frontend/PWA. El motor pesado, modelos, vídeos y datos viven fuera del repo, en `GLAB/online-engine`.
+## Uso
 
-## Uso rápido
-
-### 1. Arrancar GLAB
+1. Arranca GLAB:
 
 ```powershell
 cd "C:\Users\v.borges\OneDrive - SEA & PORTS\Documentos\GLAB\online-engine"
@@ -14,44 +12,25 @@ cd "C:\Users\v.borges\OneDrive - SEA & PORTS\Documentos\GLAB\online-engine"
 python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-### 2. Conectar la app
-
-En la PWA, pulsa **Motor**.
-
-Mismo PC:
-
-```text
-http://localhost:8000
-```
-
-Móvil/GitHub Pages con Cloudflare:
+2. Para móvil/GitHub Pages, abre túnel:
 
 ```powershell
 cloudflared tunnel --url http://localhost:8000
 ```
 
-Pega solo la URL base:
+3. En la PWA pulsa **Motor** y pega solo la URL base:
 
 ```text
 https://xxxxx.trycloudflare.com
 ```
 
-No pegues `/api/health`.
+No añadas `/api/health`.
 
-## Archivos incluidos
+## Endpoint usado
 
-```text
-index.html
-app.js
-config.js
-styles.css
-sw.js
-manifest.webmanifest
-engine/online-engine.js
-icons/icon-192.png
-icons/icon-512.png
-README.md
-ONLINE_ENGINE.md
-CONNECT_PWA_LOCAL_BACKEND.md
-AUDIT.md
-```
+- `GET /api/health`
+- `POST /api/analyze`
+
+## Nota
+
+El motor Python/modelos/vídeos no deben estar en este repo. Todo eso vive en GLAB.
