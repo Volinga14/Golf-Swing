@@ -1,59 +1,58 @@
-# Python virtual environments
-.venv/
-venv/
-env/
-
-# Python cache
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-
-# Local backend generated data
-online-engine/data/videos/*
-online-engine/data/captures/*
-online-engine/data/reports/*
-online-engine/data/features/*
-online-engine/data/training/*
-online-engine/data/db/*
-online-engine/data/tmp/*
-online-engine/data/uploads/*
-online-engine/data/models/*.json
-online-engine/external/
-online-engine/data/dataset/
-online-engine/data/models/*.json
-*.pth
-*.pth.tar
-*.pt
-
-# Keep folder placeholders
-!online-engine/data/**/.gitkeep
-
-# Local databases
-*.sqlite
-*.sqlite3
-*.db
-
-# Environment variables / secrets
-.env
-.env.local
-
-# Logs
-*.log
-logs/
-
-# Large video files
-*.mp4
-*.mov
-*.avi
-*.mkv
-*.webm
-
 # OS / editor
 .DS_Store
 Thumbs.db
 .vscode/
 .idea/
+
+# Environment
+.env
+.env.local
+.env.*
+!.env.example
+
+# Node / frontend
+node_modules/
+dist/
+build/
+.cache/
+.parcel-cache/
+
+# Python / backend local
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Local backend / engines / training data
+online-engine/
+data/
+data_external/
+models/
+training/
+reports/
+captures/
+videos/
+external/
+engine/
+
+# ML / dataset / media artifacts
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.webm
+*.pt
+*.pth
+*.onnx
+*.pkl
+*.npy
+*.npz
+*.mat
+*.zip
+
+# Logs / temp
+*.log
+tmp/
+temp/

@@ -1,15 +1,16 @@
 {
-  "name": "Swing Lab v1.1 Online Engine Pipeline",
-  "short_name": "SwingLab",
-  "description": "PWA fullscreen para swing de golf con motor online, fallback local, informes y dataset de entrenamiento.",
+  "name": "GLAB Swing PWA",
+  "short_name": "GLAB Swing",
   "start_url": "./index.html",
-  "scope": "./",
   "display": "standalone",
-  "orientation": "portrait",
-  "background_color": "#000000",
-  "theme_color": "#000000",
+  "background_color": "#0b1120",
+  "theme_color": "#111827",
   "icons": [
-    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
-    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+    {
+      "src": "./icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
   ]
 }

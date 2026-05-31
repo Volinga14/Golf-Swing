@@ -1,11 +1,9 @@
-// Swing Lab runtime configuration.
-// For GitHub Pages, set ONLINE_ENGINE_URL after deploying the backend, e.g.
-//   https://swing-lab-engine.your-domain.com
-// You can also change it inside the app with the "Motor" button.
-window.SWING_LAB_CONFIG = {
-  APP_VERSION: 'v1.1.1-hybrid-url-fix',
-  ONLINE_ENGINE_URL: '',
-  USE_ONLINE_ENGINE: true,
-  SUBMIT_TRAINING_BY_DEFAULT: true,
-  LOCAL_FALLBACK: true
+// GLAB PWA config
+window.GLAB_CONFIG = {
+  defaultApiBase: "http://localhost:8000",
+  healthPath: "/api/health",
+  analyzePath: "/api/analyze",
+  defaultNumFrames: 48,
+  defaultImageSize: 144,
+  defaultUseMotionWindow: true
 };
