@@ -286,3 +286,8 @@ h1,h2,h3,h4,p{margin:0}h1,h2,h3,h4{color:var(--text);line-height:1.2;letter-spac
 .segment-sliders input{display:block;width:100%;height:44px;accent-color:var(--green);touch-action:pan-y}
 .segment-picker .form-actions{display:flex;flex-wrap:wrap;gap:8px}.segment-picker .segment-fields{display:grid;grid-template-columns:minmax(0,1fr);gap:8px}
 .segment-picker .segment-fields input{width:100%;min-height:44px}.segment-picker details{margin-top:12px}
+
+/* Keep every navigation label on one baseline, including the raised ball. */
+.bottom-nav .nav-item{position:relative;justify-content:flex-start;padding-top:10px;gap:0}
+.bottom-nav .nav-item>span:last-child{position:absolute;bottom:5px;left:0;right:0;text-align:center;line-height:14px}
+.bottom-nav .nav-center .center-ring{position:absolute;top:-15px;left:50%;transform:translateX(-50%);margin:0;flex:none}
