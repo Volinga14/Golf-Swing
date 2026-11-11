@@ -33,7 +33,7 @@
     preview.addEventListener('click',()=>{if(previewing){stop();return}const value=selected();if(!value||isBusy())return;video.pause();video.currentTime=value.start;previewing=true;preview.textContent='Pausar tramo';video.play().catch(()=>{stop();label.textContent='No se pudo reproducir. Usa los controles del vídeo.'})});
     video.addEventListener('timeupdate',()=>{const value=selected();if(previewing&&value&&video.currentTime>=value.end){stop();video.currentTime=value.end}});
     video.addEventListener('pause',()=>{if(previewing&&video.paused){previewing=false;preview.textContent='Ver tramo'}});
-    video.addEventListener('loadedmetadata',restore);video.addEventListener('loadeddata',sync);video.addEventListener('emptied',()=>{stop();sync()});
+    video.addEventListener('loadedmetadata',restore);for(const event of ['loadeddata','seeked','canplay','durationchange'])video.addEventListener(event,sync);video.addEventListener('emptied',()=>{stop();sync()});
     document.addEventListener('swinglab:session-changed',restore);
     return {sync,restore,persist,stop};
   }
