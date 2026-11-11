@@ -30,6 +30,7 @@ jobs:
         if: always()
         with:
           name: Web-test-evidence
+          include-hidden-files: true
           path: .test-artifacts/
           retention-days: 7
   android:
