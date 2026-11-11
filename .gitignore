@@ -9,3 +9,13 @@ android/app/build/
 android/app/src/main/assets/
 *.jks
 *.keystore
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+.idea/
+.DS_Store
+*.pem
+*.p12
+*.key
