@@ -1,0 +1,32 @@
+{
+  "id": "local-mark-v0.1",
+  "protocol": "swing-phases/1.0",
+  "origin": "Frozen browser export of existing GLAB CURRENT_BEST_GOLFDB_DTL; no retraining, not an independent architecture.",
+  "checkpointSha256": "9303766e920a6843347b1ec71fe0f94799ceff50082dc58a707542f683ad227d",
+  "frames": 48,
+  "imageSize": 144,
+  "embedding": 96,
+  "views": [
+    "dtl"
+  ],
+  "trainedSampling": {
+    "frames": 64,
+    "imageSize": 160
+  },
+  "files": {
+    "encoder": {
+      "bytes": 934803,
+      "sha256": "eeaf453ed420a82444a811f716672deb74fa1438209c9bf21e3bd004e61068fe"
+    },
+    "temporal": {
+      "bytes": 1128544,
+      "sha256": "c28d791bcf6213866f6aa00f1858443916159065889f30591348adac59f3ef1f"
+    }
+  },
+  "limitations": [
+    "Uncalibrated event detector, all proposals require review.",
+    "Centered square crop can miss club or body.",
+    "Basic low-motion/blank rejection is not a swing classifier.",
+    "Sampling 48/144 matches the tested API, not the training configuration."
+  ]
+}

@@ -1,0 +1,41 @@
+const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict'),{chromium}=require(process.env.PLAYWRIGHT_MODULE_PATH||'playwright'),{createServer}=require('../tools/serve-marking-lab.cjs');
+const root=path.resolve(__dirname,'..'),privateDir=path.resolve(root,'../audit/reviewed-corpus');
+(async()=>{
+ const video=path.join(privateDir,'user-2.mp4');
+ if(!fs.existsSync(video))throw Error('Private integration video unavailable');
+ const server=createServer(privateDir),original=server.listeners('request')[0],source=fs.readFileSync(path.join(root,'app.js'),'utf8'),end=source.indexOf('})();');
+ const instrumented=source.slice(0,end)+'\nwindow.testing={state,ready,openSession};\n'+source.slice(end);
+ server.removeAllListeners('request');server.on('request',(req,res)=>{if(new URL(req.url,'http://localhost').pathname==='/app.js'){res.setHeader('Content-Type','text/javascript');res.end(instrumented)}else original(req,res)});
+ await new Promise(r=>server.listen(0,'127.0.0.1',r));let browser;
+ try{
+  browser=await chromium.launch({headless:true,...(process.env.BROWSER_EXECUTABLE?{executablePath:process.env.BROWSER_EXECUTABLE}:{})});
+  const context=await browser.newContext({viewport:{width:390,height:844}}),page=await context.newPage(),errors=[],posts=[];
+  await context.addInitScript(()=>localStorage.setItem('swinglab_started_v1','1'));
+  page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>d.accept());context.on('request',r=>{if(r.method()!=='GET')posts.push(r.url())});
+  await page.goto('http://127.0.0.1:'+server.address().port+'/');await page.evaluate(()=>testing.ready);
+  await page.setInputFiles('#videoInput',video);
+  await page.waitForFunction(()=>document.getElementById('swingVideo').readyState>=2&&testing.state.current.timing?.verified);
+  await page.evaluate(()=>SwingLabVideo.seek(document.getElementById('swingVideo'),3.87));
+  await page.click('#markImpactReference');
+  const anchor=await page.evaluate(()=>testing.state.current.impactReference.time);
+  assert.ok(Math.abs(anchor-3.87)<.04);
+  await page.click('#analyzeFromImpact');
+  await page.waitForFunction(()=>!testing.state.engineBusy&&testing.state.current.analyses.length===1,{},{timeout:240000});
+  const first=await page.evaluate(()=>testing.state.current);
+  assert.equal(first.analyses[0].modelId,'local-mark-v0.4');assert.equal(first.analyses[0].impactEvidence.source,'user-impact');
+  assert.equal(first.phases.Impact,anchor);assert.equal(first.analyses[0].phases.Impact,anchor);
+  assert.ok(first.analyses[0].phases.Top<anchor&&first.analyses[0].phases.Finish>anchor);
+  await page.click('#screenReview [data-action="save-session"]');
+  await page.waitForFunction(()=>!testing.state.storageBusy&&document.getElementById('sessionStatus').textContent==='Saved on device',{},{timeout:90000});
+  const id=first.id;await page.reload();await page.evaluate(()=>testing.ready);await page.evaluate(id=>testing.openSession(id),id);
+  await page.waitForFunction(()=>document.getElementById('swingVideo').readyState>=2);
+  assert.equal(await page.evaluate(()=>testing.state.current.impactReference.time),anchor);
+  assert.equal(await page.evaluate(()=>testing.state.current.analyses[0].impactEvidence.source),'user-impact');
+  await page.click('#clearImpactReference');assert.equal(await page.evaluate(()=>testing.state.current.impactReference),null);
+  assert.equal(await page.evaluate(()=>testing.state.current.phases.Impact),anchor);
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+  assert.deepEqual(errors,[]);assert.deepEqual(posts,[]);
+  fs.mkdirSync(path.join(root,'.test-artifacts'),{recursive:true});await page.screenshot({path:path.join(root,'.test-artifacts/impact-reference.png'),fullPage:true});
+  console.log('PASS real source frames, anchored inference, provenance, save/reload, reference clearing, mobile width and zero uploads');
+ }finally{await browser?.close();server.closeAllConnections();server.close()}
+})().catch(e=>{console.error(e);process.exitCode=1});

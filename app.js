@@ -1,2839 +1,1083 @@
-'use strict';
+(() => {
+const root=document.documentElement,landing=document.getElementById('landingView'),app=document.getElementById('appView');
+const screenIds={home:'screenHome',upload:'screenUpload',review:'screenReview',results:'screenResults',history:'screenHistory',compare:'screenCompare',profile:'screenProfile',train:'screenTrain'};
+const screens=Object.fromEntries(Object.entries(screenIds).map(([k,id])=>[k,document.getElementById(id)]));
+const video=document.getElementById('swingVideo'),videoInput=document.getElementById('videoInput'),cameraInput=document.getElementById('cameraInput'),timeline=document.getElementById('timeline'),phaseList=document.getElementById('phaseList'),capturesGrid=document.getElementById('capturesGrid'),historyList=document.getElementById('historyList'),compareList=document.getElementById('compareList'),latestCarousel=document.getElementById('latestCarousel'),reviewTitleInput=document.getElementById('reviewTitleInput'),compareOutput=document.getElementById('compareOutput'),compareCount=document.getElementById('compareCount'),profileSwingCount=document.getElementById('profileSwingCount'),profileSavedCount=document.getElementById('profileSavedCount'),profilePhaseCount=document.getElementById('profilePhaseCount'),engineStatusDot=document.getElementById('engineStatusDot'),engineStatusText=document.getElementById('engineStatusText'),analysisProgress=document.getElementById('analysisProgress'),analysisProgressText=document.getElementById('analysisProgressText'),reviewPlayButton=document.querySelector('[data-action="play-toggle"]');
+const modal=document.getElementById('mockupModal'),modalTitle=document.getElementById('modalTitle'),modalText=document.getElementById('modalText');
+function uiIcon(name){return `<svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><use href="#${name}"/></svg>`}
+function emptyState(title,text,action='New analysis',destination='upload',symbol='swings'){return `<section class="empty-state">${uiIcon(symbol)}<h3>${title}</h3><p>${text}</p>${action?`<button type="button" class="primary-solid" data-nav="${destination}">${action} ${uiIcon('chevron')}</button>`:''}</section>`}
+let toastTimer,dialogReturn;
+function hideToast(){clearTimeout(toastTimer);const toast=document.getElementById('appToast');if(toast)toast.hidden=true}
+function showToast(message){const toast=document.getElementById('appToast');if(!toast)return;clearTimeout(toastTimer);toast.textContent=message;toast.hidden=false;toastTimer=setTimeout(()=>{toast.hidden=true},3500)}
+function updateSessionStatus(){
+ const dirty=state.current&&hasUnsavedChanges(),status=document.getElementById('sessionStatus');
+ if(status)status.textContent=state.storageBusy?'Saving…':state.current?(dirty?'Unsaved changes':'Saved on device'):'New session';
+ document.querySelectorAll('[data-action="save-session"]').forEach(b=>{b.disabled=!state.current||state.storageBusy||state.engineBusy;b.setAttribute('aria-busy',String(state.storageBusy))});
+ const playable=!!state.videoFile&&video.readyState>=2;const clear=document.querySelector('[data-action="clear-phases"]');if(clear)clear.disabled=!phaseCount(state.current);const mark=document.getElementById('markModeBtn');if(mark)mark.disabled=!playable;
+ document.querySelectorAll('#screenReview [data-action="play-toggle"],#screenReview [data-action="back-frame"],#screenReview [data-action="forward-frame"],#screenReview [data-fs-action="open"]').forEach(b=>b.disabled=!playable);
+ timeline.disabled=!playable;
+ document.querySelectorAll('[data-action="capture-phases"]').forEach(b=>{b.disabled=!playable||!phaseCount(state.current)||!!captureJob;b.setAttribute('aria-busy',String(!!captureJob))});
+ const help=document.getElementById('phaseHelp');if(help)help.textContent=state.markMode?'Marking mode is on. Tap a phase to set it at this frame.':'Pause at a key moment, then tap an unmarked phase. Tap a marked phase to jump back to it.';
+ const title=document.getElementById('reportTitle'),summary=document.getElementById('reportSummary'),meta=document.getElementById('reportMeta');
+ if(title)title.textContent=state.current?.title||'Tu informe de swing';
+ if(summary)summary.textContent=state.current?.agentReview?'Tus puntos clave, ejercicios y próximos pasos.':state.current?'Tus momentos clave y notas, guardados en este dispositivo.':'Empieza un análisis para crear tu primer informe.';
+ updateLearningUI();segmentPicker.sync();
+ window.SwingLabAgent?.renderReport?.();
+ if(meta&&state.current?.agentReview){const r=state.current.agentReview;meta.innerHTML=`<span class="meta-chip">${r.priorities.length} prioridades</span><span class="meta-chip">${r.practice_plan?.length||0} sesiones de práctica</span><span class="meta-chip">Análisis técnico</span>`;}else if(meta)meta.innerHTML=state.current?`<span class="meta-chip">${phaseCount(state.current)}/5 phases</span><span class="meta-chip">${Object.keys(state.current.captures||{}).length} captures</span><span class="meta-chip">${state.current.analyses?.length?'Local marking + review':'Manual review'}</span>`:'';
+}
+const installButtons=()=>document.querySelectorAll('[data-action="install-app"]');
+const phases=['Address','Takeaway','Top','Impact','Finish'];
+const store=SwingLabStorage.createStore(), clone=SwingLabStorage.clone;
+let state={current:null,videoUrl:null,videoFile:null,history:[],markMode:false,compareSelected:[],comparePhase:'',compareLayer:'overlay',compareAdjust:{},engineOnline:!!window.SwingLabLocal,engineBusy:false,reviewStep:'manual',engineGuide:false,installPrompt:null,storageReady:false,storageBusy:false};
+let mediaRevision=0, phaseRevision=0, engineJob=null, captureJob=null, draftBaseline=null;
+const segmentPicker=SwingLabSegment.mount({video,getSession:()=>state.current,isBusy:()=>state.engineBusy||state.storageBusy,changed:()=>updateSessionStatus()});
+let referenceCatalog=[],guidedPending=false;
+const ready=store.init().then(async({history,warning})=>{state.history=history;state.storageReady=true;renderAll();if(warning)modalMsg('History recovered.',warning);try{referenceCatalog=await store.references?.()||[];updateReferenceUI()}catch{showToast('The reference library could not be read. Your sessions are available.')}}).catch(()=>modalMsg('Storage unavailable.','Your browser could not open local storage. Sessions cannot be saved. Existing data has not been removed.'));
+const notesInput=document.getElementById('sessionNotes');
+notesInput.addEventListener('input',()=>{if(state.current)state.current.notes=notesInput.value;updateSessionStatus()});
+function setVh(){root.style.setProperty('--vh',`${window.innerHeight*.01}px`)}setVh();addEventListener('resize',setVh);
+function showApp(){if(landing)landing.classList.remove('is-active');if(app)app.classList.add('is-active');if(landing)landing.inert=true;try{localStorage.setItem('swinglab_started_v1','1')}catch{}go('home')}
+function go(s){if(!screens[s])return;if(s!=='review'&&!document.getElementById('fullscreenEditor')?.hidden)window.SwingLabEditor?.close?.();window.SwingLabPracticeUI?.stop?.();hideToast();if(s!=='review')video.pause();Object.entries(screens).forEach(([k,el])=>{el.classList.toggle('is-current',k===s);el.inert=k!==s;el.setAttribute('aria-hidden',String(k!==s))});document.querySelectorAll('.nav-item').forEach(b=>{const active=b.dataset.nav===s||(s==='train'&&b.dataset.nav==='profile')||(['review','results'].includes(s)&&b.dataset.nav==='upload');b.classList.toggle('is-active',active);if(active)b.setAttribute('aria-current','page');else b.removeAttribute('aria-current')});screens[s].scrollTop=0;const sc=screens[s].querySelector('.screen-scroll');if(sc)sc.scrollTop=0;renderAll();if(s==='review'&&state.videoFile&&video.readyState>=2)window.SwingLabEditor?.open?.()}
+function modalMsg(t,txt=''){modalTitle.textContent=t;modalText.textContent=txt;if(t==='Session saved.'){showToast('Session saved on this device');updateSessionStatus();return}dialogReturn=document.activeElement;modal.hidden=false;app.inert=true;if(landing)landing.inert=true;modal.querySelector('.modal-back')?.focus()}
+function closeModal(){modal.hidden=true;app.inert=false;if(landing)landing.inert=!landing.classList.contains('is-active');dialogReturn?.focus?.()}
+document.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;if(b.dataset.action)handle(b.dataset.action);if(b.dataset.nav)go(b.dataset.nav);if(b.dataset.openSession)openSession(b.dataset.openSession);if(b.dataset.deleteId)deleteSession(b.dataset.deleteId);if(b.dataset.compareId)toggleCompare(b.dataset.compareId);if(b.dataset.comparePhase)renderCompareViewer(b.dataset.comparePhase);if(b.dataset.modalTitle)modalMsg(b.dataset.modalTitle);if(b.hasAttribute('data-close'))closeModal()});
+function handle(a){if(a==='help')modalMsg('Tu primera revisión','1. Elige un clip corto con un único swing y el cuerpo y palo completos.\n\n2. Pulsa Analizar. Puedes usar el marcado local o la revisión con ChatGPT en Android.\n\n3. Guarda tu informe y trabaja una prioridad en Entrenar.\n\nEn Mi progreso podrás consultar tus revisiones y registrar la práctica.');if(a==='account-info')modalMsg('Tu cuenta y tus datos','Tus vídeos, informes y prácticas se guardan en este dispositivo. El marcado local funciona sin cuenta. En Android, ChatGPT es opcional: puedes conectar tu cuenta desde el análisis y revisar las imágenes que se enviarán. No hay sincronización entre dispositivos.');if(a==='cancel-profile'){nameInput.value=profile.name;document.getElementById('profileEditForm').hidden=true}if(a==='copy-feedback')copyFeedback();if(a==='edit-profile'){const form=document.getElementById('profileEditForm');form.hidden=!form.hidden;if(!form.hidden)nameInput.value=profile.name;if(!form.hidden)document.getElementById('profileNameInput').focus()}if(a==='focus-settings'){const settings=document.getElementById('profileSettings');settings.open=true;settings.scrollIntoView({block:'nearest',behavior:'smooth'});settings.querySelector('summary').focus()}if(a==='go-home')showApp();if(a==='install-app')installApp();if(a==='pick-video')videoInput.click();if(a==='record-video')cameraInput.click();if(a==='play-toggle')togglePlay();if(a==='back-frame')stepFrame(-1);if(a==='forward-frame')stepFrame(1);if(a==='capture-phases')capturePhases();if(a==='toggle-mark-mode'){state.markMode=!state.markMode;renderPhases()}if(a==='clear-phases'&&state.current&&(!phaseCount(state.current)||confirm('Clear all phase marks and their captures? Your video, notes and drawings will stay.'))){if(state.storageBusy)return;for(const phase of phases)if(state.current.phases[phase]!=null)SwingLabLearning.record(state.current,phase,state.current.phases[phase],null,profile.name);phaseRevision++;state.current.phases={};state.current.impactReference=null;state.current.captures={};state.markMode=false;renderPhases();renderCaptures();updateSessionStatus()}if(a==='save-session')saveSession();if(a==='open-latest')openLatest();if(a==='clear-history')clearHistory();if(a==='open-compare-viewer')openCompareViewer();if(a==='close-compare-viewer')closeCompareViewer();if(a==='load-engine')loadEngine();if(a==='analyze-local')beginAnalysis('local');if(a==='cancel-analysis')cancelAnalysis();if(a==='mark-impact-reference')markImpactReference();if(a==='jump-impact-reference')jumpImpactReference();if(a==='clear-impact-reference')clearImpactReference();if(a==='confirm-phase-review')confirmPhaseReview();if(a==='confirm-no-swing')confirmNoSwing();if(a==='export-learning')exportLearning(false);if(a==='export-current-learning')exportLearning(true)}
+videoInput.addEventListener('change',e=>loadVideoFile(e.target.files?.[0]));cameraInput.addEventListener('change',e=>loadVideoFile(e.target.files?.[0]));
+if(reviewTitleInput){reviewTitleInput.addEventListener('input',()=>{if(!state.current)return;state.current.title=reviewTitleInput.value.trim()||'Swing session';renderHome();updateSessionStatus()});reviewTitleInput.addEventListener('blur',()=>{if(state.current)reviewTitleInput.value=state.current.title||'Swing session'})}
+async function loadVideoFile(file){
+  if(!file)return;
+  await ready;
+  videoInput.value='';cameraInput.value='';
+  if(state.storageBusy)return modalMsg('Save in progress.','Wait for the current save to finish.');
+  if(!file.size||(!file.type.startsWith('video/')&&!/\.(mp4|mov|webm|m4v)$/i.test(file.name)))return modalMsg('Choose a video.','This file is empty or is not a supported video.');
+  if(!canLeaveSession())return;
+  releaseMedia();
+  state.current={id:crypto.randomUUID?crypto.randomUUID():String(Date.now()),title:file.name.replace(/\.[^.]+$/,''),fileName:file.name,club:profile.club,date:new Date().toISOString(),phases:{},captures:{},notes:'',drawings:[],duration:null,videoSha256:null,view:profile.view,feedbackEnabled:true,analyses:[],corrections:[],review:{status:'draft'}};
+  attachMedia(file);state.markMode=false;hydrateSession();go('review');
+  const sourceSession=state.current,sourceRevision=mediaRevision;
+  SwingLabLocal.prepare(file).then(info=>{if(state.current!==sourceSession||mediaRevision!==sourceRevision)return;Object.assign(sourceSession,{duration:info.duration,videoSha256:info.sha256,timing:info.timing});updateSessionStatus()}).catch(()=>{});
+  videoInput.value='';cameraInput.value='';
+}
+video.addEventListener('loadedmetadata',()=>{if(state.current&&Number.isFinite(video.duration))state.current.duration=video.duration;timeline.value=0;updateTime()});
+video.addEventListener('loadeddata',()=>{captureVideoPreview();updateSessionStatus();if(guidedPending){guidedPending=false;window.SwingLabEditor?.open?.()}});
+video.addEventListener('error',()=>{if(state.videoFile)modalMsg('Video cannot be played.','Try an MP4 or WebM video supported by your browser. Your saved sessions are unchanged.')});
+video.addEventListener('timeupdate',updateTime);video.addEventListener('play',updateReviewPlayButton);video.addEventListener('pause',updateReviewPlayButton);timeline.addEventListener('input',()=>{if(Number.isFinite(video.duration))video.currentTime=(+timeline.value/1000)*video.duration});
+function updateReviewPlayButton(){if(reviewPlayButton){reviewPlayButton.textContent=video.paused?'Play':'Pause';reviewPlayButton.classList.toggle('is-playing',!video.paused)}}
+function togglePlay(){if(!state.videoFile)return modalMsg('No video loaded.','Upload or record a video first.');if(video.paused)video.play().catch(()=>modalMsg('Playback unavailable.','Try another video supported by your browser.'));else video.pause();updateReviewPlayButton()}
+function stepFrame(d){if(!video.src)return;video.pause();video.currentTime=Math.max(0,Math.min(video.duration||0,SwingLabVideo.step(state.current?.timing,video.currentTime,d,video.duration||0)))}
+function updateTime(){if(!video.duration)return;timeline.value=Math.round((video.currentTime/video.duration)*1000);document.getElementById('currentTimeLabel').textContent=`${video.currentTime.toFixed(2)}s`;document.getElementById('durationLabel').textContent=`${video.duration.toFixed(2)}s`;updateReviewPlayButton()}
+const previewRequests=new Map(),previewAttempted=new Set();
+function captureVideoPreview(){if(state.current&&state.videoFile&&video.readyState>=2)requestPreview(state.current,state.videoFile)}
+function requestPreview(session,file){
+ if(!session?.id||file&&(video.readyState<2||!video.videoWidth))return;
+ const key=session.id;
+ if(previewRequests.has(key)||previewAttempted.has(key))return;
+ const ownFile=file,sha=session.videoSha256;
+ const task=(async()=>{
+  previewAttempted.add(key);const original=ownFile||await store.video(session.id);if(!original)return;
+  const preferred=session.phases?.Impact??session.phases?.Top??session.duration*.5;
+  const thumb=await SwingLabVideo.thumbnail(original,{time:preferred});if(!thumb)return;
+  const current=state.current?.id===session.id?state.current:null;
+  if(current&&(!ownFile||state.videoFile===ownFile)){current.thumb=thumb;if(draftBaseline){const baseline=JSON.parse(draftBaseline);baseline.thumb=thumb;draftBaseline=JSON.stringify(baseline)}}
+  state.history=state.history.map(s=>s.id===session.id?{...s,thumb}:s);
+  if(state.history.some(s=>s.id===session.id))await store.updateThumbnail?.(session.id,thumb,sha);
+  renderHome();renderHistory();
+ })().catch(()=>{}).finally(()=>{previewRequests.delete(key);renderHome()});
+ previewRequests.set(key,task);
+}
 
-const $ = (id) => document.getElementById(id);
-const DB_NAME = 'swing-lab-db';
-const DB_VERSION = 18;
-const STORE = 'sessions';
-const ASSUMED_FPS = 30;
+function frameLabel(t,session=state.current){const index=SwingLabVideo.frameIndex(session?.timing,t);return index==null?`${(t||0).toFixed(3)}s`:`F${index}`}
+window.SwingLabSourceTiming=()=>state.current?.timing||null;
+function renderPhases(){const markBtn=document.getElementById('markModeBtn');if(markBtn){markBtn.classList.toggle('is-active',state.markMode);markBtn.textContent=state.markMode?'Done':'Mark';markBtn.setAttribute('aria-pressed',String(state.markMode))}if(!state.current){phaseList.innerHTML='<p class="empty-text">Upload a video to mark phases.</p>';return}phaseList.innerHTML=phases.map(p=>{const t=state.current.phases[p];return`<button class="phase-btn ${t!=null?'is-marked':''} ${state.markMode?'is-mark-mode':''}" data-phase="${p}"><strong>${p}</strong><span>${t!=null?frameLabel(t):(state.markMode?'Set':'--')}</span></button>`}).join('');phaseList.querySelectorAll('[data-phase]').forEach(b=>b.onclick=()=>{if(!state.videoFile)return modalMsg('Original video unavailable.','This older session contains captures and notes only.');const p=b.dataset.phase,t=state.current.phases[p];if(state.markMode){setPhase(p,video.currentTime||0);updateSessionStatus();return}if(t!=null){video.pause();video.currentTime=Math.max(0,Math.min(video.duration||t,t));updateTime();return}setPhase(p,video.currentTime||0);updateSessionStatus()})}
+function seekVideo(t,signal){return new Promise((resolve,reject)=>{
+  if(signal.aborted)return reject(new DOMException('Cancelled','AbortError'));
+  const target=Math.min(Math.max(0,t),video.duration);
+  if(!video.seeking&&video.readyState>=2&&Math.abs(video.currentTime-target)<.001)return resolve();
+  const finish=error=>{clearTimeout(timer);video.removeEventListener('seeked',done);video.removeEventListener('error',failed);signal.removeEventListener('abort',aborted);error?reject(error):resolve()};
+  const done=()=>finish(),failed=()=>finish(new Error('Video could not be decoded.')),aborted=()=>finish(new DOMException('Cancelled','AbortError'));
+  const timer=setTimeout(()=>finish(new Error('Video seek timed out.')),5000);
+  video.addEventListener('seeked',done,{once:true});video.addEventListener('error',failed,{once:true});signal.addEventListener('abort',aborted,{once:true});
+  try{video.currentTime=target}catch(error){finish(error)}
+})}
+async function capturePhases(navigate=true){
+  if(!state.current||!state.videoFile||video.readyState<2||!Number.isFinite(video.duration))return modalMsg('No video ready.','Load a playable video first.');
+  if(captureJob)return;
+  const marked=Object.entries(state.current.phases);if(!marked.length)return modalMsg('No phases marked.','Tap Mark, then choose phases at the current frame.');
+  const session=state.current,revision=mediaRevision,marks=phaseRevision,old=video.currentTime,controller=new AbortController();captureJob=controller;
+  const canvas=document.createElement('canvas'),scale=Math.min(1,1280/video.videoWidth);canvas.width=Math.round(video.videoWidth*scale);canvas.height=Math.round(video.videoHeight*scale);
+  const captures={},ctx=canvas.getContext('2d');video.pause();updateSessionStatus();
+  const isCurrent=()=>state.current===session&&mediaRevision===revision&&phaseRevision===marks&&!controller.signal.aborted;
+  try{
+    for(const[p,t]of marked){await seekVideo(t,controller.signal);if(!isCurrent())return;ctx.drawImage(video,0,0,canvas.width,canvas.height);captures[p]=canvas.toDataURL('image/jpeg',.82)}
+    await seekVideo(old,controller.signal);if(!isCurrent())return;session.captures=captures;renderCaptures();if(navigate)go('results');return true;
+  }catch(error){if(isCurrent())modalMsg('Captures could not be created.','Wait for the video to load and try again. Existing captures have been kept.')}
+  finally{if(captureJob===controller)captureJob=null;updateSessionStatus()}
+}
+function renderCaptures(){if(!state.current){capturesGrid.innerHTML=emptyState('No review yet','Choose a video to start reviewing your swing.');return}const entries=Object.entries(state.current.captures||{});capturesGrid.innerHTML=entries.length?entries.map(([phase,img])=>`<article class="capture-card"><img src="${img}" alt="${phase} phase capture"><strong>${phase}</strong><button type="button" class="tiny-btn" data-open-capture="${phase}">Analyze image</button></article>`).join(''):emptyState('Add your key moments','Mark a phase in the review, then create captures to include its image here.','Back to review','review')}
+document.addEventListener('click',e=>{const b=e.target.closest('[data-open-capture]');if(b)window.SwingLabEditor?.openCapture?.(b.dataset.openCapture)});
+async function saveSession(){
+  await ready;if(!state.current){modalMsg('No session to save.','Upload a video first.');return false}
+  if(!state.storageReady)return storageFailure();if(state.storageBusy||state.engineBusy||captureJob)return false;
+  if(state.videoFile&&Object.keys(state.current.phases).some(p=>!state.current.captures?.[p])&&!(await capturePhases(false)))return false;
+  state.current.title=reviewTitleInput.value.trim()||'Swing session';state.current.notes=notesInput.value;state.current.drawings=window.SwingLabEditor?.getDrawings()||state.current.drawings||[];
+  const summary=SwingLabStorage.normalize(state.current),file=state.videoFile;let savedSuccessfully=false;state.storageBusy=true;updateSessionStatus();
+  try{
+    if(file){let metadata;try{metadata=await SwingLabLocal.prepare(file)}catch{}if(metadata){if(summary.videoSha256&&summary.videoSha256!==metadata.sha256)throw Error('Saved video identity mismatch');Object.assign(summary,{duration:metadata.duration,videoSha256:metadata.sha256,timing:metadata.timing})}}
+    const feedback=file?await SwingLabLearning.collect(file,summary,message=>setAnalysisProgress(true,message)):[];
+    const saved=SwingLabStorage.normalize(summary);await store.save(saved,file,feedback);savedSuccessfully=true;state.history=[clone(saved),...state.history.filter(s=>s.id!==saved.id)];
+    if(state.current?.id===saved.id){for(const key of ['analysisRange','duration','videoSha256','timing','analyses','corrections','review','feedbackEnabled','view','referenceReview','referenceHistory'])if(key in saved)state.current[key]=clone(saved[key]);draftBaseline=JSON.stringify(saved)}
+    modalMsg('Session saved.',file?'Your video, review and correction context were saved on this device.':'Your captures and notes were saved. The original video is unavailable for this older session.');renderAll();return true;
+  }catch{storageFailure();return false}finally{state.storageBusy=false;setAnalysisProgress(true,savedSuccessfully?'Review and correction context saved on this device.':'Save failed. The previous saved review is unchanged.');updateSessionStatus()}
+}
+function storageFailure(){modalMsg('Changes were not saved.','Local storage may be full or unavailable. Your previous saved sessions have been kept. Free some device space and try again.');return false}
+function hydrateSession(){
+  notesInput.value=state.current?.notes||'';
+  reviewTitleInput.value=state.current?.title||'Review swing';
+  document.dispatchEvent(new CustomEvent('swinglab:session-changed',{detail:{drawings:clone(state.current?.drawings||[])}}));
+  draftBaseline=state.history.some(s=>s.id===state.current?.id)?JSON.stringify(SwingLabStorage.normalize(state.current)):null;
+}
+function hasUnsavedChanges(){if(!state.current)return false;const draft={...state.current,notes:notesInput.value,drawings:window.SwingLabEditor?.getDrawings()||state.current.drawings};return JSON.stringify(SwingLabStorage.normalize(draft))!==draftBaseline}
+function canLeaveSession(){return !hasUnsavedChanges()||confirm('This session has unsaved changes. Discard them and continue?')}
+window.addEventListener('beforeunload',event=>{if(hasUnsavedChanges()){event.preventDefault();event.returnValue=''}});
+function cancelAnalysis(){if(engineJob){engineJob.controller.abort();engineJob=null}state.engineBusy=false;setEngineStatus(state.engineOnline?'online':'offline');setAnalysisProgress(false)}
+function releaseMedia(){
+  guidedPending=false;window.SwingLabEditor?.release?.();
+  mediaRevision++;phaseRevision++;cancelAnalysis();captureJob?.abort();captureJob=null;
+  video.pause();video.removeAttribute('src');video.load();
+  const fullscreen=document.getElementById('fullscreenVideo');fullscreen.pause();fullscreen.removeAttribute('src');fullscreen.load();document.getElementById('fullscreenEditor').hidden=true;
+  if(state.videoUrl)URL.revokeObjectURL(state.videoUrl);
+  state.videoUrl=null;state.videoFile=null;
+  document.getElementById('videoEmpty').style.display='';document.getElementById('videoEmpty').textContent='No video loaded';timeline.value=0;
+  document.getElementById('currentTimeLabel').textContent='0.00s';document.getElementById('durationLabel').textContent='0.00s';
+}
+function attachMedia(file){state.reviewStep='manual';state.engineGuide=false;guidedPending=true;state.videoFile=file;state.videoUrl=URL.createObjectURL(file);video.src=state.videoUrl;document.getElementById('videoEmpty').style.display='none';document.getElementById('useAnalysisRange').checked=false;document.getElementById('analysisRangeStart').value='0';document.getElementById('analysisRangeEnd').value='';segmentPicker.restore()}
+function setPhase(phase,time){
+  if(!state.current||!state.videoFile||state.storageBusy||!phases.includes(phase)||!Number.isFinite(time))return;
+  const limit=Number.isFinite(video.duration)?video.duration:time;state.current.duration=limit;
+  let target=Math.max(0,Math.min(limit,time));const index=SwingLabVideo.frameIndex(state.current.timing,target);if(index!=null)target=state.current.timing.times[index];
+  if(phase==='Impact'&&target>0&&target<limit)state.current.impactReference={time:target,source:'user-impact',updatedAt:new Date().toISOString(),videoSha256:state.current.videoSha256||null};
+  if(state.current.phases[phase]===target){if(phase==='Impact')phaseRevision++;updateSessionStatus();return}
+  SwingLabLearning.record(state.current,phase,state.current.phases[phase],target,profile.name);
+  phaseRevision++;state.current.phases[phase]=target;delete state.current.captures[phase];if(state.current.captureDrawings)delete state.current.captureDrawings[phase];renderPhases();renderCaptures();updateSessionStatus();
+}
+function markImpactReference(time=video.currentTime){
+  if(!state.current||!state.videoFile||state.engineBusy||state.storageBusy||video.readyState<2)return;
+  video.pause();const t=time;
+  if(!Number.isFinite(t)||t<=0||t>=video.duration)return showToast('Choose an impact frame inside the video');
+  setPhase('Impact',t);state.reviewStep='analyze';window.SwingLabEditor?.refresh?.();
+  showToast('Impact marked. Tap Analyze to recalculate the other phases');
+}
+function jumpImpactReference(){
+  const t=state.current?.impactReference?.time;
+  if(Number.isFinite(t)&&state.videoFile){video.pause();video.currentTime=t;updateTime()}
+}
+function clearImpactReference(){
+  if(!state.current||state.engineBusy||state.storageBusy)return;
+  state.current.impactReference=null;phaseRevision++;updateSessionStatus();
+  showToast('Reference cleared. Existing phase marks were kept');
+}
+function setEngineStatus(status,detail=''){if(status!=='busy')state.engineOnline=status==='online';if(engineStatusDot)engineStatusDot.className=`engine-dot is-${status}`;if(engineStatusText)engineStatusText.textContent=detail||({online:'Ready on device',checking:'Preparing…',offline:'Unavailable',busy:'Marking locally'}[status]||'Offline')}
+function setAnalysisProgress(on,text=''){if(!analysisProgress)return;analysisProgress.hidden=!on;analysisProgress.classList.toggle('is-result',!state.engineBusy&&!state.storageBusy);const heading=analysisProgress.querySelector('strong');if(heading)heading.textContent=state.storageBusy?'Saving review context':state.engineBusy?'Analyzing swing':'Analysis status';if(analysisProgressText)analysisProgressText.textContent=text||'Analyzing swing...';window.SwingLabEditor?.refresh?.()}
+function isStandalone(){return matchMedia('(display-mode: standalone)').matches||navigator.standalone===true}
+function updateInstallButtons(){installButtons().forEach(b=>{b.hidden=isStandalone();b.innerHTML=uiIcon('download')+'<span>Install app</span>'})}
+async function installApp(){if(isStandalone())return modalMsg('Swing Lab is installed.','Open it from your home screen whenever you want to analyze a swing.');if(state.installPrompt){const promptEvent=state.installPrompt;state.installPrompt=null;promptEvent.prompt();const choice=await promptEvent.userChoice.catch(()=>({outcome:'dismissed'}));updateInstallButtons();return modalMsg(choice.outcome==='accepted'?'Installing Swing Lab.':'Install was cancelled.',choice.outcome==='accepted'?'The app will appear on your home screen once the browser finishes installing it.':'You can try again from the Install button.')}const isiOS=/iphone|ipad|ipod/i.test(navigator.userAgent);modalMsg('Install Swing Lab.',isiOS?'In Safari, tap Share and choose Add to Home Screen.':'Open the browser menu and choose Install app or Add to Home screen. If it does not appear yet, refresh this page once.')}
+function setupPwa(){updateInstallButtons();window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();state.installPrompt=e;updateInstallButtons()});window.addEventListener('appinstalled',()=>{state.installPrompt=null;updateInstallButtons();modalMsg('Swing Lab installed.','You can now launch it from your home screen.')});if(!window.SwingLabNative&&'serviceWorker'in navigator&&location.protocol!=='file:'){navigator.serviceWorker.register('./sw.js',{scope:'./'}).then(registration=>registration.update().catch(()=>{})).catch(()=>{})}}
+async function loadEngine(){
+  if(window.SwingLabNative){setEngineStatus('online','Bundled with Android app');return;}
 
-// Reference model calibrated from the standard Swing Lab report structure.
-// These are not hard rules: they are used as soft priors to stabilise phase detection.
-const SWING_REFERENCE = {
-  tempoIdealLow: 2.4,
-  tempoIdealHigh: 3.1,
-  downSwingMin: 0.12,
-  downSwingIdealLow: 0.20,
-  downSwingIdealHigh: 0.34,
-  downSwingMax: 0.62,
-  finishHoldIdeal: 0.45,
-  activeRatios: { address: 0.00, takeaway: 0.13, top: 0.50, impact: 0.70, finish: 1.00 },
+  if(!('serviceWorker'in navigator))return modalMsg('Offline preparation unavailable.','Use HTTPS or localhost in a supported browser.');
+  try{const registration=await navigator.serviceWorker.register('./sw.js',{scope:'./'});let worker=registration.installing||registration.waiting;
+    if(worker&&worker.state!=='activated')await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('Preparation is taking longer. Reopen the app and try again.')),60000);const inspect=()=>{if(worker.state==='activated'){clearTimeout(timer);resolve()}if(worker.state==='redundant'){clearTimeout(timer);reject(Error('Could not save the offline resources.'))}};worker.addEventListener('statechange',inspect);inspect()});
+    showToast('App and local marker prepared for offline use');
+  }catch(error){modalMsg('Offline resources unavailable.',error.message)}
+}
+async function analyzeWithEngine(file){
+  if(!file||file!==state.videoFile||!state.current||!state.engineOnline||state.engineBusy||state.storageBusy||video.readyState<2)return;
+  const range=document.getElementById('useAnalysisRange').checked?{start:Number(document.getElementById('analysisRangeStart').value),end:document.getElementById('analysisRangeEnd').value===''?video.duration:Number(document.getElementById('analysisRangeEnd').value)}:undefined;
+  if(range)try{SwingLabMotion.range(range,video.duration)}catch(error){return modalMsg('Check the swing segment.',error.message)}
+  const previousRun=state.current.analyses?.at(-1),replaceable=phases.filter(p=>SwingLabLearning.canReplaceProposal(state.current,previousRun,p));
+  const job={controller:new AbortController(),session:state.current,revision:mediaRevision,marks:phaseRevision};engineJob=job;state.engineBusy=true;
+  const timer=setTimeout(()=>job.controller.abort(),240000),isCurrent=()=>engineJob===job&&state.current===job.session&&mediaRevision===job.revision;
+  setEngineStatus('busy','Marking locally');setAnalysisProgress(true,'Reading this video on your device…');updateSessionStatus();
+  try{
+    const result=await SwingLabLocal.analyze(file,{signal:job.controller.signal,range,impactAnchor:job.session.impactReference?.time,view:job.session.view||profile.view,onProgress:message=>{if(isCurrent())setAnalysisProgress(true,message)}});
+    if(!isCurrent()||job.controller.signal.aborted)return;
+    const estimated=Object.fromEntries(phases.filter(p=>Number.isFinite(result.phases?.[p.toLowerCase()])).map(p=>[p,result.phases[p.toLowerCase()]]));
+    Object.assign(job.session,{duration:result.duration,videoSha256:result.videoSha256,timing:result.timing});if(job.session.impactReference)job.session.impactReference.videoSha256=result.videoSha256;
+    const run={runId:crypto.randomUUID(),modelId:result.id,protocol:SwingLabLearning.PROTOCOL,checkpointSha256:result.checkpointSha256,modelFiles:result.modelFiles,videoSha256:result.videoSha256,createdAt:result.createdAt,status:result.status,view:job.session.view||'DTL',phases:clone(estimated),window:result.window,sampleTimes:result.sampleTimes||[],preprocessing:result.preprocessing,impactEvidence:result.impactEvidence,audioCandidates:result.audioCandidates,initialPhases:Object.fromEntries(phases.filter(p=>Number.isFinite(result.initialPhases?.[p.toLowerCase()])).map(p=>[p,result.initialPhases[p.toLowerCase()]])),note:result.note};
+    job.session.analyses=job.session.analyses||[];job.session.analyses.push(run);if(result.status==='needs-review'){state.reviewStep='review';state.engineGuide=false;}
+    if(result.status!=='needs-review'){if(phaseRevision===job.marks&&replaceable.length){for(const p of replaceable){delete job.session.phases[p];delete job.session.captures[p]}phaseRevision++;renderPhases();renderCaptures()}setAnalysisProgress(true,result.status==='rejected'?'No usable swing information was found. You can mark phases manually.':result.note);return}
+    if(phaseRevision!==job.marks){setAnalysisProgress(true,'Local analysis finished. Your manual phase changes were kept; the proposals are available below.');return}
+    // Replace untouched automatic marks; retain edited and confirmed references.
+    for(const [p,t]of Object.entries(estimated))if(replaceable.includes(p)){job.session.phases[p]=t;delete job.session.captures[p]}
+    if(replaceable.length){job.session.review={status:'draft'};phaseRevision++}renderPhases();renderCaptures();setAnalysisProgress(true,replaceable.length?'Local marking complete. Review the proposals and the selected segment below.': 'Local analysis finished. Your reviewed marks were kept; the new proposals are available below.');
+  }catch(error){if(isCurrent())setAnalysisProgress(true,error.name==='AbortError'?'Local analysis cancelled or timed out. Manual marking is available.':`Local marking unavailable: ${error.message} Manual marking is available.`)}
+  finally{clearTimeout(timer);if(isCurrent()){engineJob=null;state.engineBusy=false;setEngineStatus('online');setAnalysisProgress(!analysisProgress.hidden,analysisProgressText.textContent);updateSessionStatus()}}
+}
+function updateLearningUI(){
+  updateReferenceUI();window.SwingLabEditor?.refresh?.();
+  const session=state.current,run=session?.analyses?.at(-1),busy=state.engineBusy||state.storageBusy;
+  const analyze=document.getElementById('analyzeLocal');if(analyze){analyze.disabled=!state.videoFile||video.readyState<2||busy||!state.engineOnline;analyze.textContent=Number.isFinite(session?.impactReference?.time)?'Analyze from my impact':run?'Run local marking again':'Analyze on this device'}
+  const reference=session?.impactReference,hasReference=Number.isFinite(reference?.time),playable=!!state.videoFile&&video.readyState>=2;
+  const impactButton=document.getElementById('markImpactReference');if(impactButton){impactButton.disabled=!playable||busy;impactButton.textContent=hasReference?'Update impact here':'Mark impact here'}
+  for(const id of ['jumpImpactReference','clearImpactReference']){const b=document.getElementById(id);if(b){b.hidden=!hasReference;b.disabled=!playable||busy}}
+  const impactAnalyze=document.getElementById('analyzeFromImpact');if(impactAnalyze){impactAnalyze.hidden=!hasReference;impactAnalyze.disabled=!playable||busy||!state.engineOnline}
+  const impactStatus=document.getElementById('impactReferenceStatus');if(impactStatus){
+    impactStatus.textContent=hasReference?'Your impact: '+reference.time.toFixed(3)+(run?.impactEvidence?.source==='user-impact'&&run.impactEvidence.anchor===reference.time?' s. Used for the latest analysis. Review the other four phases.':' s. Analyze to recalculate the other phases.'):run?.impactEvidence?.status==='needs-impact'?'Check impact: '+run.impactEvidence.note:run?.impactEvidence?.source==='audio-model-agreement'?'Audio and movement support an impact proposal. Check it in the video.':'The automatic marker runs without a manual reference.';
+    impactStatus.closest('.impact-reference')?.classList.toggle('needs-impact',!hasReference&&run?.impactEvidence?.status==='needs-impact');
+  }
+  const cancel=document.getElementById('cancelLocal');if(cancel)cancel.hidden=!state.engineBusy;
+  const choice=document.getElementById('sessionView');if(choice){choice.value=session?.view||profile.view;choice.disabled=!session||busy}
+  for(const id of ['useAnalysisRange','analysisRangeStart','analysisRangeEnd'])document.getElementById(id).disabled=!state.videoFile||busy;
+  for(const action of ['segment-start','segment-end']){const button=document.querySelector(`[data-action="${action}"]`);if(button)button.disabled=!state.videoFile||video.readyState<2||busy}
+  const segmentNote=document.getElementById('analysisSegmentNote');if(segmentNote)segmentNote.textContent=Number.isFinite(run?.window?.start)&&Number.isFinite(run?.window?.end)?`Last analyzed segment: ${run.window.start.toFixed(2)}–${run.window.end.toFixed(2)} s. ${(run.window.warnings||[]).join(' ')}`:'';
+  const checkbox=document.getElementById('keepCorrectionContext');if(checkbox){checkbox.checked=session?.feedbackEnabled!==false;checkbox.disabled=!session||busy}
+  const confirmed=!!session&&SwingLabLearning.reviewMatches(session),reviewState=document.getElementById('phaseReviewState');if(reviewState)reviewState.textContent=session&&SwingLabLearning.negativeMatches(session)?'Confirmed: no swing in this video':confirmed?'Phases confirmed for model review':'Phase labels need visual confirmation';
+  const confirm=document.getElementById('confirmPhaseReview');if(confirm)confirm.disabled=!session||!state.videoFile||busy;const noSwing=document.getElementById('confirmNoSwing');if(noSwing)noSwing.disabled=!session||!state.videoFile||busy;
+  const summary=document.getElementById('correctionSummary');if(summary){const count=(session?.corrections||[]).filter(e=>!e.supersededBy).length;summary.textContent=`${count} active correction${count===1?'':'s'}. Original proposals are retained. Nothing is uploaded or trained automatically.`}
+  const body=document.getElementById('phaseAudit');if(body)body.innerHTML=phases.map(p=>{const proposed=run?.phases?.[p],current=session?.phases?.[p],supplied=p==='Impact'&&run?.impactEvidence?.source==='user-impact',delta=!supplied&&Number.isFinite(proposed)&&Number.isFinite(current)?current-proposed:null;return `<tr><td>${p}</td><td>${Number.isFinite(proposed)?proposed.toFixed(3)+' s'+(supplied?' (your reference)':''):'—'}</td><td>${Number.isFinite(current)?current.toFixed(3)+' s':'—'}</td><td>${delta==null?'—':(delta>0?'+':'')+delta.toFixed(3)+' s'}</td></tr>`}).join('');
+  const known=session?.timing?.verified;for(const [action,label]of [['back-frame',known?'−1 frame':'−20 ms'],['forward-frame',known?'+1 frame':'+20 ms']]){const button=document.querySelector(`#screenReview [data-action="${action}"]`);if(button){button.textContent=label;button.setAttribute('aria-label',known?(action==='back-frame'?'Previous source frame':'Next source frame'):(action==='back-frame'?'Back 20 milliseconds':'Forward 20 milliseconds'))}}
+}
+function updateReferenceUI(){
+  const status=document.getElementById('referenceLibraryStatus'),detail=document.getElementById('referenceComparison');if(!status||!detail)return;
+  status.textContent=`${referenceCatalog.length} reviewed videos on this device. Importing references keeps existing session marks.`;
+  const session=state.current,entry=referenceCatalog.find(r=>SwingLabReferences.matches(r,session?.videoSha256,session?.duration)),applied=session?.referenceReview,shown=entry||applied;
+  const busy=state.storageBusy||state.engineBusy;
+  document.getElementById('matchReference').disabled=!state.videoFile||busy;
+  document.getElementById('applyReference').disabled=!entry||!state.videoFile||busy;
+  document.getElementById('importReferenceFile').disabled=busy;
+  const local=document.getElementById('loadPrivateReferences');local.hidden=!['localhost','127.0.0.1','[::1]'].includes(location.hostname);local.disabled=busy;
+  const choices=document.getElementById('referenceClipChoice'),selected=choices.value;choices.innerHTML=referenceCatalog.map(r=>`<option value="${esc(r.sha256)}">${esc(r.title)}${r.reference.status==='negative'?' · No swing':''}</option>`).join('');if(referenceCatalog.some(r=>r.sha256===selected))choices.value=selected;document.getElementById('localReferenceClips').hidden=local.hidden||!referenceCatalog.length;document.getElementById('openLocalReference').disabled=busy;choices.disabled=busy;
+  if(!shown){detail.textContent=session?'Match the original video to find its reviewed phases.':'Choose a video to compare it with the reference library.';return}
+  const r=shown.reference,run=session?.analyses?.at(-1),sameApplied=applied&&JSON.stringify(applied.reference)===JSON.stringify(r);
+  detail.innerHTML=`<p><strong>${esc(shown.title)}</strong><br>${esc(r.reviewer)} · ${esc(r.updatedAt.slice(0,10))} · v${r.version}${sameApplied?' · Applied to this session':''}</p>${r.status==='negative'?'<p>Reviewed control: this clip does not contain a complete swing.</p>':`<div class="learning-table"><table><thead><tr><th>Phase</th><th>Reference / uncertainty</th><th>Model difference</th></tr></thead><tbody>${phases.map(p=>{const m=r.phases[p.toLowerCase()],t=m.time,proposed=run?.phases?.[p],delta=Number.isFinite(t)&&Number.isFinite(proposed)?proposed-t:null;return `<tr><td>${p}</td><td>${t==null?'Unresolved':t.toFixed(3)+' s'}${m.range?`<br>${m.range[0].toFixed(3)}–${m.range[1].toFixed(3)} s`:''}<br><small>${esc(m.reason)}</small></td><td>${delta==null?'—':(delta>0?'+':'')+delta.toFixed(3)+' s'}</td></tr>`}).join('')}</tbody></table></div>`}<p class="field-hint">Ranges remain part of the saved reference. Applying it keeps previous marks and model runs. Assisted references are excluded from point-label training exports.</p>`;
+}
+async function importReferencePayload(payload){
+  const records=SwingLabReferences.pack(payload);referenceCatalog=await store.importReferences(records);updateReferenceUI();showToast(`${referenceCatalog.length} reviewed references available on this device`);
+}
+async function readReferenceFile(file){
+  if(!file||state.engineBusy||state.storageBusy)return;state.storageBusy=true;updateSessionStatus();
+  try{await ready;if(file.size>20*1024*1024)throw Error('Choose a reference JSON file smaller than 20 MB.');await importReferencePayload(JSON.parse(await file.text()))}catch(error){modalMsg('References not imported.',error.message)}finally{state.storageBusy=false;document.getElementById('referenceFileInput').value='';updateSessionStatus()}
+}
+async function loadPrivateReferences(){
+  if(!['localhost','127.0.0.1','[::1]'].includes(location.hostname)||state.storageBusy||state.engineBusy)return;
+  state.storageBusy=true;updateSessionStatus();try{await ready;const response=await fetch('/__lab/manifest.json',{cache:'no-store'});if(!response.ok)throw Error('Start the local review library to load its references.');await importReferencePayload(await response.json())}catch(error){modalMsg('References not imported.',error.message)}finally{state.storageBusy=false;updateSessionStatus()}
+}
+async function matchReference(apply=false){
+  if(!state.current||!state.videoFile||state.storageBusy||state.engineBusy)return;
+  const session=state.current,file=state.videoFile;state.storageBusy=true;updateSessionStatus();
+  try{const info=await SwingLabLocal.prepare(file);if(state.current!==session||state.videoFile!==file)return;Object.assign(session,{duration:info.duration,videoSha256:info.sha256,timing:info.timing});
+    const entry=referenceCatalog.find(r=>SwingLabReferences.matches(r,info.sha256,info.duration));if(!entry){showToast('No reviewed reference matches this original video.');return}
+    if(apply){state.current.impactReference=null;SwingLabReferences.apply(session,entry);phaseRevision++;state.markMode=false;renderPhases();renderCaptures();showToast('Reviewed phases applied. Save to keep this session.')}else showToast('Reviewed reference found. Compare it below before applying.');
+  }catch(error){modalMsg('Reference unavailable.',error.message)}finally{state.storageBusy=false;updateSessionStatus()}
+}
+document.getElementById('referenceFileInput')?.addEventListener('change',e=>readReferenceFile(e.target.files?.[0]));
+document.getElementById('importReferenceFile')?.addEventListener('click',()=>document.getElementById('referenceFileInput').click());
+document.getElementById('loadPrivateReferences')?.addEventListener('click',loadPrivateReferences);
+document.getElementById('matchReference')?.addEventListener('click',()=>matchReference());
+document.getElementById('applyReference')?.addEventListener('click',()=>matchReference(true));
+document.getElementById('openLocalReference')?.addEventListener('click',async()=>{
+  if(state.storageBusy||state.engineBusy||!['localhost','127.0.0.1','[::1]'].includes(location.hostname))return;
+  const entry=referenceCatalog.find(r=>r.sha256===document.getElementById('referenceClipChoice').value);if(!entry)return;
+  state.storageBusy=true;updateSessionStatus();let file;
+  try{const response=await fetch('/__lab/private/'+encodeURIComponent(entry.id),{cache:'no-store'});if(!response.ok)throw Error('The original video is absent from the local library.');const blob=await response.blob();if(blob.size>150*1024*1024)throw Error('Choose a local clip smaller than 150 MB.');file=new File([blob],entry.title+'.mp4',{type:blob.type||'video/mp4'});const digest=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',await file.arrayBuffer()))).map(x=>x.toString(16).padStart(2,'0')).join('');if(digest!==entry.sha256)throw Error('The original video does not match its reviewed reference.')}catch(error){file=null;modalMsg('Video unavailable.',error.message)}finally{state.storageBusy=false;updateSessionStatus()}
+  if(file){await loadVideoFile(file);if(state.videoFile===file)await matchReference()}
+});
+ready.then(()=>{if(new URLSearchParams(location.search).get('reviewLibrary')==='local'&&['localhost','127.0.0.1','[::1]'].includes(location.hostname)){showApp();go('profile');loadPrivateReferences()}});
+async function confirmPhaseReview(){
+  if(!state.current||!state.videoFile||state.engineBusy||state.storageBusy)return;
+  const session=state.current;state.storageBusy=true;updateSessionStatus();
+  try{const metadata=await SwingLabLocal.prepare(state.videoFile);if(state.current!==session)return;Object.assign(session,{duration:metadata.duration,videoSha256:metadata.sha256,timing:metadata.timing});
+    let previous=-1;for(const phase of phases){const t=session.phases[phase];if(!Number.isFinite(t)||t<0||t>metadata.duration||t<=previous)throw Error('Mark all five phases in increasing time order before confirming.');previous=t}
+    session.review={status:'reviewed',protocol:SwingLabLearning.PROTOCOL,videoSha256:session.videoSha256,reviewer:profile.name||'Local reviewer',confirmedAt:new Date().toISOString(),phases:clone(session.phases)};
+  }catch(error){modalMsg('Review not confirmed.',error.message);return}finally{state.storageBusy=false;updateSessionStatus()}
+  await saveSession();
+}
+async function confirmNoSwing(){
+  if(!state.current||!state.videoFile||state.engineBusy||state.storageBusy)return;
+  const session=state.current;state.storageBusy=true;updateSessionStatus();
+  try{const metadata=await SwingLabLocal.prepare(state.videoFile);if(state.current!==session)return;Object.assign(session,{duration:metadata.duration,videoSha256:metadata.sha256,timing:metadata.timing});
+    for(const phase of phases)if(session.phases[phase]!=null)SwingLabLearning.record(session,phase,session.phases[phase],null,profile.name);
+    session.phases={};session.impactReference=null;session.captures={};phaseRevision++;session.review={status:'negative',protocol:SwingLabLearning.PROTOCOL,videoSha256:session.videoSha256,reviewer:profile.name||'Local reviewer',confirmedAt:new Date().toISOString(),phases:{}};renderPhases();renderCaptures();
+  }catch(error){modalMsg('No-swing review not saved.',error.message);return}finally{state.storageBusy=false;updateSessionStatus()}
+  await saveSession();
+}
+async function exportLearning(onlyCurrent){
+  if(state.storageBusy||state.engineBusy)return;if(state.current&&hasUnsavedChanges()&&!(await saveSession()))return;
+  const sessions=onlyCurrent?state.history.filter(s=>s.id===state.current?.id):state.history;if(!sessions.length)return modalMsg('No saved reviews.','Save a session before exporting its feedback.');
+  state.storageBusy=true;updateSessionStatus();
+  try{const includeVideo=!!document.getElementById(onlyCurrent?'includeCurrentVideo':'includeLearningVideos')?.checked,blob=await SwingLabLearning.exportPack(sessions,store,includeVideo),url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download='swinglab-learning-'+new Date().toISOString().slice(0,10)+'.zip';link.click();setTimeout(()=>URL.revokeObjectURL(url),10000);showToast('Learning pack downloaded. Nothing was uploaded.')}catch(error){modalMsg('Export failed.',error.message)}finally{state.storageBusy=false;updateSessionStatus()}
+}
+document.getElementById('keepCorrectionContext')?.addEventListener('change',event=>{if(state.current&&!state.storageBusy)state.current.feedbackEnabled=event.target.checked;updateSessionStatus()});
+document.getElementById('sessionView')?.addEventListener('change',event=>{if(state.current&&!state.storageBusy){cancelAnalysis();state.current.view=event.target.value;state.current.review={status:'draft'};updateSessionStatus()}});
+for(const [action,input]of [['segment-start','analysisRangeStart'],['segment-end','analysisRangeEnd']])document.querySelector(`[data-action="${action}"]`)?.addEventListener('click',()=>{if(!state.videoFile||state.engineBusy||state.storageBusy||video.readyState<2)return;video.pause();document.getElementById(input).value=video.currentTime.toFixed(6);document.getElementById('useAnalysisRange').checked=true;segmentPicker.persist()});
+async function clearHistory(){
+  await ready;if(!state.storageReady)return storageFailure();if(state.storageBusy)return;
+  if(!confirm('Delete all saved sessions and their videos from this device?'))return;
+  state.storageBusy=true;
+  try{await store.clear();releaseMedia();state.current=null;state.history=[];hydrateSession();renderAll();let message='Saved sessions, videos and the legacy recovery copy have been removed from this device.';try{localStorage.removeItem('swinglab_history_v19')}catch{message='Current sessions and videos were removed. The old recovery copy could not be removed from browser storage.'}modalMsg('Local history cleared.',message)}catch{storageFailure()}finally{state.storageBusy=false}
+}
+async function deleteSession(id){
+  if(state.storageBusy)return;const session=state.history.find(x=>x.id===id);if(!session)return;
+  if(!confirm(`Delete "${session.title||'Swing session'}" and its saved video?`))return;
+  state.storageBusy=true;
+  try{await store.remove(id);state.history=state.history.filter(x=>x.id!==id);if(state.current?.id===id){releaseMedia();state.current=null;hydrateSession()}renderAll()}catch{storageFailure()}finally{state.storageBusy=false}
+}
+function openLatest(){const latest=state.current||state.history[0];if(!latest){go('upload');return}openSession(latest.id)}
+async function openSession(id,target){
+  await ready;if(state.storageBusy)return;
+  if(state.current?.id===id){go(target||(state.videoFile?'review':'results'));return}
+  const session=state.history.find(s=>s.id===id);if(!session){go('upload');return}
+  if(!canLeaveSession())return;
+  releaseMedia();const revision=mediaRevision;state.current=clone(session);state.markMode=false;hydrateSession();go('results');
+  try{
+    const file=await store.video(id);if(mediaRevision!==revision||state.current?.id!==id)return;
+    if(file){attachMedia(file);go(target||'review')}
+    else{document.getElementById('videoEmpty').textContent='Original video unavailable for this older session';if(target==='review')go('review')}
+  }catch{if(mediaRevision===revision)modalMsg('Video unavailable.','The original video could not be read. Your saved captures and notes are still available.')}
+}
+async function renameSession(id,title){
+  const clean=(title||'').trim()||'Swing session',session=state.history.find(x=>x.id===id);if(!session||session.title===clean)return;
+  if(state.storageBusy){renderHistory();return}state.storageBusy=true;
+  const updated=clone(session);updated.title=clean;
+  try{await store.save(updated);state.history=state.history.map(s=>s.id===id?updated:s);if(state.current?.id===id){state.current.title=clean;reviewTitleInput.value=clean;if(draftBaseline){const baseline=JSON.parse(draftBaseline);baseline.title=clean;draftBaseline=JSON.stringify(baseline)}}renderHome();renderCompare()}catch{storageFailure();renderHistory()}finally{state.storageBusy=false}
+}
+function renderHistory(){const query=(document.getElementById('historySearch')?.value||'').trim().toLowerCase(),filtered=state.history.filter(s=>(s.title||'Swing session').toLowerCase().includes(query));document.getElementById('historyCount').textContent=state.history.length?`${filtered.length} ${filtered.length===1?'session':'sessions'}${query?' found':' saved on this device'}`:'';historyList.innerHTML=!state.history.length?emptyState('Your swings start here','Save your first review to build your practice history. Videos, captures and notes stay together.'):!filtered.length?emptyState('No matching swings','Try a shorter name or clear the search.','','history'):filtered.map(s=>`<article class="history-item"><img class="history-thumb" src="${s.thumb||'assets/analysis-thumb.webp'}" alt=""><div><input class="history-title-input" data-title-id="${s.id}" value="${esc(s.title||'Swing session')}" aria-label="Rename ${esc(s.title||'Swing session')}"><p>${shortDate(s.date)} &middot; ${phaseCount(s)}/5 phases</p><div class="history-actions"><button type="button" class="tiny-btn" data-open-session="${s.id}">Open ${uiIcon('chevron')}</button><button type="button" class="tiny-btn" data-report="${s.id}">Report</button></div></div><button type="button" class="history-delete" data-delete-id="${s.id}" aria-label="Delete ${esc(s.title||'Swing session')}">${uiIcon('trash')}</button></article>`).join('');historyList.querySelectorAll('[data-report]').forEach(b=>b.onclick=()=>openSession(b.dataset.report,'results'));historyList.querySelectorAll('[data-title-id]').forEach(input=>input.addEventListener('change',()=>renameSession(input.dataset.titleId,input.value)))}
+
+function toggleCompare(id){if(!id)return;const set=new Set(state.compareSelected);if(set.has(id))state.compareSelected=state.compareSelected.filter(x=>x!==id);else{if(state.compareSelected.length>=2){showToast('Deselect a swing before choosing another');return}state.compareSelected.push(id)}renderCompare()}
+function renderCompare(){const history=state.history;state.compareSelected=state.compareSelected.filter(id=>history.some(s=>s.id===id)).slice(0,2);if(compareCount)compareCount.textContent=`${state.compareSelected.length}/2`;if(!history.length){compareList.innerHTML=emptyState('See your practice side by side','Save two swing reviews, then choose them here to compare phases and timing.','New analysis','upload','compare');if(compareOutput)compareOutput.innerHTML='';return}compareList.innerHTML=history.map(s=>{const selected=state.compareSelected.includes(s.id);return`<article class="history-item compare-select ${selected?'is-selected':''}"><img class="history-thumb" src="${s.thumb||'assets/analysis-thumb.webp'}"><div><h3>${esc(s.title||'Swing session')}</h3><p>${Object.keys(s.phases||{}).length}/5 phases marked</p></div><button class="tiny-btn" aria-pressed="${selected}" data-compare-id="${s.id}">${selected?'Selected':'Select'}</button></article>`}).join('');if(!compareOutput)return;const chosen=state.compareSelected.map(id=>history.find(s=>s.id===id)).filter(Boolean);if(chosen.length<2){compareOutput.innerHTML=history.length<2?emptyState('One more swing to compare','Save another review to unlock a comparison.','Add another swing','upload','plus'):`<section class="compare-empty"><strong>${chosen.length?'Choose one more swing':'Select any two swings'}</strong><span>Your comparison will appear here.</span></section>`;return}const [a,b]=chosen;compareOutput.innerHTML=`<button class="primary-solid compare-open" type="button" data-action="open-compare-viewer">${uiIcon('compare')} Open comparison</button><section class="compare-result-head"><button type="button" class="compare-preview-card" data-action="open-compare-viewer"><img src="${compareImage(a)}"><strong>${esc(a.title||'Swing A')}</strong><span>${phaseCount(a)}/5 phases</span></button><button type="button" class="compare-preview-card" data-action="open-compare-viewer"><img src="${compareImage(b)}"><strong>${esc(b.title||'Swing B')}</strong><span>${phaseCount(b)}/5 phases</span></button></section><section class="phase-compare-table"><div class="table-head"><span>Phase</span><span>${esc(a.title||'A')}</span><span>${esc(b.title||'B')}</span><span>Diff</span></div>${phases.map(p=>{const fa=a.phases?.[p],fb=b.phases?.[p],diff=fa!=null&&fb!=null?fb-fa:null;return`<div><span>${p}</span><strong>${fa==null?'--':frameLabel(fa,a)}</strong><strong>${fb==null?'--':frameLabel(fb,b)}</strong><em>${diff==null?'--':(diff>0?'+':'')+diff.toFixed(3)+' s'}</em></div>`}).join('')}</section>`}
+function comparePair(){return state.compareSelected.map(id=>state.history.find(s=>s.id===id)).filter(Boolean).slice(0,2)}
+function compareImage(s,phase=state.comparePhase){return phase&&s?.captures?.[phase]?s.captures[phase]:s?.thumb||Object.values(s?.captures||{})[0]||'assets/analysis-thumb.webp'}
+function comparePhases(pair){const available=phases.filter(p=>pair.some(s=>s?.captures?.[p]||s?.phases?.[p]!=null));return available.length?available:phases}
+function ensureCompareViewer(){let viewer=document.getElementById('compareViewer');if(viewer)return viewer;viewer=document.createElement('section');viewer.id='compareViewer';viewer.className='compare-viewer';viewer.hidden=true;document.body.appendChild(viewer);return viewer}
+function openCompareViewer(){const pair=comparePair();if(pair.length<2)return modalMsg('Select two swings.','Choose two saved swings before opening the compare viewer.');state.comparePhase=state.comparePhase||comparePhases(pair)[0]||'';renderCompareViewer(state.comparePhase)}
+function closeCompareViewer(){const viewer=document.getElementById('compareViewer');if(viewer)viewer.hidden=true;app.inert=false;document.querySelector('.compare-open')?.focus()}
+function compareLayerState(phase,layer){state.compareAdjust.global=state.compareAdjust.global||{};state.compareAdjust.global[layer]=state.compareAdjust.global[layer]||{x:0,y:0,scale:1,opacity:layer==='base'?1:.52};return state.compareAdjust.global[layer]}
+function syncCompareStage(viewer,phase){const base=compareLayerState(phase,'base'),overlay=compareLayerState(phase,'overlay'),stage=viewer.querySelector('.compare-stage');if(!stage)return;stage.style.setProperty('--base-x',`${base.x}px`);stage.style.setProperty('--base-y',`${base.y}px`);stage.style.setProperty('--base-scale',base.scale);stage.style.setProperty('--base-opacity',base.opacity);stage.style.setProperty('--overlay-x',`${overlay.x}px`);stage.style.setProperty('--overlay-y',`${overlay.y}px`);stage.style.setProperty('--overlay-scale',overlay.scale);stage.style.setProperty('--overlay-opacity',overlay.opacity);viewer.querySelectorAll('[data-compare-layer]').forEach(b=>b.classList.toggle('is-active',b.dataset.compareLayer===state.compareLayer));viewer.querySelectorAll('[data-opacity-layer]').forEach(i=>{const s=compareLayerState(phase,i.dataset.opacityLayer);i.value=Math.round(s.opacity*100)});viewer.querySelectorAll('[data-zoom-layer]').forEach(i=>{const s=compareLayerState(phase,i.dataset.zoomLayer);i.value=Math.round(s.scale*100)})}
+function bindCompareViewer(viewer,phase){viewer.querySelectorAll('[data-compare-layer]').forEach(b=>b.onclick=()=>{state.compareLayer=b.dataset.compareLayer;syncCompareStage(viewer,phase)});viewer.querySelectorAll('[data-opacity-layer]').forEach(i=>i.oninput=()=>{compareLayerState(phase,i.dataset.opacityLayer).opacity=Number(i.value)/100;syncCompareStage(viewer,phase)});viewer.querySelectorAll('[data-zoom-layer]').forEach(i=>i.oninput=()=>{compareLayerState(phase,i.dataset.zoomLayer).scale=Number(i.value)/100;syncCompareStage(viewer,phase)});const reset=viewer.querySelector('[data-compare-reset]');if(reset)reset.onclick=()=>{state.compareAdjust.global={base:{x:0,y:0,scale:1,opacity:1},overlay:{x:0,y:0,scale:1,opacity:.52}};syncCompareStage(viewer,phase)};const stage=viewer.querySelector('.compare-stage');if(!stage)return;const points=new Map();let lastPinch=null;const pinch=()=>{const p=[...points.values()];if(p.length<2)return null;return {x:(p[0].x+p[1].x)/2,y:(p[0].y+p[1].y)/2,d:Math.hypot(p[0].x-p[1].x,p[0].y-p[1].y)}};stage.onpointerdown=e=>{points.set(e.pointerId,{x:e.clientX,y:e.clientY});lastPinch=pinch();stage.setPointerCapture?.(e.pointerId);e.preventDefault()};stage.onpointermove=e=>{if(!points.has(e.pointerId))return;const prev=points.get(e.pointerId),layer=state.compareLayer,s=compareLayerState(phase,layer);points.set(e.pointerId,{x:e.clientX,y:e.clientY});if(points.size>=2){const next=pinch();if(lastPinch&&next&&lastPinch.d>0){s.scale=Math.max(.7,Math.min(1.8,s.scale*(next.d/lastPinch.d)));s.x+=next.x-lastPinch.x;s.y+=next.y-lastPinch.y}lastPinch=next}else if(prev){s.x+=e.clientX-prev.x;s.y+=e.clientY-prev.y}syncCompareStage(viewer,phase);e.preventDefault()};const end=e=>{points.delete(e.pointerId);lastPinch=pinch()};stage.onpointerup=end;stage.onpointercancel=end}
+function renderCompareViewer(phase=state.comparePhase){const pair=comparePair();if(pair.length<2)return;state.comparePhase=phase;const [a,b]=pair,viewer=ensureCompareViewer(),phaseOptions=comparePhases(pair),baseName=esc(a.title||'Swing A'),overlayName=esc(b.title||'Swing B');hideToast();app.inert=true;viewer.setAttribute('role','dialog');viewer.setAttribute('aria-modal','true');viewer.setAttribute('aria-label','Swing comparison');viewer.hidden=false;viewer.innerHTML=`<div class="compare-viewer-top"><button type="button" class="compare-close" data-action="close-compare-viewer">Done</button><div><strong>Compare overlay</strong><span>${baseName} vs ${overlayName}</span></div></div><div class="compare-stage"><img class="compare-base" src="${compareImage(a,phase)}" alt=""><img class="compare-overlay" src="${compareImage(b,phase)}" alt=""></div><div class="compare-viewer-controls"><div class="compare-phase-tabs">${phaseOptions.map(p=>`<button type="button" class="${p===phase?'is-active':''}" data-compare-phase="${p}">${p}</button>`).join('')}</div><div class="compare-layer-tabs"><button type="button" data-compare-layer="base">${baseName}</button><button type="button" data-compare-layer="overlay">${overlayName}</button><button type="button" data-compare-reset>Reset</button></div><div class="compare-control-grid"><label class="compare-control"><span>${baseName} opacity</span><input data-opacity-layer="base" type="range" min="0" max="100"></label><label class="compare-control"><span>${baseName} zoom</span><input data-zoom-layer="base" type="range" min="70" max="150"></label><label class="compare-control"><span>${overlayName} opacity</span><input data-opacity-layer="overlay" type="range" min="0" max="100"></label><label class="compare-control"><span>${overlayName} zoom</span><input data-zoom-layer="overlay" type="range" min="70" max="150"></label></div></div>`;bindCompareViewer(viewer,phase);syncCompareStage(viewer,phase);viewer.querySelector('.compare-close')?.focus()}
+function phaseCount(s){return Object.keys(s?.phases||{}).length}
+const PROFILE_KEY='swinglab_profile_v1';
+function readProfile(){try{const p=JSON.parse(localStorage.getItem(PROFILE_KEY)||'{}');return {name:typeof p.name==='string'?p.name.slice(0,60):'',hand:p.hand==='left'?'left':'right',view:p.view==='FO'?'FO':'DTL',club:typeof p.club==='string'?p.club.slice(0,60):''}}catch{return {name:'',hand:'right',view:document.getElementById('profileView')?.value||'DTL',club:''}}}
+let profile=readProfile();
+function saveProfile(){try{localStorage.setItem(PROFILE_KEY,JSON.stringify(profile));return true}catch{modalMsg('Preferences could not be saved.','Your preferences remain available in this tab. Browser storage may be unavailable.');return false}}
+function profileInitials(){return profile.name.trim().split(/\s+/).filter(Boolean).slice(0,2).map(n=>Array.from(n)[0]).join('').toUpperCase()||'SL'}
+function renderProfile(){
+  const saved=state.history.length,totalPhases=state.history.reduce((sum,s)=>sum+phaseCount(s),0),now=new Date();
+  if(profileSwingCount)profileSwingCount.textContent=`${saved} ${saved===1?'swing':'swings'}`;
+  if(profileSavedCount)profileSavedCount.textContent=saved;if(profilePhaseCount)profilePhaseCount.textContent=totalPhases;
+  document.getElementById('profileMonthCount').textContent=state.history.filter(s=>{const d=new Date(s.date);return d.getFullYear()===now.getFullYear()&&d.getMonth()===now.getMonth()}).length;
+  document.getElementById('profileName').textContent=profile.name||'Swing Lab User';
+  document.querySelectorAll('[data-profile-initials]').forEach(el=>el.textContent=profileInitials());
+  document.getElementById('homeGreeting').textContent=profile.name?'Hi, '+profile.name.trim().split(/\s+/)[0]:'Hi, golfer';
+}
+const nameInput=document.getElementById('profileNameInput');nameInput.value=profile.name;
+document.getElementById('profileEditForm').addEventListener('submit',e=>{e.preventDefault();profile.name=nameInput.value.trim();if(saveProfile()){document.getElementById('profileEditForm').hidden=true;document.querySelector('.edit-profile-link')?.focus();showToast('Profile updated')}renderProfile()});
+for(const [id,key]of [['profileHand','hand'],['profileView','view'],['profileClub','club']]){const el=document.getElementById(id);el.value=profile[key];el.addEventListener('change',()=>{profile[key]=el.value;saveProfile();renderProfile()})}
+function dayKey(date){return [date.getFullYear(),date.getMonth(),date.getDate()].join('-')}
+function renderStreak(){
+  const now=new Date(),start=new Date(now.getFullYear(),now.getMonth(),now.getDate());start.setDate(start.getDate()-((start.getDay()+6)%7));
+  const end=new Date(start);end.setDate(end.getDate()+7);
+  const sessions=state.history.filter(s=>{const d=new Date(s.date);return d>=start&&d<end});
+  document.getElementById('streakCount').textContent=`${sessions.length} ${sessions.length===1?'session':'sessions'} this week`;
+  const days=new Set(sessions.map(s=>dayKey(new Date(s.date))));
+  const week=document.getElementById('streakWeek');week.replaceChildren();
+  for(let i=0;i<7;i++){const date=new Date(start);date.setDate(date.getDate()+i);const practiced=days.has(dayKey(date)),day=document.createElement('span');day.className='streak-day'+(practiced?' is-practiced':'')+(dayKey(date)===dayKey(now)?' is-today':'');day.title=date.toLocaleDateString(undefined,{weekday:'long',month:'short',day:'numeric'})+(practiced?' — Session saved':' — No sessions');const dot=document.createElement('i');dot.setAttribute('aria-hidden','true');const label=document.createElement('span');label.textContent=['M','T','W','T','F','S','S'][i];day.append(dot,label);week.append(day)}
+  week.setAttribute('aria-label',`${sessions.length} saved sessions this week. View practice history`);
+}
+
+function shortDate(d){try{return new Date(d).toLocaleDateString(undefined,{month:'short',day:'numeric'})}catch{return'New'}}
+function renderHome(){
+ renderStreak();if(!latestCarousel)return;
+ const sessions=[state.current,...state.history.filter(s=>!state.current||s.id!==state.current.id)].filter(Boolean).slice(0,6);
+ if(!sessions.length){latestCarousel.innerHTML='<article class="latest-empty"><div class="latest-empty-copy"><h4>Tu próxima mejora empieza aquí</h4><p>Elige un vídeo para encontrar tu próximo objetivo.</p></div></article>';return}
+ latestCarousel.innerHTML=sessions.map((s,i)=>{
+  const capture=s.captures?.Impact||s.captures?.Top||Object.values(s.captures||{})[0],preview=capture||s.thumb;
+  const media=preview?'<img src="'+esc(preview)+'" alt="Swing video preview">':'<div class="preview-placeholder">'+uiIcon('video')+'<span>'+(previewAttempted.has(s.id)&&!previewRequests.has(s.id)?'Vista previa no disponible':'Preparando vista previa')+'</span></div>';
+  return '<article class="latest-card"><div class="latest-card-media">'+media+'<button class="latest-card-play" data-open-session="'+s.id+'" aria-label="Open '+esc(s.title||'Swing session')+'">'+uiIcon('play')+'</button></div><div class="latest-card-body"><div class="latest-card-kicker"><span>'+(i?'Guardado':'Último')+' · '+shortDate(s.date)+'</span></div><h4>'+esc(s.title||'Swing session')+'</h4><p>'+phaseCount(s)+'/5 fases marcadas</p><button type="button" class="session-continue" data-open-session="'+s.id+'">Continuar '+uiIcon('chevron')+'</button></div></article>';
+ }).join('');
+ for(const s of sessions)if(!Object.keys(s.captures||{}).length)requestPreview(s,state.current?.id===s.id?state.videoFile:undefined);
+}
+
+function renderReviewHeader(){if(!state.current||!reviewTitleInput)return;reviewTitleInput.value=state.current.title||'Swing session';document.getElementById('reviewSubtitle').textContent=state.current.fileName||'Manual phase review'}
+
+document.getElementById('historySearch')?.addEventListener('input',renderHistory);
+const feedbackInput=document.getElementById('feedbackNotes');
+if(feedbackInput){try{feedbackInput.value=localStorage.getItem('swinglab_feedback_v1')||''}catch{}feedbackInput.addEventListener('input',()=>{try{localStorage.setItem('swinglab_feedback_v1',feedbackInput.value)}catch{}})}
+async function copyFeedback(){const text=feedbackInput?.value.trim();if(!text)return showToast('Write a feedback note first');try{await navigator.clipboard.writeText('Swing Lab v31 feedback\n\n'+text);showToast('Feedback copied. Ready to share.')}catch{feedbackInput?.focus();feedbackInput?.select();showToast('Select and copy your feedback text')}}
+document.addEventListener('keydown',e=>{if(modal.hidden)return;if(e.key==='Escape'){e.preventDefault();closeModal()}else if(e.key==='Tab'){const focusable=Array.from(modal.querySelectorAll('button:not(.modal-scrim),input,textarea,a[href]')).filter(el=>!el.disabled);if(!focusable.length)return;const first=focusable[0],last=focusable[focusable.length-1];if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus()}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus()}}});
+document.addEventListener('swinglab:editor-closed',updateSessionStatus);
+document.addEventListener('swinglab:editor-opened',hideToast);
+document.addEventListener('keydown',e=>{const overlay=document.querySelector('.fullscreen-editor:not([hidden]),.compare-viewer:not([hidden])');if(!overlay||!modal.hidden)return;if(e.key==='Escape'&&overlay.id==='compareViewer'){e.preventDefault();closeCompareViewer()}if(e.key==='Tab'){const controls=Array.from(overlay.querySelectorAll('button,input,select,textarea')).filter(el=>!el.disabled&&el.getClientRects().length);const first=controls[0],last=controls[controls.length-1];if(e.shiftKey&&document.activeElement===first){e.preventDefault();last?.focus()}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first?.focus()}}});
+
+
+function setAnalysisRange(value){
+ if(!state.current||state.engineBusy||state.storageBusy)return;const range=SwingLabSegment.normalize(value,video.duration);if(!range)throw Error('Incluye al menos medio segundo dentro del vídeo.');
+ state.current.analysisRange=range;document.getElementById('useAnalysisRange').checked=true;document.getElementById('analysisRangeStart').value=String(range.start);document.getElementById('analysisRangeEnd').value=String(range.end);updateSessionStatus();
+}
+function beginAnalysis(target='local'){
+ if(!state.current||!state.videoFile||video.readyState<2||state.engineBusy||state.storageBusy)return;
+ setAnalysisRange(SwingLabSegment.normalize(state.current.analysisRange,video.duration)||{start:0,end:video.duration});
+ state.analysisTarget=target;state.current.analysisMode=target==='agent'?'agent':'local';state.engineGuide=true;state.reviewStep='trim';go('review');window.SwingLabEditor?.open?.();updateSessionStatus();
+}
+
+/* Agent review uses the same session, storage, and fullscreen editor. */
+window.SwingLabProductBridge={ready:()=>ready,current:()=>state.current?clone(state.current):null,profile:()=>({...profile}),
+ history:()=>state.history.map(s=>({id:s.id,title:s.title,date:s.date,view:s.agentContext?.context?.view||s.view||'DTL',club:s.club||'',videoSha256:s.videoSha256,agentReview:s.agentReview?{request_id:s.agentReview.request_id,scorecard:s.agentReview.scorecard,priorities:clone(s.agentReview.priorities),capture_quality:s.agentReview.capture_quality}:null,corrections:(s.corrections||[]).map(c=>({phase:c.phase,originalTime:c.originalTime,correctedTime:c.correctedTime,at:c.at}))})),
+ journal:()=>store.practiceJournal(),record:entry=>store.recordPractice(entry),go,open:openSession};
+window.SwingLabAgentBridge={
+ current:()=>state.current?clone(state.current):null,file:()=>state.videoFile,busy:()=>state.engineBusy||state.storageBusy,
+ async prepareForAgent(){if(!state.current||!state.videoFile)throw Error('Carga un vídeo primero.');if(!phases.every(p=>Number.isFinite(state.current.phases?.[p])))await analyzeWithEngine(state.videoFile);await SwingLabAgent.prepare({allowOverview:true});},
+ playable:()=>!!state.videoFile&&video.readyState>=2,
+ mode(mode){if(state.current)state.current.analysisMode=mode;updateSessionStatus()},
+ startLocal(){beginAnalysis('local')},
+ setContext(context,metadata){if(!state.current)return;Object.assign(state.current,{duration:metadata.duration,videoSha256:metadata.sha256,timing:metadata.timing,agentContext:context,agentReview:null,analysisMode:'agent'});updateSessionStatus()},
+ setReview(review){if(state.current){state.current.agentReview=review;updateSessionStatus()}},
+ async save(){if(!(await saveSession()))throw Error('The review could not be saved. Keep this page open and try Save again.');},
+ jump(time){if(!state.videoFile)return;go('review');window.SwingLabEditor?.open?.();video.pause();video.currentTime=time;const full=document.getElementById('fullscreenVideo');if(full){full.pause();full.currentTime=time}},
+ report(){window.SwingLabEditor?.close?.();go('results')}
 };
 
-const phases = [
-  { id: 'address', label: 'Address', short: 'Addr', pct: 0.05, hint: 'Setup inicial: pies, bola, manos y postura.' },
-  { id: 'takeaway', label: 'Takeaway', short: 'Take', pct: 0.18, hint: 'Primer movimiento del palo y conexión de brazos.' },
-  { id: 'top', label: 'Top', short: 'Top', pct: 0.38, hint: 'Parte alta: rotación, estabilidad y posición de manos.' },
-  { id: 'impact', label: 'Impact', short: 'Imp', pct: 0.62, hint: 'Impacto: manos, cadera, cabeza y línea del palo.' },
-  { id: 'finish', label: 'Finish', short: 'Fin', pct: 0.90, hint: 'Equilibrio final y rotación completa.' },
-];
-
-const state = {
-  videoUrl: null,
-  videoBlob: null,
-  videoName: '',
-  captureOnly: false,
-  mode: 'phases',
-  currentPhaseId: 'address',
-  phaseTimes: {},
-  phaseCaptures: {},
-  analysisMetrics: null,
-  autoDetection: { status: 'idle', confidence: 0, method: '', samples: 0, motionPeakTime: null, phaseConfidence: {}, extendedTimes: {}, diagnostics: {} },
-  autoDetectionRunId: 0,
-  userMarkedPhaseIds: new Set(),
-  userPhaseControl: false,
-  viewingCapture: false,
-  activeCaptureIndex: 0,
-  captureSwipeStart: null,
-  showGuides: false,
-  guideMode: 'dtl',
-  speed: 1,
-  controlsVisible: true,
-  initialVideoClean: false,
-  isSeekingWithSlider: false,
-  installPrompt: null,
-  appState: 'empty',
-  drawingMode: false,
-  showDrawings: true,
-  lines: [],
-  previewLine: null,
-  pendingLineStart: null,
-  pointerStart: null,
-  pointerMoved: false,
-  pointerDown: false,
-  selectedLineIndex: -1,
-  dragLineIndex: -1,
-  dragStartPoint: null,
-  dragOriginalLine: null,
-  longPressTimer: null,
-  lockAxisMode: false,
-  sheetExpanded: false,
-  sheetDragStartY: null,
-  sheetDragStartHeight: null,
-  sheetDragging: false,
-  historySelectionMode: false,
-  selectedSessionIds: new Set(),
-  onlineEngineStatus: { mode: 'unknown', available: false, url: '', modelVersion: null, lastSync: null, lastError: null },
-  lastOnlineResult: null,
-  trainingSubmittedAt: null,
+/* A small UI bridge keeps the fullscreen workspace on the same session/actions. */
+window.SwingLabReview={
+ setRange:setAnalysisRange,range:()=>state.current?.analysisRange,file:()=>state.videoFile,
+ capture(phase){return {src:state.current?.captures?.[phase],drawings:clone(state.current?.captureDrawings?.[phase]||[]) };},
+ saveCapture(phase,drawings){if(state.current?.captures?.[phase]){state.current.captureDrawings=state.current.captureDrawings||{};state.current.captureDrawings[phase]=clone(drawings);}},
+ snapshot(){
+  const session=state.current,run=session?.analyses?.at(-1);
+  return {id:session?.id,title:session?.title||'Review swing',view:session?.view||'DTL',
+   step:state.engineBusy?'analyzing':state.reviewStep,engineGuide:state.engineGuide,busy:state.engineBusy||state.storageBusy,
+   captureBusy:!!captureJob,captures:Object.keys(session?.captures||{}),playable:!!state.videoFile&&video.readyState>=2,
+   online:state.engineOnline,phases:{...session?.phases},markMode:state.markMode,
+   impact:session?.impactReference?.time,progress:analysisProgress&&!analysisProgress.hidden?analysisProgressText?.textContent||'':'',
+   saved:session&&!hasUnsavedChanges(),runStatus:run?.status};
+ },
+ async command(action,time,phase){
+  if(!state.current)return;
+  if(action==='manual'){if(state.engineBusy)cancelAnalysis();state.engineGuide=false;state.reviewStep='manual';updateSessionStatus();return}
+  if(action==='cancel'){cancelAnalysis();window.SwingLabEditor?.refresh?.();return}
+  if(state.engineBusy||state.storageBusy)return;
+  if(action==='engine'||action==='trim'){beginAnalysis('local');return}
+  if(action==='advanced'){beginAnalysis('agent');return}
+  if(action==='confirm-trim'){setAnalysisRange(state.current.analysisRange);state.reviewStep='analyze';if(state.analysisTarget==='agent'){state.engineGuide=false;window.SwingLabEditor?.refresh?.();window.SwingLabAgent.openAgent();}}
+  if(action==='local'){window.SwingLabAgentBridge.mode('local');window.SwingLabAgentBridge.startLocal();return}
+  if(action==='mark')markImpactReference(time);
+  if(action==='skip'){clearImpactReference();state.reviewStep='analyze'}
+  if(action==='edit-impact'){state.reviewStep='impact';state.engineGuide=true;}
+  if(action==='analyze'&&state.reviewStep!=='trim')await analyzeWithEngine(state.videoFile);
+  if(action==='save')await saveSession();
+  if(action==='phase'&&phases.includes(phase))setPhase(phase,time);
+  if(action==='mark-mode'){state.markMode=!state.markMode;renderPhases()}
+  if(action==='captures')await capturePhases();
+  if(action==='report'){if(!(await saveSession()))return;window.SwingLabEditor?.close?.();go('results')}
+  updateSessionStatus();window.SwingLabEditor?.refresh?.();
+ }
 };
 
-const refs = {
-  app: $('app'),
-  emptyState: $('emptyState'),
-  video: $('video'),
-  analysisVideo: null,
-  analysisCanvas: null,
-  captureViewer: $('captureViewer'),
-  captureBadge: $('captureBadge'),
-  drawingCanvas: $('drawingCanvas'),
-  captureCanvas: $('captureCanvas'),
-  tapLayer: $('tapLayer'),
-  scrimTop: $('scrimTop'),
-  scrimBottom: $('scrimBottom'),
-  topHud: $('topHud'),
-  rightRail: $('rightRail'),
-  phaseHud: $('phaseHud'),
-  bottomDock: $('bottomDock'),
-  sheetHandle: $('sheetHandle'),
-  cleanHint: $('cleanHint'),
-  drawingHint: $('drawingHint'),
-  guideOverlay: $('guideOverlay'),
-  dtlGuides: $('dtlGuides'),
-  foGuides: $('foGuides'),
-  stateText: $('stateText'),
-  uploadBtn: $('uploadBtn'),
-  engineStatusBtn: $('engineStatusBtn'),
-  engineStatusBtnStart: $('engineStatusBtnStart'),
-  pickVideoBtn: $('pickVideoBtn'),
-  openCameraBtn: $('openCameraBtn'),
-  openHistoryStartBtn: $('openHistoryStartBtn'),
-  videoInput: $('videoInput'),
-  cameraInput: $('cameraInput'),
-  installBtn: $('installBtn'),
-  installBtnEmpty: $('installBtnEmpty'),
-  toggleGuidesBtn: $('toggleGuidesBtn'),
-  switchModeBtn: $('switchModeBtn'),
-  drawModeBtn: $('drawModeBtn'),
-  toggleDrawingsBtn: $('toggleDrawingsBtn'),
-  undoLineBtn: $('undoLineBtn'),
-  clearLinesBtn: $('clearLinesBtn'),
-  activePhaseName: $('activePhaseName'),
-  markStatus: $('markStatus'),
-  timeReadout: $('timeReadout'),
-  playerStrip: $('playerStrip'),
-  playerReadout: $('playerReadout'),
-  playerPhaseReadout: $('playerPhaseReadout'),
-  speedBtn: $('speedBtn'),
-  tabPhases: $('tabPhases'),
-  tabAnalysis: $('tabAnalysis'),
-  tabHistory: $('tabHistory'),
-  phasesPanel: $('phasesPanel'),
-  analysisPanel: $('analysisPanel'),
-  historyPanel: $('historyPanel'),
-  phaseChips: $('phaseChips'),
-  timeline: $('timeline'),
-  backFrameBtn: $('backFrameBtn'),
-  forwardFrameBtn: $('forwardFrameBtn'),
-  playBtn: $('playBtn'),
-  markPhaseBtn: $('markPhaseBtn'),
-  phaseSummary: $('phaseSummary'),
-  analyzeBtn: $('analyzeBtn'),
-  analysisStatus: $('analysisStatus'),
-  recommendations: $('recommendations'),
-  capturesGrid: $('capturesGrid'),
-  saveSessionBtn: $('saveSessionBtn'),
-  saveSessionTopBtn: $('saveSessionTopBtn'),
-  downloadReportBtn: $('downloadReportBtn'),
-  submitTrainingBtn: $('submitTrainingBtn'),
-  exportDatasetBtn: $('exportDatasetBtn'),
-  expandSheetBtn: $('expandSheetBtn'), // removed in v0.9.1; kept optional for backwards compatibility
-  historySelectBtn: $('historySelectBtn'),
-  deleteSelectedHistoryBtn: $('deleteSelectedHistoryBtn'),
-  clearHistoryBtn: $('clearHistoryBtn'),
-  historyList: $('historyList'),
-};
-
-function clone(value) {
-  if (typeof structuredClone === 'function') return structuredClone(value);
-  return JSON.parse(JSON.stringify(value));
-}
-
-function uid() {
-  if (crypto?.randomUUID) return crypto.randomUUID();
-  return `session-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-}
-
-function onlineEngineUrl() {
-  return window.SwingLabOnlineEngine?.getBaseUrl?.() || '';
-}
-
-function updateOnlineStatus(patch = {}) {
-  state.onlineEngineStatus = Object.assign({}, state.onlineEngineStatus || {}, patch, { url: onlineEngineUrl() });
-  renderOnlineEngineStatus();
-}
-
-function renderOnlineEngineStatus() {
-  const buttons = [refs.engineStatusBtn, refs.engineStatusBtnStart].filter(Boolean);
-  if (!buttons.length) return;
-  const status = state.onlineEngineStatus || {};
-  const configured = Boolean(onlineEngineUrl());
-  let text = 'Motor';
-  if (!configured) text = 'Motor: Local';
-  else if (status.available) text = 'Motor: Online';
-  else if (status.mode === 'checking') text = 'Motor: Check';
-  else text = 'Motor: Fallback';
-  for (const btn of buttons) {
-    btn.textContent = text;
-    btn.title = configured ? onlineEngineUrl() : 'Configurar motor online';
-    btn.classList.toggle('online-ok', Boolean(status.available));
-    btn.classList.toggle('online-warn', configured && !status.available);
-  }
-}
-
-async function checkOnlineEngine({ quiet = false } = {}) {
-  if (!window.SwingLabOnlineEngine) return updateOnlineStatus({ available: false, mode: 'missing-client', lastError: 'online-client-missing' });
-  updateOnlineStatus({ mode: 'checking', available: false, lastError: null });
-  const result = await window.SwingLabOnlineEngine.ping();
-  if (result?.ok) {
-    updateOnlineStatus({ mode: 'online', available: true, modelVersion: result.modelVersion || result.model_version || null, lastSync: new Date().toISOString(), lastError: null });
-    if (!quiet) alert(`Motor online activo${result.modelVersion ? `: ${result.modelVersion}` : ''}`);
-  } else {
-    updateOnlineStatus({ mode: onlineEngineUrl() ? 'fallback' : 'local-only', available: false, lastError: result?.error || 'not-configured' });
-    if (!quiet) alert(`Motor online no disponible. La app usará fallback local.\n\n${result?.error || 'Configura la URL del motor.'}`);
-  }
-}
-
-function configureOnlineEngine() {
-  const current = onlineEngineUrl();
-  const next = prompt('URL base del motor online Swing Lab\n\nPega SOLO la URL base de Cloudflare, por ejemplo:\nhttps://docs-great-operating-garden.trycloudflare.com\n\nSi pegas /api/health por error, la app lo corregirá automáticamente. Déjalo vacío para usar solo motor local.', current || '');
-  if (next === null) return;
-  const saved = window.SwingLabOnlineEngine?.configure?.(next.trim()) || '';
-  updateOnlineStatus({ mode: saved ? 'configured' : 'local-only', available: false, lastError: null });
-  checkOnlineEngine({ quiet: false });
-}
-
-function openDb() {
-  return new Promise((resolve, reject) => {
-    if (!('indexedDB' in window)) return reject(new Error('IndexedDB no disponible'));
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: 'id' });
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-}
-
-async function dbPut(session) {
-  const db = await openDb();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE, 'readwrite');
-    tx.objectStore(STORE).put(session);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
-}
-
-async function dbAll() {
-  try {
-    const db = await openDb();
-    return await new Promise((resolve, reject) => {
-      const tx = db.transaction(STORE, 'readonly');
-      const req = tx.objectStore(STORE).getAll();
-      req.onsuccess = () => resolve(req.result || []);
-      req.onerror = () => reject(req.error);
-    });
-  } catch (error) {
-    console.warn(error);
-    return [];
-  }
-}
+function renderAll(){renderReviewHeader();renderHome();renderPhases();renderCaptures();renderHistory();renderCompare();renderProfile();updateSessionStatus();window.SwingLabPracticeUI?.refresh?.()}
+function esc(s=''){return String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
+setEngineStatus(state.engineOnline?'online':'offline',state.engineOnline?'Local marker · video stays on device':'Local marker unavailable');
+setupPwa();
+renderAll();
+try{if(landing&&localStorage.getItem('swinglab_started_v1')==='1')showApp()}catch{}
+document.addEventListener('visibilitychange',()=>{if(document.hidden){video.pause();document.getElementById('fullscreenVideo')?.pause()}});
+})();
 
 
-async function dbDelete(id) {
-  const db = await openDb();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE, 'readwrite');
-    tx.objectStore(STORE).delete(id);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
-}
 
-async function dbDeleteMany(ids) {
-  const db = await openDb();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE, 'readwrite');
-    const store = tx.objectStore(STORE);
-    ids.forEach((id) => store.delete(id));
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
-}
 
-async function dbClear() {
-  const db = await openDb();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE, 'readwrite');
-    tx.objectStore(STORE).clear();
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
-}
 
-function setAppState(next) {
-  state.appState = next;
-  const map = {
-    empty: 'Sin vídeo',
-    loaded: 'Vídeo cargado',
-    detecting: 'Detectando fases',
-    detected: 'Fases detectadas',
-    marking: 'Marcando fases',
-    analyzing: 'Generando capturas',
-    completed: 'Análisis listo',
-    saved: 'Sesión guardada',
-    error: 'Error',
+/* v24 fullscreen video analysis editor */
+(function(){
+  const mainVideo = document.getElementById('swingVideo');
+  const wrap = document.querySelector('.analysis-video-wrap');
+  const editor = document.getElementById('fullscreenEditor');
+  const fsVideo = document.getElementById('fullscreenVideo');
+  const canvas = document.getElementById('fullscreenCanvas');
+  const fsTimeline = document.getElementById('fsTimeline');
+  const fsTime = document.getElementById('fsTime');
+  const fsSpeed = document.getElementById('fsSpeed');
+  const speedMenu = document.getElementById('speedMenu');
+  const fsPlayButton = document.getElementById('fsPlayButton');
+  const fsToolName = document.getElementById('fsToolName');
+  const fsStatusText = document.getElementById('fsStatusText');
+  const fsFitState = document.getElementById('fsFitState');
+  const toolPanel = document.getElementById('toolPanel');
+  const toolDock = document.getElementById('toolDock');
+  const toolStyle = document.getElementById('toolStyle');
+  if(!mainVideo || !editor || !fsVideo || !canvas) return;
+
+  const S = {
+    tool:'select',
+    color:'#99f032',
+    width:5,
+    shapes:[],
+    selected:null,
+    temp:null,
+    drawing:false,
+    drawEnabled:false,
+    toolsCollapsed:false,
+    snapLine:false,
+    drawStart:0,
+    fps:30,
+    angleDraft:null,
+    drag:null,
+    panelDrag:null,
+    guides:false,
+    fitSafe:false,
+    view:document.getElementById('profileView')?.value||'DTL',
+    speeds:[.125,.25,.5,1,1.5],
+    speedIndex:3,
+    lastSrc:null
   };
-  refs.stateText.textContent = map[next] || next;
-}
 
-function currentPhase() {
-  return phases.find((phase) => phase.id === state.currentPhaseId) || phases[0];
-}
-
-function formatTime(seconds) {
-  if (!Number.isFinite(seconds)) return '0:00.00';
-  const safe = Math.max(0, seconds);
-  const mins = Math.floor(safe / 60);
-  const secs = (safe % 60).toFixed(2).padStart(5, '0');
-  return `${mins}:${secs}`;
-}
-
-function frameNumber(time = refs.video.currentTime || 0) {
-  return Math.max(0, Math.round(time * ASSUMED_FPS));
-}
-
-function markedCount() {
-  return Object.keys(state.phaseTimes).length;
-}
-
-function teardownAnalysisVideo() {
-  if (!refs.analysisVideo) return;
-  try {
-    refs.analysisVideo.pause();
-    refs.analysisVideo.removeAttribute('src');
-    refs.analysisVideo.load();
-  } catch (_) {}
-}
-
-function revokeVideoUrl() {
-  teardownAnalysisVideo();
-  if (state.videoUrl) URL.revokeObjectURL(state.videoUrl);
-}
-
-function resetSessionState() {
-  state.captureOnly = false;
-  state.mode = 'phases';
-  state.currentPhaseId = 'address';
-  state.phaseTimes = {};
-  state.phaseCaptures = {};
-  state.analysisMetrics = null;
-  state.autoDetection = { status: 'idle', confidence: 0, method: '', provider: '', samples: 0, poseSamples: 0, poseStatus: 'idle', poseSummary: null, motionPeakTime: null, phaseConfidence: {}, extendedTimes: {}, diagnostics: {} };
-  state.autoDetectionRunId += 1;
-  state.userMarkedPhaseIds.clear();
-  state.userPhaseControl = false;
-  state.viewingCapture = false;
-  state.activeCaptureIndex = 0;
-  state.sheetExpanded = false;
-  state.historySelectionMode = false;
-  state.selectedSessionIds.clear();
-  state.captureSwipeStart = null;
-  state.lines = [];
-  state.previewLine = null;
-  state.selectedLineIndex = -1;
-  state.dragLineIndex = -1;
-  state.dragStartPoint = null;
-  state.dragOriginalLine = null;
-  state.lockAxisMode = false;
-  if (state.longPressTimer) clearTimeout(state.longPressTimer);
-  state.longPressTimer = null;
-  state.pendingLineStart = null;
-  state.pointerStart = null;
-  state.pointerMoved = false;
-  state.drawingMode = false;
-  state.showDrawings = true;
-  state.controlsVisible = true;
-  state.initialVideoClean = false;
-  state.sheetExpanded = false;
-  state.sheetDragStartY = null;
-  state.sheetDragStartHeight = null;
-  state.sheetDragging = false;
-}
-
-
-
-function applyVideoFile(file) {
-  if (!file) return;
-  if (!file.type.startsWith('video/')) {
-    alert('Selecciona un archivo de vídeo válido.');
-    return;
-  }
-  revokeVideoUrl();
-  resetSessionState();
-  state.controlsVisible = false;
-  state.initialVideoClean = true;
-  state.showGuides = false;
-  refs.cleanHint.textContent = 'Toca el vídeo para abrir fases';
-  refs.video.pause();
-  refs.playBtn.textContent = 'Play';
-  state.videoBlob = file;
-  state.videoUrl = URL.createObjectURL(file);
-  state.videoName = file.name || `swing-${new Date().toISOString().slice(0, 10)}.mp4`;
-  refs.analysisStatus.textContent = onlineEngineUrl() ? 'Vídeo cargado. Enviando al motor online si está disponible; podrás corregir fases manualmente.' : 'Vídeo cargado. Preparando detección local; podrás corregir fases manualmente.';
-  refs.recommendations.innerHTML = '';
-  refs.capturesGrid.innerHTML = '';
-  refs.video.src = state.videoUrl;
-  refs.video.load();
-  prepareAnalysisVideo();
-  state.autoDetection = { status: 'queued', confidence: 0, method: 'Pose Foundation v1.0.0 auto-start', provider: '', samples: 0, poseSamples: 0, poseStatus: 'queued', motionPeakTime: null, phaseConfidence: {}, extendedTimes: {}, diagnostics: {}, poseSummary: null };
-  setAppState('loaded');
-  render();
-  preWarmPoseEngine();
-  window.setTimeout(scheduleInitialAutoDetection, 0);
-  window.setTimeout(scheduleInitialAutoDetection, 240);
-  window.setTimeout(scheduleInitialAutoDetection, 780);
-}
-
-function setMode(mode) {
-  state.mode = mode;
-  if (mode === 'phases') {
-    state.sheetExpanded = false;
-    if (state.videoUrl) state.viewingCapture = false;
-    setAppState(markedCount() ? 'detected' : 'marking');
-  }
-  if (mode === 'analysis') {
-    state.drawingMode = false;
-    state.pendingLineStart = null;
-    state.previewLine = null;
-  }
-  render();
-  if (mode === 'history') loadHistory();
-}
-
-
-function videoHasFrameData(media = refs.video) {
-  return Boolean(state.videoUrl) && media && Number.isFinite(media.duration) && media.duration > 0 && media.readyState >= 2;
-}
-
-function ensureAnalysisVideo() {
-  if (!refs.analysisVideo) {
-    const video = document.createElement('video');
-    video.muted = true;
-    video.playsInline = true;
-    video.preload = 'auto';
-    video.setAttribute('playsinline', '');
-    video.setAttribute('webkit-playsinline', '');
-    video.setAttribute('aria-hidden', 'true');
-    video.style.position = 'fixed';
-    video.style.width = '1px';
-    video.style.height = '1px';
-    video.style.opacity = '0';
-    video.style.pointerEvents = 'none';
-    video.style.left = '-9999px';
-    video.style.top = '-9999px';
-    document.body.appendChild(video);
-    refs.analysisVideo = video;
-  }
-  return refs.analysisVideo;
-}
-
-function prepareAnalysisVideo() {
-  if (!state.videoUrl) return null;
-  const video = ensureAnalysisVideo();
-  if (video.src !== state.videoUrl) {
-    video.pause();
-    video.src = state.videoUrl;
-    video.load();
-  }
-  return video;
-}
-
-function waitForMediaReady(media, timeoutMs = 4500) {
-  return new Promise((resolve) => {
-    if (videoHasFrameData(media)) return resolve(true);
-    const started = performance.now();
-    let done = false;
-    const finish = () => {
-      if (done) return;
-      done = true;
-      cleanup();
-      resolve(videoHasFrameData(media));
-    };
-    const check = () => {
-      if (videoHasFrameData(media) || performance.now() - started > timeoutMs) finish();
-    };
-    const cleanup = () => {
-      clearInterval(timer);
-      media?.removeEventListener('loadedmetadata', check);
-      media?.removeEventListener('durationchange', check);
-      media?.removeEventListener('loadeddata', finish);
-      media?.removeEventListener('canplay', finish);
-    };
-    const timer = setInterval(check, 120);
-    media?.addEventListener('loadedmetadata', check);
-    media?.addEventListener('durationchange', check);
-    media?.addEventListener('loadeddata', finish, { once: true });
-    media?.addEventListener('canplay', finish, { once: true });
-    check();
+  document.addEventListener('swinglab:session-changed', event => {
+    S.shapes=JSON.parse(JSON.stringify(event.detail.drawings||[]));
+    resetDrawState();
   });
-}
+  window.SwingLabEditor={getDrawings:()=>{flushCapture();return JSON.parse(JSON.stringify(imagePhase?videoShapes:S.shapes))},openCapture,open:openEditor,close:closeEditor,refresh:refreshReview,
+ release(){closeEditor();fsVideo.removeAttribute('src');fsVideo.load()}};
+  let imagePhase=null,videoShapes=[],phaseSignature='';
+  const still=document.getElementById('fsCaptureImage');
+  const trimUI=SwingLabSegment.mountFullscreen({video:fsVideo,getFile:()=>window.SwingLabReview.file(),getRange:()=>window.SwingLabReview.range(),commit:value=>window.SwingLabReview.setRange(value),isBusy:()=>window.SwingLabReview.snapshot().busy});
+  function flushCapture(){if(imagePhase)window.SwingLabReview.saveCapture(imagePhase,S.shapes)}
+  function leaveCapture(){flushCapture();if(imagePhase)S.shapes=videoShapes;imagePhase=null;still.hidden=true;editor.classList.remove('is-image-review');phaseSignature='';}
+  function openCapture(phase){
+   const item=window.SwingLabReview.capture(phase);if(!item.src)return;
+   if(!imagePhase)videoShapes=S.shapes;else flushCapture();
+   imagePhase=phase;S.shapes=item.drawings;resetDrawState();fsVideo.pause();still.src=item.src;still.alt=phase+' swing capture';still.hidden=false;editor.hidden=false;editor.classList.add('is-image-review');document.getElementById('appView').inert=true;
+   phaseSignature='';refreshReview();still.onload=()=>{resizeCanvas();draw()};draw();
+  }
 
-function preWarmPoseEngine() {
-  if (!state.videoUrl || !window.SwingLabEngine?.preload) return;
-  const currentStatus = state.autoDetection?.poseStatus;
-  if (currentStatus === 'preloading' || currentStatus === 'ready' || currentStatus === 'available') return;
-  state.autoDetection.poseStatus = 'preloading';
-  state.autoDetection.poseError = null;
-  refs.cleanHint.textContent = 'Analizando vídeo… preparando pose';
-  refs.analysisStatus.textContent = 'Vídeo cargado. Preparando MediaPipe Pose y esperando frames del vídeo…';
-  render();
-  window.SwingLabEngine.preload()
-    .then((info) => {
-      if (!state.videoUrl || !state.autoDetection) return;
-      if (info?.ok) {
-        state.autoDetection.poseStatus = 'ready';
-        state.autoDetection.provider = info.provider || 'pose-mediapipe';
-        refs.cleanHint.textContent = 'Analizando vídeo… pose lista';
+  function refreshReview(){
+    const r=window.SwingLabReview?.snapshot?.();if(!r)return;
+    const title=document.getElementById('fsReviewTitle'),status=document.getElementById('fsSessionStatus');
+    if(title)title.textContent=r.title;
+    if(status)status.textContent=imagePhase?imagePhase+' capture':r.busy?(r.step==='analyzing'?'Analyzing on device':'Saving on device'):r.saved?'Saved on device':'Unsaved changes';
+    const trimming=!imagePhase&&r.engineGuide&&r.step==='trim';
+    editor.classList.toggle('is-trimming',trimming);editor.classList.toggle('is-analysis-prep',!imagePhase&&r.engineGuide);trimUI.show(trimming);
+    const labels={
+     trim:['1 / 2 · PREPARAR','Deja solo el swing','Ajusta los extremos viendo el vídeo.','Continuar','confirm-trim','Cancelar','manual'],
+     impact:['OPCIONAL · IMPACTO','Añade una referencia','Pausa en el contacto o en el primer fotograma de salida de la bola.','Marcar este fotograma','mark','Seguir sin añadir','skip'],
+     analyze:['2 / 2 · ANALIZAR','Listo para analizar',Number.isFinite(r.impact)?'Impacto manual: '+r.impact.toFixed(3)+' s. Puedes modificarlo si lo necesitas.':'El motor buscará las fases. Marcar el impacto no es necesario para empezar.','Analizar swing','analyze',Number.isFinite(r.impact)?'Cambiar impacto (opcional)':'Añadir impacto (opcional)','edit-impact'],
+     analyzing:['ANALIZANDO','Analizando tu swing',r.progress,'Analizando…','analyze','Cancelar','cancel'],
+     review:['REVISAR','Comprueba las fases','Toca una fase para verla y corregirla si hace falta.','Guardar revisión','save','Analizar de nuevo','engine']
+    };
+    const text=[...(labels[r.step]||labels.impact)];if(r.step==='analyze'&&r.progress&&(r.runStatus&&r.runStatus!=='needs-review'||/unavailable|cancelled|timed out/i.test(r.progress)))text[2]=r.progress;
+    for(const [id,value]of [['fsFlowStep',text[0]],['fsFlowTitle',text[1]],['fsFlowHint',text[2]]]){const el=document.getElementById(id);if(el)el.textContent=value}
+    for(const [id,label,command]of [['fsFlowPrimary',text[3],text[4]],['fsFlowSecondary',text[5],text[6]]]){
+      const b=document.getElementById(id);if(!b)continue;b.textContent=label;b.dataset.reviewCommand=command;
+      b.disabled=command==='cancel'?false:r.busy||!r.playable||(command==='analyze'&&!r.online)||(command==='mark'&&(!fsVideo.currentTime||fsVideo.currentTime>=fsVideo.duration));
+    }
+    editor.querySelectorAll('[data-review-command="save"]').forEach(b=>{b.disabled=r.busy||!r.id});
+    const guide=document.getElementById('fsEngineGuide');if(guide)guide.hidden=!!imagePhase||!r.engineGuide||r.step==='review'||trimming;
+    const trigger=document.getElementById('fsEngineTrigger');if(trigger){trigger.disabled=r.busy||!r.playable||!r.online;trigger.textContent=r.runStatus==='needs-review'?'Reanalizar':'Analizar'}
+    keepPanelsVisible();const optionsToggle=editor.querySelector('[data-fs-action="options"]');if(optionsToggle)optionsToggle.setAttribute('aria-expanded',String(!document.getElementById('fsReviewOptions').hidden));
+    const player=editor.querySelector('.fs-player');if(player)editor.style.setProperty('--fs-controls-height',Math.max(22,player.offsetHeight-sheetOffset)+'px');
+    const mode=document.getElementById('fsMarkMode');if(mode)mode.textContent=r.markMode?'Done marking':'Mark phases';
+    const signature=JSON.stringify([r.id,r.phases,r.markMode,r.busy,r.step]);
+    if(signature!==phaseSignature){
+      phaseSignature=signature;const strip=document.getElementById('fsPhaseStrip');if(strip){
+       strip.replaceChildren();
+       for(const name of ['Address','Takeaway','Top','Impact','Finish']){
+        const t=r.phases[name],button=document.createElement('button'),label=document.createElement('strong'),time=document.createElement('span');
+        label.textContent=name;time.textContent=Number.isFinite(t)?t.toFixed(2)+' s':'—';button.type='button';button.dataset.reviewPhase=name;
+        button.disabled=r.busy||!!imagePhase&&!r.captures.includes(name);button.classList.toggle('is-marked',Number.isFinite(t));button.classList.toggle('is-mark-mode',r.markMode);
+        button.append(label,time);strip.append(button);
+       }
+      }
+    }
+  }
+
+
+  function openEditor(){
+    leaveCapture();setCompact(false);
+    if(!mainVideo.src) return;
+    S.view=window.SwingLabReview?.snapshot?.().view||'DTL';
+    S.fitSafe=false;editor.classList.remove('is-fit-safe');document.getElementById('fsReviewOptions').hidden=true;speedMenu.hidden=true;
+    updateLabels();
+    editor.hidden = false;
+    document.getElementById('appView').inert=true;
+    document.dispatchEvent(new CustomEvent('swinglab:editor-opened'));
+    editor.querySelector('[data-fs-action="close"]')?.focus();
+    const source=mainVideo.src,newSource=fsVideo.src!==source,target=Math.max(.001,Math.min(mainVideo.duration-.001,mainVideo.currentTime>.05?mainVideo.currentTime:Math.min(.15,mainVideo.duration*.05)));
+    const ready=()=>{
+      if(editor.hidden||mainVideo.src!==source||fsVideo.src!==source)return;
+      SwingLabVideo.seek(fsVideo,target).then(()=>{resizeCanvas();draw();updateTime()}).catch(()=>setStatus('Use the timeline to choose a frame'));
+    };
+    if(newSource){fsVideo.addEventListener('loadeddata',ready,{once:true});fsVideo.src=source;resetDrawState()}
+    else if(fsVideo.readyState>=2)ready();
+    else fsVideo.addEventListener('loadeddata',ready,{once:true});
+    fsVideo.playbackRate = S.speeds[S.speedIndex];
+    mainVideo.pause();
+    refreshReview();setTimeout(()=>{ resizeCanvas(); draw(); updateTime(); }, 80);
+  }
+  function closeEditor(){
+    const wasImage=!!imagePhase;leaveCapture();
+    if(!wasImage)try { mainVideo.currentTime = fsVideo.currentTime || 0; } catch(e) {}
+    fsVideo.pause();
+    editor.hidden = true;
+    document.getElementById('appView').inert=false;
+    document.dispatchEvent(new CustomEvent('swinglab:editor-closed'));
+    document.querySelector('.open-editor-hint')?.focus();
+    draw();
+  }
+
+  mainVideo.addEventListener('loadedmetadata', () => {
+    if(mainVideo.src !== S.lastSrc){
+      S.lastSrc = mainVideo.src;
+      resetDrawState();
+    }
+  });
+
+  if(wrap){
+    wrap.addEventListener('click', (e)=>{
+      if(mainVideo.src && !e.target.closest('button,input')) openEditor();
+    });
+  }
+
+  function resizeCanvas(){
+    const r = canvas.getBoundingClientRect();
+    canvas.width = Math.max(1, Math.round(r.width * devicePixelRatio));
+    canvas.height = Math.max(1, Math.round(r.height * devicePixelRatio));
+  }
+  function point(e){
+    const r = canvas.getBoundingClientRect();
+    const p = e.touches ? e.touches[0] : e;
+    return {x:(p.clientX-r.left)/r.width, y:(p.clientY-r.top)/r.height};
+  }
+  function center(s){
+    if(s.type==='circle') return {x:s.x1,y:s.y1};
+    if(s.type==='angle') return {x:s.x2,y:s.y2};
+    if(s.type==='free'){
+      const mid=s.points[Math.floor(s.points.length/2)] || s.points[0];
+      return mid || {x:0,y:0};
+    }
+    return {x:(s.x1+s.x2)/2, y:(s.y1+s.y2)/2};
+  }
+  function distToSegment(p,a,b){
+    const vx=b.x-a.x, vy=b.y-a.y, wx=p.x-a.x, wy=p.y-a.y;
+    const len=vx*vx+vy*vy || 1;
+    const t=Math.max(0,Math.min(1,(wx*vx+wy*vy)/len));
+    const px=a.x+t*vx, py=a.y+t*vy;
+    return Math.hypot(p.x-px,p.y-py);
+  }
+  function hit(p){
+    let best=null, dist=.045;
+    for(const s of S.shapes){
+      let d;
+      if(s.type==='line') d=distToSegment(p,{x:s.x1,y:s.y1},{x:s.x2,y:s.y2});
+      else if(s.type==='angle') d=Math.min(distToSegment(p,{x:s.x1,y:s.y1},{x:s.x2,y:s.y2}),distToSegment(p,{x:s.x2,y:s.y2},{x:s.x3,y:s.y3}));
+      else if(s.type==='box') {
+        const x=Math.min(s.x1,s.x2), y=Math.min(s.y1,s.y2), w=Math.abs(s.x2-s.x1), h=Math.abs(s.y2-s.y1);
+        d=(p.x>=x&&p.x<=x+w&&p.y>=y&&p.y<=y+h)?0:Math.hypot(p.x-(x+w/2),p.y-(y+h/2));
+      } else if(s.type==='circle') {
+        d=Math.abs(Math.hypot(p.x-s.x1,p.y-s.y1)-Math.hypot(s.x2-s.x1,s.y2-s.y1));
       } else {
-        state.autoDetection.poseStatus = 'preload-failed';
-        state.autoDetection.poseError = info?.error || 'Pose preload failed';
-        refs.cleanHint.textContent = 'Analizando vídeo… fallback preparado';
+        const c = center(s); d = Math.hypot(p.x-c.x,p.y-c.y);
       }
-      render();
-      scheduleInitialAutoDetection();
-    })
-    .catch((error) => {
-      if (!state.videoUrl || !state.autoDetection) return;
-      state.autoDetection.poseStatus = 'preload-failed';
-      state.autoDetection.poseError = String(error?.message || error);
-      refs.cleanHint.textContent = 'Analizando vídeo… fallback preparado';
-      render();
-      scheduleInitialAutoDetection();
-    });
-}
-
-function scheduleInitialAutoDetection() {
-  if (!state.videoUrl) return;
-  if (state.autoDetection.status === 'scheduled' || state.autoDetection.status === 'running' || state.autoDetection.status === 'done') return;
-  if (!videoHasFrameData()) {
-    if (['queued', 'defaults-ready', 'preloading', 'ready', 'preload-failed', 'scheduled'].includes(state.autoDetection.status)) {
-      window.setTimeout(scheduleInitialAutoDetection, 180);
+      if(d<dist){ best=s; dist=d; }
     }
-    return;
+    return best;
   }
-  if (!hasCompletePhaseTimes(state.phaseTimes)) installImmediatePhaseDefaults('frame-data-ready');
-  state.autoDetection.status = 'scheduled';
-  refs.cleanHint.textContent = 'Analizando fases…';
-  refs.analysisStatus.textContent = 'Detección inicial automática: analizando el vídeo en segundo plano con pose corporal y movimiento temporal…';
-  render();
-  window.setTimeout(() => autoDetectPhases(), 40);
-}
-
-function waitForVideoReadyForAnalysis(timeoutMs = 2600, media = refs.video) {
-  return new Promise((resolve) => {
-    if (videoHasFrameData(media)) return resolve(true);
-    const started = performance.now();
-    const finish = () => {
-      cleanup();
-      resolve(videoHasFrameData(media));
-    };
-    const check = () => {
-      if (videoHasFrameData(media) || performance.now() - started > timeoutMs) finish();
-    };
-    const cleanup = () => {
-      clearInterval(timer);
-      media?.removeEventListener('loadeddata', finish);
-      media?.removeEventListener('canplay', finish);
-    };
-    const timer = setInterval(check, 120);
-    media?.addEventListener('loadeddata', finish, { once: true });
-    media?.addEventListener('canplay', finish, { once: true });
-  });
-}
-
-function toggleControls() {
-  if (!state.videoUrl || state.drawingMode) return;
-  if (state.initialVideoClean) {
-    state.initialVideoClean = false;
-    state.controlsVisible = true;
-    refs.cleanHint.textContent = 'Toca el vídeo para mostrar controles';
-    render();
-    return;
-  }
-  state.controlsVisible = !state.controlsVisible;
-  refs.cleanHint.textContent = 'Toca el vídeo para mostrar controles';
-  refs.app.classList.toggle('controls-hidden', !state.controlsVisible);
-}
-
-function renderShell() {
-  const hasVideo = Boolean(state.videoUrl);
-  const hasCaptures = captureList().length > 0;
-  const showingCapture = state.viewingCapture || (state.captureOnly && hasCaptures);
-  const hasSession = hasVideo || state.captureOnly || hasCaptures;
-
-  refs.emptyState.classList.toggle('hidden', hasSession);
-  refs.video.classList.toggle('hidden', !hasVideo || showingCapture);
-  refs.captureViewer.classList.toggle('hidden', !showingCapture);
-  refs.captureBadge.classList.toggle('hidden', !showingCapture);
-  refs.tapLayer.classList.toggle('hidden', !hasVideo || showingCapture || state.drawingMode);
-  refs.scrimTop.classList.toggle('hidden', !hasVideo || showingCapture);
-  refs.scrimBottom.classList.toggle('hidden', !hasVideo || showingCapture);
-  refs.topHud.classList.toggle('hidden', !hasSession || state.drawingMode);
-  refs.rightRail.classList.toggle('hidden', !(hasVideo || hasCaptures));
-  refs.bottomDock.classList.toggle('hidden', !hasSession || state.drawingMode);
-  refs.phaseHud.classList.toggle('hidden', !hasVideo || showingCapture || state.mode === 'history' || state.drawingMode);
-  refs.guideOverlay.classList.toggle('hidden', !hasVideo || showingCapture || !state.showGuides);
-  refs.cleanHint.classList.add('hidden');
-  refs.drawingHint.classList.toggle('hidden', !hasSession || !state.drawingMode);
-  refs.app.classList.toggle('initial-clean', hasVideo && state.initialVideoClean && !state.drawingMode && !showingCapture);
-  refs.app.classList.toggle('controls-hidden', hasSession && !state.controlsVisible && !state.drawingMode && !state.initialVideoClean);
-  refs.app.classList.toggle('capture-only', state.captureOnly || (showingCapture && !hasVideo));
-  refs.app.classList.toggle('capture-viewing', showingCapture);
-  refs.app.classList.toggle('drawing-mode', hasSession && state.drawingMode);
-  refs.bottomDock.classList.toggle('phases-mode', state.mode === 'phases');
-  refs.bottomDock.classList.toggle('analysis-mode', state.mode === 'analysis');
-  refs.bottomDock.classList.toggle('history-mode', state.mode === 'history');
-  refs.bottomDock.classList.toggle('sheet-expanded', state.sheetExpanded && (state.mode === 'analysis' || state.mode === 'history'));
-  refs.bottomDock.classList.toggle('sheet-dragging', state.sheetDragging);
-  const showPlayerStrip = hasVideo && !state.captureOnly && !showingCapture && (state.mode === 'phases' || (state.mode === 'analysis' && !state.controlsVisible));
-  refs.playerStrip.classList.toggle('hidden', !showPlayerStrip);
-  refs.drawingCanvas.classList.toggle('hidden', !hasSession);
-}
-
-function renderRails() {
-  refs.toggleGuidesBtn.querySelector('b').textContent = state.showGuides ? 'ON' : 'OFF';
-  refs.switchModeBtn.querySelector('b').textContent = state.guideMode === 'dtl' ? 'DTL' : 'FO';
-  refs.drawModeBtn.querySelector('b').textContent = state.drawingMode ? 'ON' : 'OFF';
-  refs.toggleDrawingsBtn.querySelector('b').textContent = state.showDrawings ? 'ON' : 'OFF';
-  refs.undoLineBtn.querySelector('b').textContent = state.selectedLineIndex >= 0 ? 'Sel' : String(state.lines.length);
-  refs.dtlGuides.classList.toggle('hidden', state.guideMode !== 'dtl');
-  refs.foGuides.classList.toggle('hidden', state.guideMode !== 'fo');
-
-  refs.drawModeBtn.classList.toggle('active', state.drawingMode);
-  refs.toggleDrawingsBtn.classList.toggle('active', state.showDrawings);
-  refs.undoLineBtn.disabled = state.lines.length === 0;
-  refs.clearLinesBtn.disabled = state.lines.length === 0;
-  refs.toggleDrawingsBtn.disabled = state.lines.length === 0;
-  refs.drawingCanvas.classList.toggle('drawing-enabled', state.drawingMode);
-}
-
-function renderTabs() {
-  const tabs = {
-    phases: refs.tabPhases,
-    analysis: refs.tabAnalysis,
-    history: refs.tabHistory,
-  };
-  const panels = {
-    phases: refs.phasesPanel,
-    analysis: refs.analysisPanel,
-    history: refs.historyPanel,
-  };
-  Object.entries(tabs).forEach(([mode, el]) => el.classList.toggle('active', state.mode === mode));
-  Object.entries(panels).forEach(([mode, el]) => el.classList.toggle('hidden', state.mode !== mode));
-}
-
-function renderPhaseChips() {
-  refs.phaseChips.innerHTML = '';
-  phases.forEach((phase) => {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = `phase-chip ${phase.id === state.currentPhaseId ? 'active' : ''} ${state.phaseTimes[phase.id] != null ? 'marked' : ''}`;
-    button.innerHTML = `<span class="dot"></span>${phase.label}`;
-    button.addEventListener('click', () => jumpToPhase(phase.id));
-    refs.phaseChips.appendChild(button);
-  });
-}
-
-function renderPhaseSummary() {
-  refs.phaseSummary.innerHTML = '';
-  const conf = state.autoDetection?.phaseConfidence || {};
-  phases.forEach((phase) => {
-    const cell = document.createElement('div');
-    cell.className = 'summary-cell';
-    const timeText = state.phaseTimes[phase.id] != null ? formatTime(state.phaseTimes[phase.id]) : '--';
-    const confText = Number.isFinite(conf[phase.id]) ? `<em>${Math.round(conf[phase.id] * 100)}%</em>` : '';
-    cell.innerHTML = `<b>${phase.short}</b><span>${timeText}</span>${confText}`;
-    refs.phaseSummary.appendChild(cell);
-  });
-}
-
-function renderReadouts() {
-  const phase = currentPhase();
-  const time = refs.video.currentTime || 0;
-  const currentMarked = state.phaseTimes[phase.id] != null;
-  refs.activePhaseName.textContent = phase.label;
-  refs.markStatus.textContent = currentMarked ? 'Marcada' : 'Sin marcar';
-  refs.markStatus.classList.toggle('done', currentMarked);
-  refs.timeReadout.textContent = `${formatTime(time)} · frame ${frameNumber(time)}`;
-  refs.playerReadout.textContent = `${formatTime(time)} · frame ${frameNumber(time)}`;
-  refs.playerPhaseReadout.textContent = `Fase: ${phase.label}`;
-  refs.markPhaseBtn.textContent = currentMarked ? 'Actualizar' : 'Marcar';
-  refs.markPhaseBtn.classList.toggle('marked', currentMarked);
-  const canSave = Boolean(Object.keys(state.phaseCaptures).length || (state.videoUrl && markedCount()));
-  refs.saveSessionBtn.disabled = !canSave;
-  refs.saveSessionTopBtn.disabled = !canSave;
-  if (refs.downloadReportBtn) refs.downloadReportBtn.disabled = !hasCompletePhaseTimes(state.phaseTimes || {});
-  if (refs.exportDatasetBtn) refs.exportDatasetBtn.disabled = !hasCompletePhaseTimes(state.phaseTimes || {});
-  if (refs.historySelectBtn) refs.historySelectBtn.textContent = state.historySelectionMode ? 'Cancelar' : 'Seleccionar';
-  if (refs.deleteSelectedHistoryBtn) {
-    const count = state.selectedSessionIds?.size || 0;
-    refs.deleteSelectedHistoryBtn.textContent = count ? `Borrar ${count}` : 'Borrar selección';
-    refs.deleteSelectedHistoryBtn.disabled = !count;
-  }
-}
-
-
-function renderTimeline() {
-  if (!state.videoUrl || state.isSeekingWithSlider || !Number.isFinite(refs.video.duration) || refs.video.duration <= 0) return;
-  refs.timeline.value = String(Math.round((refs.video.currentTime / refs.video.duration) * 1000));
-}
-
-function renderCapturesGrid() {
-  refs.capturesGrid.innerHTML = '';
-  const available = captureList();
-  if (!available.length) return;
-  available.forEach(({ phase, src }, index) => {
-    const time = state.phaseTimes[phase.id];
-    const card = document.createElement('button');
-    card.type = 'button';
-    card.className = `capture-card ${index === state.activeCaptureIndex && (state.viewingCapture || state.captureOnly) ? 'active' : ''}`;
-    card.innerHTML = `
-      <img src="${src}" alt="${phase.label}" />
-      <b>${phase.label}</b>
-      <span>${time != null ? `${formatTime(time)} · frame ${frameNumber(time)}` : 'Captura guardada'}</span>`;
-    card.addEventListener('click', () => openCaptureViewer(phase.id));
-    refs.capturesGrid.appendChild(card);
-  });
-}
-
-function renderRecommendations() {
-  const recs = buildRecommendations();
-  refs.recommendations.innerHTML = recs.map((rec) => `<div class="rec">${rec}</div>`).join('');
-}
-
-function render() {
-  renderShell();
-  renderRails();
-  renderTabs();
-  renderPhaseChips();
-  renderPhaseSummary();
-  renderReadouts();
-  renderTimeline();
-  renderCapturesGrid();
-  renderCaptureViewer();
-  drawAllLines();
-}
-
-
-function jumpToPhase(phaseId, options = {}) {
-  const phase = phases.find((item) => item.id === phaseId);
-  if (!phase) return;
-
-  // Once the user selects/marks a phase, the automatic detector may update
-  // detected times, but it must never steal the active phase back to Address.
-  if (!options.system) state.userPhaseControl = true;
-
-  state.currentPhaseId = phaseId;
-  if (state.videoUrl) state.viewingCapture = false;
-  const time = extractPhaseTime(state.phaseTimes?.[phaseId]);
-  if (state.videoUrl && Number.isFinite(time)) {
-    refs.video.currentTime = time;
-  } else if (state.videoUrl && Number.isFinite(refs.video.duration) && refs.video.duration > 0) {
-    refs.video.currentTime = refs.video.duration * phase.pct;
-  } else if (!state.videoUrl && state.phaseCaptures[phaseId]) {
-    openCaptureViewer(phaseId);
-    return;
-  }
-  refs.video.pause();
-  refs.playBtn.textContent = 'Play';
-  render();
-}
-
-function togglePlay() {
-  if (!state.videoUrl) return;
-  if (refs.video.paused) {
-    refs.video.play().catch(console.warn);
-  } else {
-    refs.video.pause();
-  }
-}
-
-function cycleSpeed() {
-  state.speed = state.speed === 1 ? 0.5 : state.speed === 0.5 ? 0.25 : 1;
-  refs.video.playbackRate = state.speed;
-  refs.speedBtn.textContent = `${state.speed}x`;
-}
-
-function stepFrame(direction) {
-  if (!state.videoUrl) return;
-  refs.video.pause();
-  refs.playBtn.textContent = 'Play';
-  const step = 1 / ASSUMED_FPS;
-  const duration = Number.isFinite(refs.video.duration) ? refs.video.duration : Number.MAX_SAFE_INTEGER;
-  const next = Math.min(Math.max((refs.video.currentTime || 0) + (direction * step), 0), duration);
-  refs.video.currentTime = next;
-}
-
-function markCurrentPhase() {
-  if (!state.videoUrl) return;
-  state.userPhaseControl = true;
-  const phase = currentPhase();
-  const currentIndex = phases.findIndex((item) => item.id === phase.id);
-  state.phaseTimes[phase.id] = refs.video.currentTime || 0;
-  state.analysisMetrics = null;
-  state.userMarkedPhaseIds.add(phase.id);
-
-  const nextPhase = phases[currentIndex + 1];
-  if (nextPhase) {
-    jumpToPhase(nextPhase.id);
-  } else {
-    render();
-  }
-}
-
-function updateTimelineFromInput() {
-  if (!state.videoUrl || !Number.isFinite(refs.video.duration) || refs.video.duration <= 0) return;
-  const pct = Number(refs.timeline.value) / 1000;
-  refs.video.pause();
-  refs.playBtn.textContent = 'Play';
-  refs.video.currentTime = refs.video.duration * pct;
-  renderReadouts();
-}
-
-
-function fmtSec(value) {
-  return Number.isFinite(value) ? `${value.toFixed(2)} s` : '--';
-}
-
-
-function escapeHtml(value) {
-  return String(value ?? '')
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;');
-}
-
-function currentVideoDuration() {
-  if (Number.isFinite(refs.video?.duration) && refs.video.duration > 0) return refs.video.duration;
-  if (Number.isFinite(state.analysisMetrics?.duration) && state.analysisMetrics.duration > 0) return state.analysisMetrics.duration;
-  const times = Object.values(state.phaseTimes || {}).filter(Number.isFinite);
-  return times.length ? Math.max(...times) : 0;
-}
-
-function analysisInputForMetrics() {
-  return {
-    times: clone(state.phaseTimes),
-    confidence: state.autoDetection.confidence || 0.45,
-    phaseConfidence: state.autoDetection.phaseConfidence || {},
-    extendedTimes: state.autoDetection.extendedTimes || {},
-    diagnostics: state.autoDetection.diagnostics || {},
-    poseSummary: state.autoDetection.poseSummary || null,
-    provider: state.autoDetection.provider || state.autoDetection.method || 'manual-review',
-  };
-}
-
-function ensureAnalysisMetrics() {
-  state.analysisMetrics = state.analysisMetrics || (window.SwingLabEngine?.computeMetrics
-    ? window.SwingLabEngine.computeMetrics(analysisInputForMetrics(), currentVideoDuration(), ASSUMED_FPS)
-    : computeAnalysisMetrics());
-  return state.analysisMetrics;
-}
-
-function clientStatusFromMetrics(metrics) {
-  const score = metrics?.scores?.overall ?? 0;
-  const phaseConf = metrics?.scores?.phaseQuality ?? 0;
-  const impactConf = Math.round(((metrics?.phaseConfidence || {}).impact ?? metrics?.confidence ?? 0) * 100);
-  if (score >= 78 && phaseConf >= 70 && impactConf >= 62) return { cls: 'good', label: 'Análisis utilizable', detail: 'La sesión tiene suficiente coherencia para revisar conclusiones principales.' };
-  if (score >= 55 || phaseConf >= 55) return { cls: 'warn', label: 'Revisión recomendada', detail: 'Usa las capturas para confirmar Top e Impact antes de compartir el informe.' };
-  return { cls: 'risk', label: 'Baja confianza', detail: 'El vídeo o las fases requieren corrección manual antes de usar conclusiones técnicas.' };
-}
-
-function topClientPriorities(metrics) {
-  const priorities = [];
-  const pc = metrics?.phaseConfidence || {};
-  if ((pc.top ?? metrics?.confidence ?? 0) < 0.62) priorities.push('Confirmar manualmente el frame de Top: es la referencia principal para tempo y backswing.');
-  if ((pc.impact ?? metrics?.confidence ?? 0) < 0.62) priorities.push('Confirmar manualmente Impact: es la fase crítica para manos, eje corporal y delivery.');
-  if (metrics?.tempoRatio && (metrics.tempoRatio < 2.1 || metrics.tempoRatio > 3.8)) priorities.push('Revisar tempo: la relación backswing/downswing está fuera del rango esperado o alguna fase está desplazada.');
-  if (metrics?.followThrough != null && metrics.followThrough < 0.30) priorities.push('Revisar Finish: parece demasiado cerca de Impact o no hay suficiente hold final visible.');
-  if (metrics?.poseStatus !== 'available') priorities.push('Para mejorar el motor, validar fases manualmente y guardar la sesión como ejemplo de entrenamiento.');
-  if (!priorities.length) priorities.push('Usar las capturas Address, Top e Impact para validar postura, secuencia y delivery con líneas simples.');
-  return priorities.slice(0, 4);
-}
-
-function clientDrills(metrics) {
-  const drills = [];
-  if (metrics?.tempoRatio && metrics.tempoRatio < 2.2) drills.push({ name: 'Pausa en Top', detail: 'Haz swings de práctica con una pausa corta en Top para sentir una transición más ordenada.' });
-  if (metrics?.tempoRatio && metrics.tempoRatio > 3.8) drills.push({ name: 'Ritmo 3:1', detail: 'Cuenta 1-2-3 en la subida y 1 en la bajada; busca un tempo más compacto.' });
-  if (metrics?.followThrough != null && metrics.followThrough < 0.45) drills.push({ name: 'Finish hold', detail: 'Mantén el finish 2 segundos. Si pierdes equilibrio, revisa transferencia y rotación.' });
-  drills.push({ name: 'Head box', detail: 'Dibuja una caja alrededor de la cabeza en Address y compárala con Top e Impact.' });
-  drills.push({ name: 'Impact checkpoint', detail: 'Dibuja línea de cadera y manos en Impact para revisar rotación y posición de manos.' });
-  return drills.slice(0, 4);
-}
-
-function metricText(value, suffix = '') {
-  return Number.isFinite(value) ? `${value.toFixed(2)}${suffix}` : '--';
-}
-
-function phaseRowsHtml(metrics) {
-  return phases.map((phase) => {
-    const t = extractPhaseTime(state.phaseTimes?.[phase.id]);
-    const conf = Math.round(((metrics?.phaseConfidence || {})[phase.id] ?? metrics?.confidence ?? 0) * 100);
-    return `<tr><td>${phase.label}</td><td>${Number.isFinite(t) ? formatTime(t) : '--'}</td><td>${Number.isFinite(t) ? `F${frameNumber(t)}` : '--'}</td><td>${conf}%</td><td>${state.userMarkedPhaseIds.has(phase.id) ? 'Manual' : 'Auto/estimada'}</td></tr>`;
-  }).join('');
-}
-
-function phaseCorrections(metrics = null) {
-  const diagnostics = state.autoDetection?.diagnostics || {};
-  const raw = diagnostics.rawDetectedPhases || diagnostics.refinedDetectedPhases || null;
-  const corrections = {};
-  phases.forEach((phase) => {
-    const detected = raw ? extractPhaseTime(raw[phase.id]) : null;
-    const finalTime = extractPhaseTime(state.phaseTimes?.[phase.id]);
-    corrections[phase.id] = {
-      detected,
-      final: finalTime,
-      delta: Number.isFinite(detected) && Number.isFinite(finalTime) ? finalTime - detected : null,
-      manuallyMarked: state.userMarkedPhaseIds.has(phase.id),
-      confidence: (metrics?.phaseConfidence || state.autoDetection?.phaseConfidence || {})[phase.id] ?? null,
-    };
-  });
-  return corrections;
-}
-
-function buildTrainingRecord(metrics = ensureAnalysisMetrics()) {
-  return {
-    schema: 'swing-lab-training-record-v1',
-    createdAt: new Date().toISOString(),
-    appVersion: 'v1.1.1-hybrid-url-fix',
-    videoName: state.videoName || 'swing-video',
-    guideMode: state.guideMode,
-    duration: currentVideoDuration(),
-    autoDetection: {
-      provider: state.autoDetection.provider || state.autoDetection.method || 'unknown',
-      status: state.autoDetection.status,
-      confidence: state.autoDetection.confidence || 0,
-      poseStatus: state.autoDetection.poseStatus || metrics.poseStatus || 'unavailable',
-      poseSamples: state.autoDetection.poseSamples || metrics.poseSummary?.samples || 0,
-      samples: state.autoDetection.samples || 0,
-      diagnostics: state.autoDetection.diagnostics || {},
-    },
-    finalPhaseTimes: clone(state.phaseTimes),
-    autoVsFinalCorrections: phaseCorrections(metrics),
-    metrics: clone(metrics),
-    onlineEngine: clone(state.onlineEngineStatus || {}),
-    backendSessionId: state.lastOnlineResult?.sessionId || state.lastOnlineResult?.raw?.session_id || state.analysisMetrics?.backendSessionId || null,
-    userId: localStorage.getItem('swingLabUserId') || 'victor',
-    club: localStorage.getItem('swingLabClub') || 'iron',
-    onlineResultSummary: state.lastOnlineResult ? { sessionId: state.lastOnlineResult.sessionId || state.lastOnlineResult.raw?.session_id || null, provider: state.lastOnlineResult.provider, engineVersion: state.lastOnlineResult.engineVersion, confidence: state.lastOnlineResult.confidence } : null,
-    notesForTraining: 'Use finalPhaseTimes as corrected labels. autoVsFinalCorrections shows where the motor was wrong versus the final manual result.',
-  };
-}
-
-function buildReportHtml(metrics = ensureAnalysisMetrics()) {
-  const status = clientStatusFromMetrics(metrics);
-  const priorities = topClientPriorities(metrics);
-  const drills = clientDrills(metrics);
-  const date = new Date().toLocaleString('es-ES');
-  const captures = phases.map((phase) => ({ phase, src: state.phaseCaptures?.[phase.id] })).filter(x => x.src);
-  const score = metrics?.scores || {};
-  const poseLine = metrics.poseStatus === 'available'
-    ? `Pose corporal activa (${metrics.poseSummary?.samples || state.autoDetection.poseSamples || 0} muestras)`
-    : 'Pose no disponible: análisis basado en motor temporal/heurístico y corrección manual';
-  const captureHtml = captures.map(({ phase, src }) => `<figure><img src="${src}" alt="${phase.label}"><figcaption>${phase.label}</figcaption></figure>`).join('');
-  return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Informe Swing Lab</title><style>
-    body{font-family:Inter,Arial,sans-serif;margin:0;background:#f4f4f2;color:#161616}.page{max-width:980px;margin:0 auto;padding:34px}header{background:#101010;color:#fff;border-radius:24px;padding:28px;margin-bottom:18px}h1{margin:0;font-size:34px;letter-spacing:-.04em}h2{margin:26px 0 10px;font-size:20px}.muted{color:#666}.card{background:#fff;border-radius:20px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(0,0,0,.07)}.status{display:inline-block;border-radius:999px;padding:7px 11px;background:#eee;font-weight:800}.status.good{background:#dff5df}.status.warn{background:#fff1c8}.status.risk{background:#ffd9d9}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}.metric{background:#f3f3f1;border-radius:14px;padding:12px}.metric b{font-size:24px;display:block}.metric span{font-size:12px;color:#666}table{width:100%;border-collapse:collapse;background:#fff;border-radius:16px;overflow:hidden}td,th{border-bottom:1px solid #eee;padding:10px;text-align:left;font-size:13px}th{background:#111;color:#fff}.captures{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}.captures figure{margin:0;background:#fff;border-radius:14px;padding:8px}.captures img{width:100%;aspect-ratio:9/16;object-fit:contain;background:#111;border-radius:10px}.captures figcaption{text-align:center;font-weight:800;font-size:12px;margin-top:6px}li{margin:6px 0}.small{font-size:12px;color:#666}@media print{body{background:#fff}.page{padding:0}.card,header{box-shadow:none}.captures{grid-template-columns:repeat(5,1fr)}}@media(max-width:720px){.grid{grid-template-columns:repeat(2,1fr)}.captures{grid-template-columns:repeat(2,1fr)}.page{padding:16px}h1{font-size:28px}}
-  </style></head><body><div class="page"><header><h1>Informe Swing Lab</h1><p>${escapeHtml(state.videoName || 'Swing analysis')} · ${date}</p><span class="status ${status.cls}">${status.label}</span></header>
-  <section class="card"><h2>Resumen ejecutivo</h2><p>${status.detail}</p><p>Tempo estimado <b>${metrics.tempoRatio ? metrics.tempoRatio.toFixed(2)+':1' : '--'}</b>, backswing <b>${metricText(metrics.backswing,' s')}</b>, downswing <b>${metricText(metrics.downswing,' s')}</b>, score global <b>${score.overall ?? '--'}/100</b>.</p><p class="small">${escapeHtml(poseLine)}</p></section>
-  <section class="card"><h2>Dashboard</h2><div class="grid"><div class="metric"><b>${score.overall ?? '--'}</b><span>Score global</span></div><div class="metric"><b>${score.phaseQuality ?? '--'}</b><span>Fases</span></div><div class="metric"><b>${score.tempo ?? '--'}</b><span>Tempo</span></div><div class="metric"><b>${score.finish ?? '--'}</b><span>Finish</span></div></div></section>
-  <section class="card"><h2>Fases y frames</h2><table><thead><tr><th>Fase</th><th>Tiempo</th><th>Frame</th><th>Confianza</th><th>Origen</th></tr></thead><tbody>${phaseRowsHtml(metrics)}</tbody></table></section>
-  <section class="card"><h2>Capturas</h2><div class="captures">${captureHtml || '<p>No hay capturas generadas.</p>'}</div></section>
-  <section class="card"><h2>Prioridades de revisión</h2><ol>${priorities.map(p => `<li>${escapeHtml(p)}</li>`).join('')}</ol></section>
-  <section class="card"><h2>Ejercicios recomendados</h2><ul>${drills.map(d => `<li><b>${escapeHtml(d.name)}:</b> ${escapeHtml(d.detail)}</li>`).join('')}</ul></section>
-  <section class="card"><h2>Datos para mejora del motor</h2><p class="small">Este informe guarda la diferencia entre detección automática y fases finales. Esa información puede alimentar futuras versiones del motor.</p><pre class="small">${escapeHtml(JSON.stringify({ corrections: phaseCorrections(metrics), provider: state.autoDetection.provider, poseStatus: state.autoDetection.poseStatus }, null, 2))}</pre></section>
-  </div></body></html>`;
-}
-
-function downloadText(filename, content, mime = 'text/plain') {
-  const blob = new Blob([content], { type: mime });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  window.setTimeout(() => URL.revokeObjectURL(url), 250);
-}
-
-async function downloadReport() {
-  if (!Object.keys(state.phaseCaptures || {}).length && state.videoUrl && markedCount()) {
-    state.phaseCaptures = await generatePhaseCaptures();
-  }
-  const metrics = ensureAnalysisMetrics();
-  downloadText(`swing-lab-report-${new Date().toISOString().slice(0,10)}.html`, buildReportHtml(metrics), 'text/html');
-}
-
-function exportTrainingDataset() {
-  const metrics = ensureAnalysisMetrics();
-  downloadText(`swing-lab-training-${new Date().toISOString().replace(/[:.]/g,'-')}.json`, JSON.stringify(buildTrainingRecord(metrics), null, 2), 'application/json');
-}
-
-async function submitTrainingDataset() {
-  const metrics = ensureAnalysisMetrics();
-  const record = buildTrainingRecord(metrics);
-  if (!window.SwingLabOnlineEngine?.isEnabled?.()) {
-    alert('Configura primero la URL del motor online con el botón Motor. Mientras tanto puedes usar Exportar datos entrenamiento.');
-    return;
-  }
-  try {
-    if (refs.submitTrainingBtn) refs.submitTrainingBtn.textContent = 'Enviando…';
-    const includeVideo = true; // private trusted test group: send full video to improve the model.
-    const res = await window.SwingLabOnlineEngine.submitTraining(record, { includeVideo, file: state.videoBlob });
-    state.trainingSubmittedAt = new Date().toISOString();
-    updateOnlineStatus({ mode: 'training-submitted', available: true, lastSync: state.trainingSubmittedAt, lastError: null });
-    refs.analysisStatus.textContent = `Datos enviados al motor online. Session ID: ${res.sessionId || res.session_id || res.record?.session_id || 'ok'} · correcciones guardadas: ${res.stats?.training_corrections ?? '--'}.`;
-    alert('Datos de entrenamiento enviados correctamente.');
-  } catch (error) {
-    updateOnlineStatus({ mode: 'training-submit-failed', lastError: String(error?.message || error) });
-    alert(`No se pudieron enviar los datos.\n\n${String(error?.message || error)}\n\nPuedes exportar el JSON manualmente.`);
-  } finally {
-    if (refs.submitTrainingBtn) refs.submitTrainingBtn.textContent = 'Enviar';
-    render();
-  }
-}
-
-function buildRecommendations() {
-  const metrics = ensureAnalysisMetrics();
-  const recs = [];
-  const status = clientStatusFromMetrics(metrics);
-  const scores = metrics.scores || {};
-  const confidence = Math.round((state.autoDetection.confidence || metrics.confidence || 0) * 100);
-  const poseAvailable = metrics.poseStatus === 'available' || state.autoDetection.poseStatus === 'available';
-  const poseSamples = state.autoDetection.poseSamples || metrics.poseSummary?.samples || 0;
-
-  recs.push(`<div class="client-summary"><span class="client-status ${status.cls}">${status.label}</span><h3>Resumen ejecutivo</h3><p>${status.detail}</p><p>Resultado orientativo: score global ${scores.overall ?? '--'}/100, tempo ${metrics.tempoRatio ? metrics.tempoRatio.toFixed(2) + ':1' : '--'}, backswing ${fmtSec(metrics.backswing)}, downswing ${fmtSec(metrics.downswing)}.</p></div>`);
-
-  recs.push(`<div class="report-grid">
-    <div class="report-metric"><b>${scores.overall ?? '--'}</b><span>Score global</span></div>
-    <div class="report-metric"><b>${scores.phaseQuality ?? '--'}</b><span>Calidad de fases</span></div>
-    <div class="report-metric"><b>${scores.tempo ?? '--'}</b><span>Tempo</span></div>
-    <div class="report-metric"><b>${scores.finish ?? '--'}</b><span>Finish</span></div>
-  </div>`);
-
-  const engineLine = poseAvailable
-    ? `Pose corporal activa · ${poseSamples} muestras corporales · confianza ${confidence}%.`
-    : `Pose no disponible o débil · motor temporal/heurístico · confianza ${confidence}%.`;
-  recs.push(`<b>Motor de análisis:</b> ${engineLine} ${poseAvailable ? 'Se han usado landmarks para apoyar la detección.' : 'El análisis sigue siendo usable, pero Top e Impact deben validarse manualmente.'}`);
-  const online = state.onlineEngineStatus || {};
-  recs.push(`<b>Motor online:</b> ${online.url ? (online.available ? `activo · ${online.modelVersion || 'latest'} · datos listos para entrenamiento` : `configurado pero en fallback · ${online.lastError || 'sin conexión'}`) : 'no configurado; se usa motor local/fallback. Configúralo con el botón Motor para que cada análisis alimente el dataset.'}`);
-
-  const phaseRows = phases.map((phase) => {
-    const t = extractPhaseTime(state.phaseTimes?.[phase.id]);
-    const conf = Math.round(((metrics.phaseConfidence || {})[phase.id] ?? metrics.confidence ?? 0) * 100);
-    return `${phase.short}: ${Number.isFinite(t) ? `${formatTime(t)} / F${frameNumber(t)}` : '--'} (${conf}%)`;
-  }).join(' · ');
-  recs.push(`<b>Frames clave:</b> ${phaseRows}`);
-
-  const priorities = topClientPriorities(metrics);
-  recs.push(`<b>Prioridades para validar:</b><ul>${priorities.map((item) => `<li>${item}</li>`).join('')}</ul>`);
-
-  if (metrics?.tempoRatio) {
-    const tempoRead = metrics.tempoRatio < 2.1 ? 'rápido/compacto' : metrics.tempoRatio > 3.8 ? 'lento o fase desplazada' : 'dentro de rango razonable';
-    recs.push(`<b>Tempo y secuencia:</b> ${metrics.tempoRatio.toFixed(2)}:1 (${tempoRead}). Backswing ${fmtSec(metrics.backswing)}, downswing ${fmtSec(metrics.downswing)}, follow-through ${fmtSec(metrics.followThrough)}.`);
-  }
-
-  if (metrics?.activeWindow) {
-    const ext = metrics.extendedTimes || {};
-    recs.push(`<b>Ventana activa:</b> ${fmtSec(metrics.activeWindow)} entre ${formatTime(ext.activeStart)} y ${formatTime(ext.activeEnd)}. Si el vídeo es largo, esta ventana es la parte que el motor considera swing real.`);
-  }
-
-  if (Array.isArray(metrics?.technicalFindings) && metrics.technicalFindings.length) {
-    recs.push(`<b>Resultados técnicos:</b><ul>${metrics.technicalFindings.slice(0, 5).map((item) => `<li>${item}</li>`).join('')}</ul>`);
-  }
-
-  const drills = clientDrills(metrics);
-  recs.push(`<b>Ejercicios recomendados:</b><div class="drill-list">${drills.map((drill) => `<div class="drill-card"><b>${drill.name}</b><span>${drill.detail}</span></div>`).join('')}</div>`);
-
-  if (metrics?.consistencyWarnings?.length) {
-    recs.push(`<b>Control de calidad:</b><ul>${metrics.consistencyWarnings.slice(0, 4).map((item) => `<li>${item}</li>`).join('')}</ul>`);
-  }
-
-  recs.push(`<div class="training-note"><b>Dato útil para entrenar el motor:</b> guarda la sesión después de corregir fases. El historial almacena detección automática, resultado final y delta por fase para aprender dónde se equivocó el motor.</div>`);
-
-  if (Object.keys(state.phaseCaptures || {}).length) {
-    recs.push('<b>Informe descargable:</b> pulsa “Informe” para descargar un HTML profesional con resumen, métricas, fases, capturas, prioridades, ejercicios y datos de entrenamiento. Puedes abrirlo y exportarlo/imprimirlo como PDF desde el navegador.');
-  }
-
-  return recs;
-}
-
-function captureList() {
-  return phases
-    .map((phase) => ({ phase, src: state.phaseCaptures[phase.id] }))
-    .filter((item) => Boolean(item.src));
-}
-
-function openCaptureViewer(phaseId) {
-  const list = captureList();
-  if (!list.length) return;
-  const index = Math.max(0, list.findIndex((item) => item.phase.id === phaseId));
-  state.activeCaptureIndex = index >= 0 ? index : 0;
-  state.viewingCapture = true;
-  state.controlsVisible = false;
-  if (list[state.activeCaptureIndex]) state.currentPhaseId = list[state.activeCaptureIndex].phase.id;
-  if (state.videoUrl) {
-    refs.video.pause();
-    refs.playBtn.textContent = 'Play';
-  }
-  render();
-}
-
-function closeCaptureViewerToVideo() {
-  if (!state.videoUrl) return;
-  state.viewingCapture = false;
-  state.controlsVisible = true;
-  render();
-}
-
-function moveCapture(delta) {
-  const list = captureList();
-  if (!list.length) return;
-  const next = Math.min(Math.max(state.activeCaptureIndex + delta, 0), list.length - 1);
-  state.activeCaptureIndex = next;
-  state.currentPhaseId = list[next].phase.id;
-  state.viewingCapture = true;
-  state.controlsVisible = false;
-  render();
-}
-
-function renderCaptureViewer() {
-  const list = captureList();
-  if (!list.length) {
-    refs.captureViewer.classList.add('hidden');
-    refs.captureBadge.classList.add('hidden');
-    return;
-  }
-  if (state.activeCaptureIndex >= list.length) state.activeCaptureIndex = list.length - 1;
-  if (state.activeCaptureIndex < 0) state.activeCaptureIndex = 0;
-  const item = list[state.activeCaptureIndex];
-  const showing = state.viewingCapture || state.captureOnly;
-  refs.captureViewer.classList.toggle('hidden', !showing);
-  refs.captureBadge.classList.toggle('hidden', !showing);
-  if (!showing || !item) return;
-  refs.captureViewer.src = item.src;
-  const time = state.phaseTimes[item.phase.id];
-  refs.captureBadge.textContent = `${item.phase.label} · ${state.activeCaptureIndex + 1}/${list.length}${time != null ? ` · ${formatTime(time)}` : ''}`;
-}
-
-
-function clamp(value, min, max) {
-  return Math.max(min, Math.min(max, value));
-}
-
-function scoreFromRange(value, min, idealLow, idealHigh, max) {
-  if (!Number.isFinite(value)) return 0.5;
-  if (value >= idealLow && value <= idealHigh) return 1;
-  if (value < idealLow) return clamp((value - min) / Math.max(idealLow - min, 0.001), 0, 1);
-  return clamp((max - value) / Math.max(max - idealHigh, 0.001), 0, 1);
-}
-
-
-function lerp(a, b, weight) {
-  if (!Number.isFinite(a)) return b;
-  if (!Number.isFinite(b)) return a;
-  return a * (1 - weight) + b * weight;
-}
-
-function referencePhaseTimesFromImpact({ duration, segmentStart, segmentEnd, impactTime, detectedTopTime, topQuality = 0.45, segmentQuality = 0.45 }) {
-  const safeDuration = Number.isFinite(duration) && duration > 0 ? duration : 2;
-  const downFromDetected = Number.isFinite(detectedTopTime) ? Math.max(0.08, impactTime - detectedTopTime) : null;
-  const segmentSpan = Math.max(0.45, segmentEnd - segmentStart);
-  const referenceDown = clamp(downFromDetected || segmentSpan * 0.20, SWING_REFERENCE.downSwingMin, SWING_REFERENCE.downSwingMax);
-  const preferredDown = clamp(lerp(referenceDown, (SWING_REFERENCE.downSwingIdealLow + SWING_REFERENCE.downSwingIdealHigh) / 2, topQuality < 0.45 ? 0.45 : 0.18), 0.12, 0.55);
-  const referenceTempo = 2.65;
-  const backDur = clamp(preferredDown * referenceTempo, 0.34, Math.max(0.45, safeDuration * 0.55));
-  const top = clamp(impactTime - preferredDown, 0, safeDuration);
-  const address = clamp(top - backDur, 0, Math.max(0, top - 0.08));
-  const takeaway = clamp(address + (top - address) * 0.24, address + 0.035, top - 0.035);
-  const finish = clamp(impactTime + clamp(preferredDown * 1.45, 0.28, 1.35), impactTime + 0.16, safeDuration);
-  return { address, takeaway, top, impact: impactTime, finish };
-}
-
-function blendDetectedWithReference(detected, reference, confidenceWeight) {
-  const w = clamp(confidenceWeight, 0, 1);
-  return {
-    address: lerp(detected.address, reference.address, w),
-    takeaway: lerp(detected.takeaway, reference.takeaway, w * 0.85),
-    top: lerp(detected.top, reference.top, w),
-    impact: detected.impact,
-    finish: lerp(detected.finish, reference.finish, w * 0.72),
-  };
-}
-
-function scoreLabel(value) {
-  if (!Number.isFinite(value)) return 'pendiente';
-  if (value >= 82) return 'fuerte';
-  if (value >= 68) return 'correcto';
-  if (value >= 52) return 'revisar';
-  return 'crítico';
-}
-
-function computeAnalysisMetrics() {
-  const t = state.phaseTimes;
-  const has = (id) => Number.isFinite(t[id]);
-  const safeDuration = Number.isFinite(refs.video.duration) ? refs.video.duration : null;
-  const extended = state.autoDetection?.extendedTimes || {};
-  const diagnostics = state.autoDetection?.diagnostics || {};
-  const phaseConfidence = state.autoDetection?.phaseConfidence || {};
-  const metrics = {
-    marked: markedCount(),
-    assumedFps: ASSUMED_FPS,
-    duration: safeDuration,
-    confidence: state.autoDetection.confidence || 0,
-    method: state.autoDetection.method || 'manual',
-    phaseConfidence: clone(phaseConfidence),
-    extendedTimes: clone(extended),
-    diagnostics: clone(diagnostics),
-    consistencyWarnings: [],
-  };
-
-  if (has('top') && has('impact')) metrics.downswing = Math.max(0, t.impact - t.top);
-  if (has('address') && has('top')) metrics.backswing = Math.max(0, t.top - t.address);
-  else if (has('takeaway') && has('top')) metrics.backswing = Math.max(0, t.top - t.takeaway);
-  if (has('address') && has('finish')) metrics.total = Math.max(0, t.finish - t.address);
-  if (has('impact') && has('finish')) metrics.followThrough = Math.max(0, t.finish - t.impact);
-  if (has('address') && has('takeaway')) metrics.takeawayLoad = Math.max(0, t.takeaway - t.address);
-  if (has('takeaway') && has('top')) metrics.lateBackswing = Math.max(0, t.top - t.takeaway);
-  if (has('top') && has('impact')) metrics.transitionToStrike = Math.max(0, t.impact - t.top);
-  if (metrics.backswing && metrics.downswing) {
-    metrics.tempoRatio = metrics.backswing / Math.max(metrics.downswing, 0.001);
-    metrics.tempoDeviation = Math.min(1, Math.abs(metrics.tempoRatio - 2.65) / 2.65);
-  }
-  if (metrics.total && metrics.downswing) metrics.accelerationIndex = metrics.downswing / Math.max(metrics.total, 0.001);
-  if (has('impact')) metrics.impactFrame = frameNumber(t.impact);
-  if (has('top')) metrics.topFrame = frameNumber(t.top);
-
-  if (Number.isFinite(extended.midBackswing)) metrics.midBackswingFrame = frameNumber(extended.midBackswing);
-  if (Number.isFinite(extended.transition)) metrics.transitionFrame = frameNumber(extended.transition);
-  if (Number.isFinite(extended.preImpact)) metrics.preImpactFrame = frameNumber(extended.preImpact);
-
-  if (Number.isFinite(extended.activeStart) && Number.isFinite(extended.activeEnd)) {
-    metrics.activeWindow = Math.max(0, extended.activeEnd - extended.activeStart);
-    metrics.preAddressIdle = has('address') ? Math.max(0, t.address - extended.activeStart) : null;
-  }
-
-  metrics.intervals = [];
-  for (let i = 0; i < phases.length - 1; i += 1) {
-    const a = phases[i];
-    const b = phases[i + 1];
-    if (has(a.id) && has(b.id)) {
-      metrics.intervals.push({ from: a.label, to: b.label, seconds: Math.max(0, t[b.id] - t[a.id]) });
+  function shapeSize(s){
+    if(!s) return 0;
+    if(s.type==='free') {
+      let minX=1,minY=1,maxX=0,maxY=0;
+      (s.points||[]).forEach(p=>{minX=Math.min(minX,p.x);minY=Math.min(minY,p.y);maxX=Math.max(maxX,p.x);maxY=Math.max(maxY,p.y);});
+      return Math.max(maxX-minX,maxY-minY);
     }
+    if(s.type==='angle') return Math.min(Math.hypot(s.x1-s.x2,s.y1-s.y2),Math.hypot(s.x3-s.x2,s.y3-s.y2));
+    return Math.hypot((s.x2||s.x1)-s.x1,(s.y2||s.y1)-s.y1);
   }
-
-  if (metrics.total && metrics.intervals.length) {
-    metrics.phasePercentages = metrics.intervals.map((item) => ({
-      label: `${item.from}→${item.to}`,
-      percent: Math.round((item.seconds / Math.max(metrics.total, 0.001)) * 100),
-    }));
+  function isDrawable(s){
+    const min = s?.type==='free' ? .022 : .028;
+    return shapeSize(s) >= min;
   }
-
-  metrics.reference = {
-    tempoBand: `${SWING_REFERENCE.tempoIdealLow}:1–${SWING_REFERENCE.tempoIdealHigh}:1`,
-    expectedDownswing: `${SWING_REFERENCE.downSwingIdealLow.toFixed(2)}–${SWING_REFERENCE.downSwingIdealHigh.toFixed(2)} s`,
-    source: 'patrón Swing Lab report',
-  };
-
-  const tempoScore = metrics.tempoRatio ? scoreFromRange(metrics.tempoRatio, 1.4, SWING_REFERENCE.tempoIdealLow, SWING_REFERENCE.tempoIdealHigh, 5.4) : 0.55;
-  const downScore = metrics.downswing ? scoreFromRange(metrics.downswing, 0.06, SWING_REFERENCE.downSwingIdealLow, SWING_REFERENCE.downSwingIdealHigh, 0.75) : 0.5;
-  const totalScore = metrics.total ? scoreFromRange(metrics.total, 0.55, 0.9, 2.8, 4.5) : 0.5;
-  const finishScore = metrics.followThrough ? scoreFromRange(metrics.followThrough, 0.10, 0.45, 2.2, 3.2) : 0.5;
-  const detectionScore = metrics.confidence || 0.4;
-  const phaseScore = phases.reduce((sum, phase) => sum + (phaseConfidence[phase.id] ?? detectionScore), 0) / phases.length;
-
-  metrics.scores = {
-    detection: Math.round(detectionScore * 100),
-    phaseQuality: Math.round(phaseScore * 100),
-    tempo: Math.round(tempoScore * 100),
-    sequence: Math.round(((tempoScore * 0.5) + (downScore * 0.25) + (totalScore * 0.25)) * 100),
-    finish: Math.round(finishScore * 100),
-  };
-  metrics.scores.overall = Math.round(
-    (metrics.scores.detection * 0.30) +
-    (metrics.scores.phaseQuality * 0.25) +
-    (metrics.scores.tempo * 0.20) +
-    (metrics.scores.sequence * 0.15) +
-    (metrics.scores.finish * 0.10)
-  );
-  metrics.scoreLabels = Object.fromEntries(Object.entries(metrics.scores).map(([key, value]) => [key, scoreLabel(value)]));
-
-  if (metrics.downswing != null && metrics.downswing < 0.08) {
-    metrics.consistencyWarnings.push('Top→Impact parece demasiado corto; comprueba ambos frames con +1f/−1f.');
+  function moveShape(s,dx,dy){
+    ['x1','x2','x3'].forEach(k=>{ if(s[k]!=null) s[k]+=dx; });
+    ['y1','y2','y3'].forEach(k=>{ if(s[k]!=null) s[k]+=dy; });
+    if(s.points) s.points.forEach(p=>{p.x+=dx;p.y+=dy;});
   }
-  if (metrics.backswing != null && metrics.backswing < 0.20) {
-    metrics.consistencyWarnings.push('Backswing parece demasiado corto; revisa Address/Top.');
+  function resetDrawState(){
+    S.drawEnabled=false;
+    S.tool='select';
+    S.selected=null;
+    S.temp=null;
+    S.drawing=false;
+    S.drag=null;
+    S.angleDraft=null;
+    S.toolsCollapsed=false;
+    if(toolPanel) toolPanel.hidden=true;
+    if(toolDock) toolDock.hidden=true;
+    if(toolStyle) toolStyle.hidden=true;
+    document.querySelectorAll('[data-tool]').forEach(b=>b.classList.toggle('is-active', b.dataset.tool==='select'));
+    setStatus('Draw tools are off');
   }
-  if (metrics.followThrough != null && metrics.followThrough < 0.18) {
-    metrics.consistencyWarnings.push('Finish está muy cerca de Impact; probablemente el finish real está más tarde.');
-  }
-  if (metrics.tempoRatio && metrics.tempoRatio < 1.7) {
-    metrics.consistencyWarnings.push('Tempo excesivamente bajo: Top puede estar marcado tarde o Impact demasiado pronto.');
-  }
-  if (metrics.tempoRatio && metrics.tempoRatio > 5.0) {
-    metrics.consistencyWarnings.push('Tempo excesivamente alto: Address/Top pueden estar demasiado separados o Impact tarde.');
-  }
-  if (metrics.downswing && (metrics.downswing < SWING_REFERENCE.downSwingIdealLow || metrics.downswing > SWING_REFERENCE.downSwingIdealHigh)) {
-    metrics.consistencyWarnings.push(`Downswing fuera del rango de referencia (${SWING_REFERENCE.downSwingIdealLow.toFixed(2)}–${SWING_REFERENCE.downSwingIdealHigh.toFixed(2)} s): revisa Top e Impact.`);
-  }
-  if (diagnostics?.motionContrast != null && diagnostics.motionContrast < 0.18) {
-    metrics.consistencyWarnings.push('Contraste de movimiento bajo: vídeo con poca diferencia entre swing y fondo; revisa fases manualmente.');
-  }
-  if ((phaseConfidence.impact ?? 1) < 0.55) {
-    metrics.consistencyWarnings.push('Impact detectado con baja confianza; esta fase debe revisarse manualmente.');
-  }
-  return metrics;
-}
-
-function fallbackPhaseTimes(duration) {
-  const safe = Number.isFinite(duration) && duration > 0 ? duration : 2;
-  return Object.fromEntries(phases.map((phase) => [phase.id, Math.max(0, Math.min(safe, safe * phase.pct))]));
-}
-
-function initialLoadPhaseTimes(duration) {
-  const safe = Number.isFinite(duration) && duration > 0 ? duration : 2;
-  // Immediate safe defaults: for long clips we do not spread across the full video.
-  // We place a compact review window near the beginning until the engine replaces it.
-  const windowStart = 0;
-  const windowDur = Math.min(Math.max(safe * 0.32, 1.25), Math.min(3.20, safe));
-  const ratios = { address: 0.00, takeaway: 0.18, top: 0.50, impact: 0.70, finish: 1.00 };
-  const output = {};
-  phases.forEach((phase) => {
-    output[phase.id] = Math.max(0, Math.min(safe, windowStart + windowDur * ratios[phase.id]));
-  });
-  return enforceIncreasing(output, safe);
-}
-
-function extractPhaseTime(value) {
-  if (Number.isFinite(value)) return value;
-  if (value && Number.isFinite(value.time)) return value.time;
-  if (value && Number.isFinite(value.seconds)) return value.seconds;
-  if (value && Number.isFinite(value.t)) return value.t;
-  return null;
-}
-
-function normalizePhaseTimes(input, duration, baseTimes = null) {
-  const safe = Number.isFinite(duration) && duration > 0 ? duration : 2;
-  const base = baseTimes || state.phaseTimes || initialLoadPhaseTimes(safe);
-  const output = {};
-  phases.forEach((phase) => {
-    const direct = input ? extractPhaseTime(input[phase.id]) : null;
-    const tableItem = Array.isArray(input) ? input.find((item) => item && item.id === phase.id) : null;
-    const fromTable = tableItem ? extractPhaseTime(tableItem) : null;
-    const fallback = extractPhaseTime(base[phase.id]);
-    output[phase.id] = Number.isFinite(direct) ? direct : (Number.isFinite(fromTable) ? fromTable : fallback);
-  });
-  return enforceIncreasing(output, safe);
-}
-
-function hasCompletePhaseTimes(times) {
-  return phases.every((phase) => Number.isFinite(extractPhaseTime(times?.[phase.id])));
-}
-
-function installImmediatePhaseDefaults(reason = 'defaults') {
-  if (!state.videoUrl || !Number.isFinite(refs.video.duration) || refs.video.duration <= 0) return false;
-
-  const defaults = initialLoadPhaseTimes(refs.video.duration);
-  const previousActivePhase = state.currentPhaseId;
-  const existing = state.phaseTimes || {};
-  const next = {};
-
-  phases.forEach((phase) => {
-    const existingTime = extractPhaseTime(existing[phase.id]);
-    const defaultTime = extractPhaseTime(defaults[phase.id]);
-    // Defaults should only fill gaps. They must not keep re-normalising or
-    // moving user-selected/marked phases after the video metadata/canplay events.
-    next[phase.id] = Number.isFinite(existingTime) ? existingTime : defaultTime;
-  });
-
-  state.phaseTimes = normalizePhaseTimes(next, refs.video.duration, defaults);
-  if (state.userPhaseControl && phases.some((phase) => phase.id === previousActivePhase)) {
-    state.currentPhaseId = previousActivePhase;
-  } else if (!phases.some((phase) => phase.id === state.currentPhaseId)) {
-    state.currentPhaseId = 'address';
-  }
-
-  if (!state.autoDetection || state.autoDetection.status === 'idle') {
-    state.autoDetection = { status: 'defaults-ready', confidence: 0.18, method: 'Initial defaults', samples: 0, motionPeakTime: null, phaseConfidence: {}, extendedTimes: {}, diagnostics: { reason } };
-  } else if (!['running', 'done'].includes(state.autoDetection.status)) {
-    state.autoDetection.status = 'defaults-ready';
-    state.autoDetection.confidence = Math.max(state.autoDetection.confidence || 0, 0.18);
-    state.autoDetection.diagnostics = Object.assign({}, state.autoDetection.diagnostics || {}, { defaultReason: reason });
-  }
-  refs.analysisStatus.textContent = 'Fases preliminares colocadas. La detección automática sigue trabajando en segundo plano para refinarlas con Pose Foundation.';
-  render();
-  return true;
-}
-
-
-function phaseConfidenceFallback(value = 0.18) {
-  return Object.fromEntries(phases.map((phase) => [phase.id, value]));
-}
-
-function enforceIncreasing(times, duration) {
-  const safeDuration = Number.isFinite(duration) && duration > 0 ? duration : 2;
-  const minGap = Math.max(0.035, Math.min(0.18, safeDuration * 0.018));
-  let last = 0;
-  const output = {};
-  phases.forEach((phase, index) => {
-    let value = Number.isFinite(times[phase.id]) ? times[phase.id] : safeDuration * phase.pct;
-    if (index === 0) value = Math.max(0, Math.min(value, safeDuration - minGap * (phases.length - 1)));
-    else value = Math.max(value, last + minGap);
-    value = Math.min(value, safeDuration - minGap * (phases.length - 1 - index));
-    output[phase.id] = Math.max(0, Math.min(safeDuration, value));
-    last = output[phase.id];
-  });
-  return output;
-}
-
-async function sampleMotionProfile(media = null) {
-  const video = media || refs.analysisVideo || refs.video;
-  const duration = video.duration;
-  if (!state.videoUrl || !Number.isFinite(duration) || duration <= 0.25) return null;
-  const originalTime = video.currentTime || 0;
-  const samples = Math.min(168, Math.max(54, Math.round(duration * 20)));
-  const canvas = refs.analysisCanvas || (refs.analysisCanvas = document.createElement('canvas'));
-  const w = 128;
-  const h = 192;
-  canvas.width = w;
-  canvas.height = h;
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  let previous = null;
-  const raw = [];
-
-  for (let i = 0; i < samples; i += 1) {
-    const t = duration * (i / (samples - 1));
-    await seekMediaTo(video, t);
-    ctx.drawImage(video, 0, 0, w, h);
-    const data = ctx.getImageData(0, 0, w, h).data;
-    let diff = 0;
-    let upper = 0;
-    let mid = 0;
-    let lower = 0;
-    let center = 0;
-    let edge = 0;
-    let xMoment = 0;
-    let yMoment = 0;
-    let motionMass = 0;
-    let count = 0;
-    let brightness = 0;
-    let contrastAcc = 0;
-
-    if (previous) {
-      for (let y = 0; y < h; y += 4) {
-        for (let x = 0; x < w; x += 4) {
-          const px = ((y * w) + x) * 4;
-          const lum = (data[px] * 0.299) + (data[px + 1] * 0.587) + (data[px + 2] * 0.114);
-          const d = Math.abs(lum - previous[count]);
-          previous[count] = lum;
-          diff += d;
-          brightness += lum;
-          contrastAcc += Math.abs(lum - 128);
-          if (y < h * 0.43) upper += d;
-          else if (y < h * 0.72) mid += d;
-          else lower += d;
-          if (x > w * 0.18 && x < w * 0.82 && y > h * 0.10 && y < h * 0.92) center += d;
-          else edge += d;
-          xMoment += d * (x / w);
-          yMoment += d * (y / h);
-          motionMass += d;
-          count += 1;
-        }
-      }
-      raw.push({
-        time: t,
-        score: diff / Math.max(1, count),
-        upper: upper / Math.max(1, count),
-        mid: mid / Math.max(1, count),
-        lower: lower / Math.max(1, count),
-        center: center / Math.max(1, count),
-        edge: edge / Math.max(1, count),
-        cx: motionMass ? xMoment / motionMass : 0.5,
-        cy: motionMass ? yMoment / motionMass : 0.5,
-        brightness: brightness / Math.max(1, count),
-        contrast: contrastAcc / Math.max(1, count),
-      });
+  function setDrawEnabled(on){
+    S.drawEnabled=on;
+    if(on){S.toolsCollapsed=false;toolPanel?.classList.remove('is-collapsed');}
+    editor.classList.toggle('is-draw-off', !on);
+    if(toolPanel) toolPanel.hidden=!on;
+    if(toolDock) toolDock.hidden=true;
+    if(!on){
+      if(toolStyle) toolStyle.hidden=true;
+      S.temp=null; S.drag=null; S.drawing=false; S.selected=null; S.angleDraft=null;
+      setStatus('Draw tools are off');
     } else {
-      previous = [];
-      for (let y = 0; y < h; y += 4) {
-        for (let x = 0; x < w; x += 4) {
-          const px = ((y * w) + x) * 4;
-          previous.push((data[px] * 0.299) + (data[px + 1] * 0.587) + (data[px + 2] * 0.114));
-        }
-      }
-      raw.push({ time: t, score: 0, upper: 0, mid: 0, lower: 0, center: 0, edge: 0, cx: 0.5, cy: 0.5, brightness: 0, contrast: 0 });
+      setStatus('Select or choose a mark tool');
     }
+    draw();
   }
-
-  await seekMediaTo(refs.video, originalTime);
-  return enrichMotionProfile(smoothMotionProfile(raw));
-}
-
-function smoothMotionProfile(raw) {
-  if (!raw || raw.length < 3) return raw || [];
-  return raw.map((p, i) => {
-    const items = raw.slice(Math.max(0, i - 2), Math.min(raw.length, i + 3));
-    const avg = (key) => items.reduce((sum, item) => sum + (item[key] || 0), 0) / items.length;
-    return {
-      ...p,
-      score: avg('score'),
-      upper: avg('upper'),
-      mid: avg('mid'),
-      lower: avg('lower'),
-      center: avg('center'),
-      edge: avg('edge'),
-      cx: avg('cx'),
-      cy: avg('cy'),
-      brightness: avg('brightness'),
-      contrast: avg('contrast'),
-    };
-  });
-}
-
-function enrichMotionProfile(profile) {
-  if (!profile || !profile.length) return profile || [];
-  const scores = profile.map((p) => p.score);
-  const base = percentile(scores, 0.28);
-  const p95 = percentile(scores, 0.95);
-  const range = Math.max(p95 - base, 0.001);
-  return profile.map((p, i) => {
-    const prev = profile[Math.max(0, i - 1)];
-    const next = profile[Math.min(profile.length - 1, i + 1)];
-    const dt = Math.max(0.001, next.time - prev.time);
-    const dx = (next.cx || 0.5) - (prev.cx || 0.5);
-    const dy = (next.cy || 0.5) - (prev.cy || 0.5);
-    const centroidSpeed = Math.sqrt((dx * dx) + (dy * dy)) / dt;
-    const accel = i ? p.score - profile[i - 1].score : 0;
-    const normalized = clamp((p.score - base) / range, 0, 1.6);
-    const bodyWeighted = (p.center || 0) * 1.08 + (p.upper || 0) * 0.62 + (p.mid || 0) * 0.42 + (p.lower || 0) * 0.18 - (p.edge || 0) * 0.12;
-    return { ...p, normalized, accel, centroidSpeed, bodyWeighted: Math.max(0, bodyWeighted) };
-  });
-}
-
-function percentile(values, q) {
-  const sorted = values.filter(Number.isFinite).slice().sort((a, b) => a - b);
-  if (!sorted.length) return 0;
-  const pos = (sorted.length - 1) * q;
-  const base = Math.floor(pos);
-  const rest = pos - base;
-  return sorted[base + 1] != null ? sorted[base] + rest * (sorted[base + 1] - sorted[base]) : sorted[base];
-}
-
-function indexAtTime(profile, time) {
-  let best = 0;
-  let bestDiff = Infinity;
-  profile.forEach((p, index) => {
-    const d = Math.abs(p.time - time);
-    if (d < bestDiff) { best = index; bestDiff = d; }
-  });
-  return best;
-}
-
-function localMinimum(profile, startIndex, endIndex, fallbackIndex, key = 'score') {
-  const start = Math.max(0, Math.min(profile.length - 1, startIndex));
-  const end = Math.max(0, Math.min(profile.length - 1, endIndex));
-  if (start > end) return profile[Math.max(0, Math.min(profile.length - 1, fallbackIndex))] || profile[0];
-  let best = profile[Math.max(start, Math.min(end, fallbackIndex))] || profile[0];
-  for (let i = start; i <= end; i += 1) {
-    if ((profile[i][key] ?? profile[i].score) < (best[key] ?? best.score)) best = profile[i];
+  function collapseTools(){
+    if(!toolPanel || !toolDock) return;
+    S.toolsCollapsed=true;
+    toolPanel.hidden=true;
+    toolPanel.classList.add('is-collapsed');
+    toolPanel.style.left='';
+    toolPanel.style.top='';
+    toolPanel.style.bottom='';
+    if(toolStyle) toolStyle.hidden=true;
+    toolDock.hidden=false;
+    toolDock.classList.add('is-visible');
+    updateLabels();
   }
-  return best;
-}
-
-function localMaximum(profile, startIndex, endIndex, fallbackIndex, key = 'score') {
-  const start = Math.max(0, Math.min(profile.length - 1, startIndex));
-  const end = Math.max(0, Math.min(profile.length - 1, endIndex));
-  if (start > end) return profile[Math.max(0, Math.min(profile.length - 1, fallbackIndex))] || profile[profile.length - 1];
-  let best = profile[Math.max(start, Math.min(end, fallbackIndex))] || profile[profile.length - 1];
-  for (let i = start; i <= end; i += 1) {
-    if ((profile[i][key] ?? profile[i].score) > (best[key] ?? best.score)) best = profile[i];
+  function expandTools(){
+    if(!toolPanel || !toolDock) return;
+    S.toolsCollapsed=false;
+    setDrawEnabled(true);
+    toolPanel.hidden=false;
+    toolPanel.classList.remove('is-collapsed');
+    toolDock.hidden=true;
+    toolDock.classList.remove('is-visible');
+    updateLabels();
   }
-  return best;
-}
+  function draw(){
+    resizeCanvas();
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    ctx.save();
+    ctx.scale(canvas.width, canvas.height);
 
-function mergeActiveSegments(segments, profile, maxGapSeconds) {
-  if (!segments.length) return [];
-  const merged = [clone(segments[0])];
-  for (let i = 1; i < segments.length; i += 1) {
-    const last = merged[merged.length - 1];
-    const gap = profile[segments[i].start].time - profile[last.end].time;
-    if (gap <= maxGapSeconds) {
-      last.end = segments[i].end;
-      last.area += segments[i].area;
-      last.max = Math.max(last.max, segments[i].max);
-    } else {
-      merged.push(clone(segments[i]));
-    }
-  }
-  return merged;
-}
-
-function findActiveSegments(profile, threshold) {
-  const segments = [];
-  let current = null;
-  profile.forEach((p, index) => {
-    const active = p.score >= threshold || p.bodyWeighted >= threshold * 0.85 || p.normalized >= 0.32;
-    if (active) {
-      if (!current) current = { start: index, end: index, area: 0, max: 0 };
-      current.end = index;
-      current.area += Math.max(p.score, p.bodyWeighted || 0);
-      current.max = Math.max(current.max, p.score, p.bodyWeighted || 0);
-    } else if (current) {
-      segments.push(current);
-      current = null;
-    }
-  });
-  if (current) segments.push(current);
-  return segments;
-}
-
-function chooseSwingSegment(profile, duration, thresholds) {
-  const sampleGap = profile.length > 1 ? profile[1].time - profile[0].time : duration / 50;
-  let segments = findActiveSegments(profile, thresholds.activeThreshold);
-  segments = mergeActiveSegments(segments, profile, Math.max(0.22, sampleGap * 3.5));
-  segments = segments.filter((seg) => {
-    const dur = profile[seg.end].time - profile[seg.start].time;
-    return dur >= 0.16 && dur <= Math.min(Math.max(4.5, duration * 0.70), duration);
-  });
-
-  if (!segments.length) {
-    const peak = localMaximum(profile, 0, profile.length - 1, Math.round(profile.length * 0.55));
-    const peakIndex = indexAtTime(profile, peak.time);
-    return { start: Math.max(0, peakIndex - 12), end: Math.min(profile.length - 1, peakIndex + 18), max: peak.score, area: peak.score, quality: 0.22 };
-  }
-
-  let best = null;
-  let bestScore = -Infinity;
-  segments.forEach((seg) => {
-    const dur = profile[seg.end].time - profile[seg.start].time;
-    const upperAvg = profile.slice(seg.start, seg.end + 1).reduce((sum, p) => sum + (p.upper || 0), 0) / Math.max(1, seg.end - seg.start + 1);
-    const centerAvg = profile.slice(seg.start, seg.end + 1).reduce((sum, p) => sum + (p.center || 0), 0) / Math.max(1, seg.end - seg.start + 1);
-    const plausibility = scoreFromRange(dur, 0.18, 0.65, 3.2, Math.max(4.2, duration));
-    const compactness = seg.area / Math.max(dur, 0.08);
-    const score = (seg.max * 2.4) + (compactness * 0.10) + (upperAvg * 0.65) + (centerAvg * 0.35) + (plausibility * thresholds.p92 * 1.4);
-    if (score > bestScore) {
-      bestScore = score;
-      best = { ...seg, quality: clamp((score / Math.max(thresholds.p92 * 5.0, 0.001)), 0.18, 0.95) };
-    }
-  });
-
-  const expandBefore = Math.max(2, Math.round(0.34 / Math.max(sampleGap, 0.001)));
-  const expandAfter = Math.max(4, Math.round(0.95 / Math.max(sampleGap, 0.001)));
-  best.start = Math.max(0, best.start - expandBefore);
-  best.end = Math.min(profile.length - 1, best.end + expandAfter);
-  return best;
-}
-
-function bestTopCandidate(profile, startIndex, endIndex, impactIndex, thresholds) {
-  const fallback = Math.max(startIndex, Math.min(endIndex, impactIndex - 6));
-  let best = profile[fallback] || profile[startIndex] || profile[0];
-  let bestScore = -Infinity;
-  for (let i = startIndex; i <= endIndex; i += 1) {
-    const p = profile[i];
-    const after = localMaximum(profile, i + 1, Math.min(impactIndex, i + 7), i + 1, 'bodyWeighted');
-    const before = localMaximum(profile, Math.max(startIndex, i - 7), i, i, 'bodyWeighted');
-    const downDur = profile[impactIndex].time - p.time;
-    const plausibleDown = scoreFromRange(downDur, 0.07, 0.16, 0.46, 0.78);
-    const quiet = 1 - clamp((p.score - thresholds.median) / Math.max(thresholds.p92 - thresholds.median, 0.001), 0, 1);
-    const burstAfter = clamp((after.bodyWeighted || after.score) / Math.max(thresholds.p92, 0.001), 0, 1.4);
-    const notTooEarly = scoreFromRange(i - startIndex, 0, Math.max(1, (impactIndex - startIndex) * 0.36), Math.max(2, (impactIndex - startIndex) * 0.78), Math.max(3, impactIndex - startIndex));
-    const score = (quiet * 0.34) + (burstAfter * 0.30) + (plausibleDown * 0.24) + (notTooEarly * 0.12) - Math.max(0, (before.bodyWeighted || before.score) - (after.bodyWeighted || after.score)) * 0.03;
-    if (score > bestScore) { bestScore = score; best = p; }
-  }
-  return { point: best, quality: clamp(bestScore, 0.15, 0.96) };
-}
-
-function firstStableAfter(profile, startIndex, endIndex, threshold, minCount = 3) {
-  for (let i = startIndex; i <= endIndex; i += 1) {
-    let ok = true;
-    for (let j = 0; j < minCount; j += 1) {
-      const p = profile[Math.min(profile.length - 1, i + j)];
-      if (!p || p.score > threshold) { ok = false; break; }
-    }
-    if (ok) return profile[i];
-  }
-  return null;
-}
-
-function detectTimesFromMotion(profile, duration) {
-  if (!profile || profile.length < 10) {
-    return { times: fallbackPhaseTimes(duration), confidence: 0.22, peakTime: null, phaseConfidence: {}, extendedTimes: {}, diagnostics: {} };
-  }
-  const scores = profile.map((p) => p.score);
-  const maxScore = Math.max(...scores);
-  const median = percentile(scores, 0.5);
-  const p65 = percentile(scores, 0.65);
-  const p78 = percentile(scores, 0.78);
-  const p88 = percentile(scores, 0.88);
-  const p92 = percentile(scores, 0.92);
-  const p96 = percentile(scores, 0.96);
-  const noiseFloor = Math.max(median, 0.001);
-  const activeThreshold = Math.max(p65, noiseFloor * 1.42, maxScore * 0.14);
-  const strongThreshold = Math.max(p88, noiseFloor * 2.05, maxScore * 0.28);
-  const thresholds = { median, p65, p78, p88, p92, p96, activeThreshold, strongThreshold };
-
-  if (maxScore < 0.45 || p92 <= noiseFloor * 1.12) {
-    return { times: fallbackPhaseTimes(duration), confidence: 0.2, peakTime: null, phaseConfidence: {}, extendedTimes: {}, diagnostics: { maxScore, median, motionContrast: 0 } };
-  }
-
-  const segment = chooseSwingSegment(profile, duration, thresholds);
-  const segSpan = Math.max(1, segment.end - segment.start);
-  const segStartTime = profile[segment.start].time;
-  const segEndTime = profile[segment.end].time;
-
-  const impactStart = Math.max(segment.start + Math.round(segSpan * 0.34), indexAtTime(profile, segStartTime + 0.28));
-  const impactEnd = Math.min(segment.end, Math.max(impactStart + 1, segment.start + Math.round(segSpan * 0.86)));
-  let impact = localMaximum(profile, impactStart, impactEnd, Math.round((impactStart + impactEnd) / 2), 'bodyWeighted');
-  const impactIndex = indexAtTime(profile, impact.time);
-
-  const preWindowStart = Math.max(0, segment.start - Math.round(segSpan * 0.20));
-  const preWindowEnd = Math.max(preWindowStart, Math.min(segment.start + Math.round(segSpan * 0.10), impactIndex - 4));
-  const quietBefore = localMinimum(profile, preWindowStart, preWindowEnd, segment.start, 'score');
-  const addressTime = Math.max(0, Math.min(quietBefore.time, impact.time - 0.32));
-
-  const topStart = Math.max(indexAtTime(profile, addressTime + 0.14), segment.start + 2, indexAtTime(profile, impact.time - 1.15));
-  const topEnd = Math.max(topStart, Math.min(impactIndex - 2, indexAtTime(profile, impact.time - 0.08)));
-  const topCandidate = bestTopCandidate(profile, topStart, topEnd, impactIndex, thresholds);
-  let top = topCandidate.point;
-  if (!top || top.time >= impact.time - 0.05) {
-    top = profile[indexAtTime(profile, Math.max(addressTime + 0.2, impact.time - 0.28))];
-  }
-
-  const backDuration = Math.max(0.12, top.time - addressTime);
-  const takeawayTarget = addressTime + backDuration * 0.28;
-  const takeawayStart = indexAtTime(profile, addressTime + Math.min(0.035, backDuration * 0.12));
-  const takeawayEnd = Math.max(takeawayStart, indexAtTime(profile, Math.min(top.time - 0.035, addressTime + backDuration * 0.52)));
-  const thresholdCross = profile.slice(takeawayStart, takeawayEnd + 1).find((p) => p.score >= Math.max(median * 1.18, activeThreshold * 0.54));
-  const takeCandidate = thresholdCross || localMaximum(profile, takeawayStart, takeawayEnd, indexAtTime(profile, takeawayTarget), 'bodyWeighted');
-
-  const stableStart = indexAtTime(profile, impact.time + Math.min(0.22, Math.max(0.08, (profile[1]?.time || 0.05) * 4)));
-  const stable = firstStableAfter(profile, stableStart, profile.length - 1, Math.max(p78, median * 1.65), 3);
-  const rawFinishTime = stable?.time ?? Math.max(segEndTime, impact.time + Math.max(0.35, duration * 0.06));
-
-  const detectedTimes = {
-    address: addressTime,
-    takeaway: Math.min(top.time - 0.035, Math.max(addressTime + 0.035, takeCandidate.time)),
-    top: top.time,
-    impact: impact.time,
-    finish: Math.min(duration, Math.max(rawFinishTime, impact.time + 0.18)),
-  };
-  const referenceTimes = referencePhaseTimesFromImpact({
-    duration,
-    segmentStart: segStartTime,
-    segmentEnd: segEndTime,
-    impactTime: impact.time,
-    detectedTopTime: top.time,
-    topQuality: topCandidate.quality,
-    segmentQuality: segment.quality || 0.3,
-  });
-  const rawBack = detectedTimes.top - detectedTimes.address;
-  const rawDown = detectedTimes.impact - detectedTimes.top;
-  const rawTempo = rawBack / Math.max(rawDown, 0.001);
-  const implausible = !Number.isFinite(rawTempo) || rawTempo < 1.6 || rawTempo > 5.2 || rawDown < 0.07 || rawDown > 0.72;
-  const referenceWeight = clamp((implausible ? 0.48 : 0.20) + (1 - topCandidate.quality) * 0.22 + (1 - (segment.quality || 0.3)) * 0.10, 0.18, 0.62);
-  const blendedTimes = blendDetectedWithReference(detectedTimes, referenceTimes, referenceWeight);
-  const times = enforceIncreasing(blendedTimes, duration);
-
-  // Derived internal checkpoints for richer analysis without adding more UI steps.
-  const extendedTimes = {
-    activeStart: segStartTime,
-    activeEnd: segEndTime,
-    midBackswing: times.takeaway + (times.top - times.takeaway) * 0.52,
-    transition: times.top + Math.min(0.09, Math.max(0.025, (times.impact - times.top) * 0.22)),
-    preImpact: times.impact - Math.min(0.075, Math.max(0.025, (times.impact - times.top) * 0.28)),
-  };
-
-  const motionContrast = Math.min(1, (p92 - median) / Math.max(p92, 0.001));
-  const impactProminence = clamp((impact.bodyWeighted || impact.score) / Math.max(p92, 0.001), 0, 1.25);
-  const orderOk = times.address < times.takeaway && times.takeaway < times.top && times.top < times.impact && times.impact < times.finish;
-  const downDur = times.impact - times.top;
-  const backDur = times.top - times.address;
-  const finishDur = times.finish - times.impact;
-  const plausibleTempo = downDur > 0.07 && downDur < 0.70 && backDur > 0.18 && backDur < Math.max(3.5, duration * 0.75);
-  const finishQuality = scoreFromRange(finishDur, 0.08, 0.35, 2.3, 3.4);
-  const topQuality = topCandidate.quality;
-  const segmentQuality = segment.quality || 0.3;
-
-  const phaseConfidence = {
-    address: clamp((1 - quietBefore.normalized * 0.45) * 0.55 + segmentQuality * 0.35 + (orderOk ? 0.10 : 0), 0.25, 0.95),
-    takeaway: clamp(0.40 + motionContrast * 0.25 + segmentQuality * 0.20 + (times.takeaway > times.address ? 0.10 : 0), 0.25, 0.92),
-    top: clamp(0.25 + topQuality * 0.55 + plausibleTempo * 0.12 + motionContrast * 0.08, 0.22, 0.94),
-    impact: clamp(0.24 + impactProminence * 0.42 + motionContrast * 0.20 + (downDur > 0.07 ? 0.10 : 0), 0.24, 0.96),
-    finish: clamp(0.32 + finishQuality * 0.35 + segmentQuality * 0.16 + (finishDur > 0.18 ? 0.10 : 0), 0.22, 0.92),
-  };
-
-  const avgPhaseConfidence = Object.values(phaseConfidence).reduce((sum, value) => sum + value, 0) / phases.length;
-  const confidence = clamp(
-    0.18 + (motionContrast * 0.25) + (segmentQuality * 0.20) + (avgPhaseConfidence * 0.25) + (orderOk ? 0.07 : 0) + (plausibleTempo ? 0.05 : 0),
-    0.20,
-    0.94
-  );
-
-  const diagnostics = {
-    engine: 'Smart Phases v0.8.4',
-    maxScore,
-    median,
-    p92,
-    activeThreshold,
-    strongThreshold,
-    motionContrast,
-    segmentStart: segStartTime,
-    segmentEnd: segEndTime,
-    segmentDuration: segEndTime - segStartTime,
-    impactProminence,
-    topQuality,
-    segmentQuality,
-    referenceWeight,
-    referenceTimes,
-    rawTempo,
-  };
-
-  return { times, confidence, peakTime: impact.time, thresholds, phaseConfidence, extendedTimes, diagnostics };
-}
-
-
-
-function refineDetectedPhaseTimes(detectedTimes, duration, result = {}) {
-  const safe = Number.isFinite(duration) && duration > 0 ? duration : 2;
-  const detected = normalizePhaseTimes(detectedTimes, safe, initialLoadPhaseTimes(safe));
-  const ext = result.extendedTimes || result.metrics?.extendedTimes || {};
-  const confidence = Number.isFinite(result.confidence) ? result.confidence : 0.35;
-  const phaseConf = result.phaseConfidence || {};
-  const activeStart = Number.isFinite(ext.activeStart) ? ext.activeStart : detected.address;
-  const activeEnd = Number.isFinite(ext.activeEnd) ? ext.activeEnd : detected.finish;
-  const activeSpan = Math.max(0.65, activeEnd - activeStart);
-  const impact = Number.isFinite(detected.impact) ? detected.impact : activeStart + activeSpan * 0.70;
-  const modelDown = clamp(activeSpan * 0.18, SWING_REFERENCE.downSwingMin, SWING_REFERENCE.downSwingMax);
-  const modelTop = clamp(impact - modelDown, activeStart + 0.12, impact - 0.06);
-  const modelAddress = clamp(Math.min(activeStart, modelTop - modelDown * 2.65), 0, modelTop - 0.08);
-  const modelTakeaway = clamp(modelAddress + (modelTop - modelAddress) * 0.24, modelAddress + 0.04, modelTop - 0.04);
-  const modelFinish = clamp(Math.max(activeEnd, impact + Math.max(0.32, modelDown * 1.55)), impact + 0.15, safe);
-  const model = enforceIncreasing({ address: modelAddress, takeaway: modelTakeaway, top: modelTop, impact, finish: modelFinish }, safe);
-
-  const poorTempo = (detected.impact - detected.top) < 0.08 || (detected.impact - detected.top) > 0.75 || (detected.top - detected.address) < 0.20;
-  const lowPhaseQuality = ['top', 'impact'].some((id) => Number.isFinite(phaseConf[id]) && phaseConf[id] < 0.55);
-  const modelWeight = clamp((poorTempo ? 0.68 : 0.38) + (lowPhaseQuality ? 0.16 : 0) + (confidence < 0.55 ? 0.16 : 0), 0.18, 0.82);
-  const out = {};
-  phases.forEach((phase) => {
-    const phaseConfidence = phaseConf[phase.id] ?? confidence;
-    const phaseModelWeight = phaseConfidence > 0.74 ? modelWeight * 0.45 : modelWeight;
-    out[phase.id] = lerp(detected[phase.id], model[phase.id], phase.id === 'impact' ? Math.min(0.25, phaseModelWeight) : phaseModelWeight);
-  });
-  return enforceIncreasing(out, safe);
-}
-
-function applyDetectedPhaseTimes(detectedTimes, duration) {
-  const previousActivePhase = state.currentPhaseId;
-  const normalized = normalizePhaseTimes(detectedTimes, duration, initialLoadPhaseTimes(duration));
-  const merged = Object.assign({}, state.phaseTimes || {});
-
-  phases.forEach((phase) => {
-    const existingTime = extractPhaseTime(merged[phase.id]);
-    // User-marked phases are authoritative. Auto-detection may fill missing
-    // values and improve untouched phases, but not overwrite manual work.
-    if (!state.userMarkedPhaseIds.has(phase.id) || !Number.isFinite(existingTime)) {
-      merged[phase.id] = normalized[phase.id];
-    }
-  });
-
-  const enforced = enforceIncreasing(merged, duration);
-  // Restore exact user-marked timings after consistency enforcement so the
-  // detector cannot subtly move phases the user already corrected.
-  state.userMarkedPhaseIds.forEach((phaseId) => {
-    const manualTime = extractPhaseTime(merged[phaseId]);
-    if (Number.isFinite(manualTime)) enforced[phaseId] = manualTime;
-  });
-  state.phaseTimes = enforced;
-  state.analysisMetrics = null;
-
-  if (state.userPhaseControl && phases.some((phase) => phase.id === previousActivePhase)) {
-    state.currentPhaseId = previousActivePhase;
-  }
-}
-
-
-async function tryOnlineAutoDetection(runId) {
-  if (!state.videoBlob || !window.SwingLabOnlineEngine?.isEnabled?.()) return null;
-  updateOnlineStatus({ mode: 'uploading', available: state.onlineEngineStatus?.available || false, lastError: null });
-  refs.cleanHint.textContent = 'Motor online… subiendo vídeo';
-  refs.analysisStatus.textContent = 'Motor online: subiendo vídeo y analizando en servidor. Puedes seguir usando el reproductor.';
-  render();
-
-  const metadata = {
-    appVersion: 'v1.1.1-hybrid-url-fix',
-    videoName: state.videoName,
-    duration: Number.isFinite(refs.video.duration) ? refs.video.duration : null,
-    fps: ASSUMED_FPS,
-    view: state.guideMode,
-    club: localStorage.getItem('swingLabClub') || 'unknown',
-    existingManualPhases: clone(state.phaseTimes || {}),
-    userMarkedPhaseIds: Array.from(state.userMarkedPhaseIds || []),
-    clientTime: new Date().toISOString()
-  };
-
-  const result = await window.SwingLabOnlineEngine.analyze({ file: state.videoBlob, metadata });
-  if (state.autoDetectionRunId !== runId || !state.videoUrl) return null;
-  state.lastOnlineResult = result;
-  updateOnlineStatus({ mode: 'online', available: true, modelVersion: result.engineVersion || result.metrics?.engineVersion || null, lastSync: new Date().toISOString(), lastError: null });
-  return result;
-}
-
-function applyEngineResult(result, providerLabel = 'engine') {
-  const rawPhases = result.phases || result.times || result.metrics?.phaseTable || null;
-  const refinedPhases = refineDetectedPhaseTimes(rawPhases, refs.video.duration, result);
-  applyDetectedPhaseTimes(refinedPhases, refs.video.duration);
-  state.autoDetection = {
-    status: 'done',
-    confidence: result.confidence || 0.3,
-    method: result.engineVersion || providerLabel,
-    provider: result.provider || providerLabel,
-    samples: result.profileSummary?.samples || result.samples || 0,
-    poseSamples: result.profileSummary?.poseSamples || result.poseSamples || 0,
-    poseStatus: result.poseStatus || result.poseSummary?.status || 'unknown',
-    poseSummary: result.poseSummary || result.metrics?.poseSummary || null,
-    poseError: result.poseError || null,
-    motionPeakTime: result.phases?.impact || null,
-    phaseConfidence: result.phaseConfidence || phaseConfidenceFallback(result.confidence || 0.35),
-    extendedTimes: result.extendedTimes || {},
-    diagnostics: Object.assign({}, result.diagnostics || {}, {
-      provider: result.provider || providerLabel,
-      protectedManualPhases: Array.from(state.userMarkedPhaseIds),
-      rawDetectedPhases: rawPhases,
-      refinedDetectedPhases: refinedPhases,
-      onlineResult: providerLabel.includes('online')
-    }),
-  };
-  state.analysisMetrics = result.metrics || computeAnalysisMetrics();
-}
-
-async function autoDetectPhases() {
-  if (!state.videoUrl || state.autoDetection.status === 'running' || state.autoDetection.status === 'done') return;
-  const runId = state.autoDetectionRunId;
-  const analysisVideo = prepareAnalysisVideo();
-  if (!videoHasFrameData(refs.video)) {
-    state.autoDetection.status = 'queued';
-    scheduleInitialAutoDetection();
-    return;
-  }
-  setAppState('detecting');
-  state.autoDetection.status = 'running';
-  refs.cleanHint.textContent = 'Analizando fases en segundo plano…';
-  refs.analysisStatus.textContent = 'Detección inicial: analizando en una copia oculta del vídeo para no afectar el reproductor. Puedes reproducir y marcar fases mientras termina.';
-  render();
-
-  try {
-    const ready = await waitForMediaReady(analysisVideo, 6500);
-    if (state.autoDetectionRunId !== runId || !state.videoUrl) return;
-    if (!ready) throw new Error('analysis-video-not-ready');
-
-    let onlineResult = null;
-    try {
-      onlineResult = await tryOnlineAutoDetection(runId);
-    } catch (onlineError) {
-      console.warn('Online engine unavailable, using local fallback', onlineError);
-      updateOnlineStatus({ mode: 'fallback', available: false, lastError: String(onlineError?.message || onlineError) });
+    if(S.guides){
+      ctx.strokeStyle='rgba(255,255,255,.22)';
+      ctx.lineWidth=1/canvas.width;
+      ctx.beginPath();
+      ctx.moveTo(.5,0); ctx.lineTo(.5,1);
+      ctx.moveTo(0,.5); ctx.lineTo(1,.5);
+      ctx.moveTo(.33,0); ctx.lineTo(.33,1);
+      ctx.moveTo(.66,0); ctx.lineTo(.66,1);
+      ctx.stroke();
     }
 
-    if (onlineResult) {
-      applyEngineResult(onlineResult, 'online-engine');
-    } else if (window.SwingLabEngine?.analyze) {
-      let result = null;
-      result = await window.SwingLabEngine.analyze({
-        video: analysisVideo,
-        fps: ASSUMED_FPS,
-        view: state.guideMode,
-        phases,
-        maxSamples: 220,
-        maxPoseSamples: 240,
-        phaseDetectionMode: 'initial-load',
-        preferPose: true,
-        autoStart: true,
-        fullVideoPoseScan: false,
-        usePose: true,
-      });
-      if (state.autoDetectionRunId !== runId || !state.videoUrl) return;
-      applyEngineResult(result, 'local-pose-engine');
-    } else {
-      const duration = analysisVideo.duration || refs.video.duration;
-      const profile = await sampleMotionProfile(analysisVideo);
-      if (state.autoDetectionRunId !== runId || !state.videoUrl) return;
-      const legacy = detectTimesFromMotion(profile, duration);
-      const refinedLegacy = refineDetectedPhaseTimes(legacy.times, duration, legacy);
-      applyDetectedPhaseTimes(refinedLegacy, duration);
-      state.autoDetection = {
-        status: 'done',
-        confidence: legacy.confidence,
-        method: 'Legacy Smart Phases fallback background',
-        samples: profile?.length || 0,
-        motionPeakTime: legacy.peakTime,
-        phaseConfidence: legacy.phaseConfidence || phaseConfidenceFallback(legacy.confidence || 0.28),
-        extendedTimes: legacy.extendedTimes || {},
-        diagnostics: Object.assign({}, legacy.diagnostics || {}, { backgroundVideo: true, rawDetectedPhases: legacy.times, refinedDetectedPhases: refinedLegacy }),
-      };
-      state.analysisMetrics = computeAnalysisMetrics();
-    }
-
-    if (!hasCompletePhaseTimes(state.phaseTimes)) {
-      state.phaseTimes = normalizePhaseTimes(null, refs.video.duration, initialLoadPhaseTimes(refs.video.duration));
-    }
-    // Do not seek the visible video here. The player must remain fully usable while detection finishes.
-    setAppState('detected');
-    refs.cleanHint.textContent = state.controlsVisible ? 'Fases listas' : 'Fases listas · toca para revisar';
-    refs.analysisStatus.textContent = `Fases detectadas al cargar (${Math.round((state.autoDetection.confidence || 0) * 100)}% confianza) · ${state.autoDetection.poseStatus === 'available' ? 'pose corporal activa' : 'fallback heurístico'} · reproductor no bloqueado. Revisa Top e Impact.`;
-    render();
-  } catch (error) {
-    if (state.autoDetectionRunId !== runId || !state.videoUrl) return;
-    console.warn('Auto detection failed', error);
-    if (!hasCompletePhaseTimes(state.phaseTimes)) state.phaseTimes = normalizePhaseTimes(null, refs.video.duration, initialLoadPhaseTimes(refs.video.duration));
-    state.autoDetection = { status: 'failed', confidence: 0.2, method: 'fallback-percentages', samples: 0, motionPeakTime: null, phaseConfidence: phaseConfidenceFallback(0.20), extendedTimes: {}, diagnostics: { error: String(error?.message || error), backgroundVideo: true } };
-    state.analysisMetrics = computeAnalysisMetrics();
-    setAppState('marking');
-    refs.cleanHint.textContent = 'Toca para revisar fases estimadas';
-    refs.analysisStatus.textContent = 'No se pudo detectar con fiabilidad. Se han colocado fases estimadas por porcentaje y puedes corregirlas manualmente sin bloqueo.';
-    render();
+    [...S.shapes, S.angleDraft, S.temp].filter(Boolean).forEach(s => drawShape(ctx,s,s.id===S.selected));
+    ctx.restore();
+    updateLabels();
   }
-}
+  function drawShape(ctx,s,selected){
+    const lw = (selected ? (s.width||S.width)+1.25 : (s.width || S.width)) / Math.max(canvas.width, canvas.height);
+    ctx.strokeStyle = selected ? '#ffffff' : (s.color || S.color);
+    ctx.fillStyle = hexToRgba(s.color || S.color, .09);
+    ctx.lineWidth = lw;
+    ctx.lineCap='round';
+    ctx.lineJoin='round';
+    ctx.shadowColor = hexToRgba(s.color || S.color, selected ? .55 : .25);
+    ctx.shadowBlur = selected ? 10/canvas.width : 6/canvas.width;
 
-function seekMediaTo(media, time) {
-  return new Promise((resolve) => {
-    if (!media) return resolve();
-    const duration = Number.isFinite(media.duration) ? media.duration : time;
-    const safeTime = Math.max(0, Math.min(time, duration));
-    if (Math.abs((media.currentTime || 0) - safeTime) < 0.03) return resolve();
-    const timer = window.setTimeout(() => {
-      media.removeEventListener('seeked', onSeeked);
-      resolve();
-    }, 900);
-    const onSeeked = () => {
-      window.clearTimeout(timer);
-      resolve();
-    };
-    media.addEventListener('seeked', onSeeked, { once: true });
-    media.currentTime = safeTime;
+    if(s.type==='line'){
+      ctx.beginPath(); ctx.moveTo(s.x1,s.y1); ctx.lineTo(s.x2,s.y2); ctx.stroke();
+    }
+    if(s.type==='box'){
+      const x=Math.min(s.x1,s.x2), y=Math.min(s.y1,s.y2), w=Math.abs(s.x2-s.x1), h=Math.abs(s.y2-s.y1);
+      ctx.beginPath();
+      if(ctx.roundRect) ctx.roundRect(x,y,w,h,.01); else ctx.rect(x,y,w,h);
+      ctx.fill(); ctx.stroke();
+    }
+    if(s.type==='circle'){
+      const r=Math.hypot(s.x2-s.x1,s.y2-s.y1);
+      const ratio = canvas.width / Math.max(1, canvas.height);
+      ctx.beginPath(); ctx.ellipse(s.x1,s.y1,r,r*ratio,0,0,Math.PI*2); ctx.fill(); ctx.stroke();
+    }
+    if(s.type==='angle'){
+      ctx.beginPath(); ctx.moveTo(s.x1,s.y1); ctx.lineTo(s.x2,s.y2); ctx.lineTo(s.x3??s.x2,s.y3??s.y2); ctx.stroke();
+      const val = angleVal(s);
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#fff';
+      ctx.font = '600 .034px system-ui';
+      if(isDrawable(s)) ctx.fillText(Math.round(val)+'°', s.x2+.018, s.y2-.018);
+    }
+    if(s.type==='free'){
+      ctx.beginPath();
+      s.points.forEach((p,i)=> i?ctx.lineTo(p.x,p.y):ctx.moveTo(p.x,p.y));
+      ctx.stroke();
+    }
+  }
+  function drawHandle(ctx,x,y){
+    ctx.save();
+    ctx.shadowBlur=0;
+    ctx.fillStyle='#99f032';
+    ctx.beginPath(); ctx.arc(x,y,.008,0,Math.PI*2); ctx.fill();
+    ctx.restore();
+  }
+  function angleVal(s){
+    const ax=(s.x1-s.x2)*canvas.width, ay=(s.y1-s.y2)*canvas.height, bx=((s.x3??s.x2)-s.x2)*canvas.width, by=((s.y3??s.y2)-s.y2)*canvas.height;
+    const dot=ax*bx+ay*by, ma=Math.hypot(ax,ay), mb=Math.hypot(bx,by);
+    return Math.acos(Math.max(-1,Math.min(1,dot/(ma*mb||1))))*180/Math.PI;
+  }
+  function hexToRgba(hex,a){
+    const h=hex.replace('#','');
+    const r=parseInt(h.substring(0,2),16), g=parseInt(h.substring(2,4),16), b=parseInt(h.substring(4,6),16);
+    return `rgba(${r},${g},${b},${a})`;
+  }
+
+  canvas.addEventListener('pointerdown', e=>{
+    if(!S.drawEnabled) return;
+    const p=point(e);
+    S.drawing=true;
+    S.drawStart=Date.now();
+    const h=hit(p);
+    if(h){
+      S.selected=h.id;
+      S.drag={shape:h,last:p};
+      setStatus('Move selected mark');
+      draw(); return;
+    }
+    if(S.tool==='select'){
+      S.selected=null;
+      setStatus('Tap a mark to select it');
+      draw(); return;
+    }
+    const id=Date.now()+Math.random();
+    if(S.tool==='free') S.temp={id,type:'free',color:S.color,width:S.width,points:[p]};
+    else if(S.tool==='angle') {
+      if(S.angleDraft) S.temp={id,type:'angle',color:S.color,width:S.width,x1:S.angleDraft.x1,y1:S.angleDraft.y1,x2:S.angleDraft.x2,y2:S.angleDraft.y2,x3:p.x,y3:p.y};
+      else S.temp={id,type:'line',angleSeed:true,color:S.color,width:S.width,x1:p.x,y1:p.y,x2:p.x,y2:p.y};
+    }
+    else S.temp={id,type:S.tool,color:S.color,width:S.width,x1:p.x,y1:p.y,x2:p.x,y2:p.y};
+    draw(); e.preventDefault();
   });
-}
-
-function seekVideoTo(time) {
-  return seekMediaTo(refs.video, time);
-}
-
-async function captureFrameAt(time) {
-  const media = state.videoUrl ? (prepareAnalysisVideo() || refs.video) : refs.video;
-  if (!media) return null;
-  await waitForMediaReady(media, 4500);
-  if (!media.videoWidth || !media.videoHeight) return null;
-  const canvas = refs.analysisCanvas || (refs.analysisCanvas = document.createElement('canvas'));
-  const maxWidth = Math.min(media.videoWidth, 1440);
-  const scale = maxWidth / media.videoWidth;
-  const width = Math.max(1, Math.round(media.videoWidth * scale));
-  const height = Math.max(1, Math.round(media.videoHeight * scale));
-
-  const originalTime = media.currentTime || 0;
-  await seekMediaTo(media, time);
-  canvas.width = width;
-  canvas.height = height;
-  const ctx = canvas.getContext('2d');
-  ctx.clearRect(0, 0, width, height);
-  ctx.drawImage(media, 0, 0, width, height);
-  await seekMediaTo(media, originalTime);
-  return canvas.toDataURL('image/jpeg', 0.92);
-}
-
-async function generatePhaseCaptures() {
-  if (!state.videoUrl) return {};
-  const originalTime = refs.video.currentTime || 0;
-  refs.video.pause();
-  refs.playBtn.textContent = 'Play';
-
-  const results = {};
-  for (const phase of phases) {
-    const time = state.phaseTimes[phase.id];
-    if (time == null) continue;
-    const image = await captureFrameAt(time);
-    if (image) results[phase.id] = image;
-  }
-
-  await seekMediaTo(refs.video, originalTime);
-  renderReadouts();
-  renderTimeline();
-  return results;
-}
-
-async function analyze() {
-  if (!state.videoUrl) return;
-  setMode('analysis');
-  setAppState('analyzing');
-  refs.analysisStatus.textContent = 'Generando capturas y métricas del swing…';
-  refs.recommendations.innerHTML = '';
-  refs.capturesGrid.innerHTML = '';
-
-  try {
-    state.phaseCaptures = await generatePhaseCaptures();
-    state.analysisMetrics = window.SwingLabEngine?.computeMetrics
-      ? window.SwingLabEngine.computeMetrics({
-          times: clone(state.phaseTimes),
-          confidence: state.autoDetection.confidence || 0.45,
-          phaseConfidence: state.autoDetection.phaseConfidence || {},
-          extendedTimes: state.autoDetection.extendedTimes || {},
-          diagnostics: state.autoDetection.diagnostics || {},
-          poseSummary: state.autoDetection.poseSummary || null,
-          provider: state.autoDetection.provider || state.autoDetection.method || 'manual-review',
-        }, refs.video.duration, ASSUMED_FPS)
-      : computeAnalysisMetrics();
-    const capturesCount = Object.keys(state.phaseCaptures).length;
-    refs.analysisStatus.textContent = `Listo: ${capturesCount} capturas · ${markedCount()}/${phases.length} fases · tempo ${state.analysisMetrics?.tempoRatio ? state.analysisMetrics.tempoRatio.toFixed(2) + ':1' : 'pendiente'}.`;
-    renderRecommendations();
-    renderCapturesGrid();
-    setAppState('completed');
-    render();
-  } catch (error) {
-    console.error(error);
-    refs.analysisStatus.textContent = 'No se pudieron generar las capturas.';
-    setAppState('error');
-  }
-}
-
-async function saveSession() {
-  try {
-    if (!Object.keys(state.phaseCaptures).length && state.videoUrl && markedCount()) {
-      state.phaseCaptures = await generatePhaseCaptures();
+  canvas.addEventListener('pointermove', e=>{
+    if(!S.drawing) return;
+    const p=point(e);
+    if(S.drag){
+      const dx=p.x-S.drag.last.x, dy=p.y-S.drag.last.y;
+      moveShape(S.drag.shape, dx, dy);
+      S.drag.last=p;
+      draw(); return;
     }
-    if (!Object.keys(state.phaseCaptures).length) {
-      alert('Primero genera las capturas de las fases en la pestaña Análisis.');
+    if(S.temp){
+      if(S.temp.type==='free') S.temp.points.push(p);
+      else if(S.temp.type==='angle'){ S.temp.x3=p.x; S.temp.y3=p.y; }
+      else { S.temp.x2=p.x; S.temp.y2=p.y; if(S.temp.type==='line' && S.snapLine && Date.now()-S.drawStart>380) snapLine(S.temp); }
+      draw();
+    }
+    e.preventDefault();
+  });
+  canvas.addEventListener('pointerup', finishDraw);
+  canvas.addEventListener('pointercancel', finishDraw);
+  function finishDraw(){
+    if(S.temp && S.temp.type==='line' && S.snapLine && Date.now()-S.drawStart>380) snapLine(S.temp);
+    if(S.temp && !isDrawable(S.temp)){
+      if(S.temp.angleSeed) setStatus('Drag a longer first angle line');
+      S.temp=null;
+    } else if(S.temp && S.temp.angleSeed){
+      S.angleDraft={id:'angle-draft',type:'line',color:S.color,width:S.width,x1:S.temp.x1,y1:S.temp.y1,x2:S.temp.x2,y2:S.temp.y2};
+      S.temp=null;
+      setStatus('Draw the second angle line');
+    } else if(S.temp){
+      S.shapes.push(S.temp); S.selected=S.temp.id; S.temp=null; S.angleDraft=null;
+    }
+    S.drawing=false; S.drag=null; draw();
+  }
+  function snapLine(s){
+    const dx=s.x2-s.x1, dy=s.y2-s.y1;
+    if(Math.abs(dx)>Math.abs(dy)) s.y2=s.y1; else s.x2=s.x1;
+  }
+
+  document.addEventListener('click', e=>{
+    const phase=e.target.closest('[data-review-phase]');
+    if(phase&&editor.contains(phase)){
+      if(imagePhase){openCapture(phase.dataset.reviewPhase);return;}
+      e.preventDefault();e.stopPropagation();fsVideo.pause();const r=window.SwingLabReview?.snapshot?.(),name=phase.dataset.reviewPhase,t=r?.phases[name];
+      if(r?.markMode||!Number.isFinite(t))window.SwingLabReview?.command?.('phase',fsVideo.currentTime,name);
+      else{fsVideo.currentTime=t;mainVideo.currentTime=t;updateTime()}
       return;
     }
-    const previewCapture = state.phaseCaptures.address || Object.values(state.phaseCaptures)[0] || null;
-    await dbPut({
-      id: uid(),
-      createdAt: new Date().toISOString(),
-      videoName: state.videoName,
-      duration: Number.isFinite(refs.video.duration) ? refs.video.duration : null,
-      guideMode: state.guideMode,
-      phaseTimes: clone(state.phaseTimes),
-      phaseCaptures: clone(state.phaseCaptures),
-      analysisMetrics: clone(state.analysisMetrics || (window.SwingLabEngine?.computeMetrics
-        ? window.SwingLabEngine.computeMetrics({
-            times: clone(state.phaseTimes),
-            confidence: state.autoDetection.confidence || 0.45,
-            phaseConfidence: state.autoDetection.phaseConfidence || {},
-            extendedTimes: state.autoDetection.extendedTimes || {},
-            diagnostics: state.autoDetection.diagnostics || {},
-            poseSummary: state.autoDetection.poseSummary || null,
-            provider: state.autoDetection.provider || state.autoDetection.method || 'manual-review',
-          }, refs.video.duration || 0, ASSUMED_FPS)
-        : computeAnalysisMetrics())),
-      autoDetection: clone(state.autoDetection),
-      trainingRecord: clone(buildTrainingRecord(state.analysisMetrics || ensureAnalysisMetrics())),
-      reportSnapshot: {
-        status: clientStatusFromMetrics(state.analysisMetrics || ensureAnalysisMetrics()),
-        priorities: topClientPriorities(state.analysisMetrics || ensureAnalysisMetrics()),
-        savedAt: new Date().toISOString(),
-      },
-      lines: clone(state.lines),
-      thumbnail: previewCapture,
-    });
-    setAppState('saved');
-    await loadHistory();
-    setMode('history');
-  } catch (error) {
-    console.error(error);
-    setAppState('error');
-    alert('No se pudo guardar la sesión. Puede faltar espacio o estar bloqueado el almacenamiento del navegador.');
-  }
-}
-
-
-function toggleHistorySelectionMode() {
-  state.historySelectionMode = !state.historySelectionMode;
-  state.selectedSessionIds.clear();
-  renderReadouts();
-  loadHistory();
-}
-
-function toggleSessionSelection(id) {
-  if (state.selectedSessionIds.has(id)) state.selectedSessionIds.delete(id);
-  else state.selectedSessionIds.add(id);
-  renderReadouts();
-  loadHistory();
-}
-
-async function deleteSelectedSessions() {
-  const ids = Array.from(state.selectedSessionIds || []);
-  if (!ids.length) return;
-  if (!confirm(`¿Borrar ${ids.length} sesión(es) seleccionada(s)?`)) return;
-  await dbDeleteMany(ids);
-  state.selectedSessionIds.clear();
-  state.historySelectionMode = false;
-  await loadHistory();
-  renderReadouts();
-}
-
-async function loadHistory() {
-  const sessions = (await dbAll()).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-  refs.historyList.innerHTML = '';
-  renderReadouts();
-  if (!sessions.length) {
-    refs.historyList.innerHTML = '<div class="status-box">Aún no hay sesiones guardadas.</div>';
-    return;
-  }
-  sessions.forEach((session) => {
-    const row = document.createElement('div');
-    row.className = `history-row ${state.historySelectionMode ? 'selecting' : ''} ${state.selectedSessionIds.has(session.id) ? 'selected' : ''}`;
-
-    const checkbox = document.createElement('button');
-    checkbox.type = 'button';
-    checkbox.className = 'history-check';
-    checkbox.textContent = state.selectedSessionIds.has(session.id) ? '✓' : '';
-    checkbox.title = 'Seleccionar para borrar';
-    checkbox.addEventListener('click', (event) => {
-      event.stopPropagation();
-      toggleSessionSelection(session.id);
-    });
-
-    const item = document.createElement('button');
-    item.className = 'history-item';
-    item.type = 'button';
-    const date = new Date(session.createdAt).toLocaleString('es-ES', { dateStyle: 'short', timeStyle: 'short' });
-    const capturesCount = Object.keys(session.phaseCaptures || {}).length;
-    item.innerHTML = `
-      <img class="history-thumb" src="${session.thumbnail || 'icons/icon-192.png'}" alt="Miniatura" />
-      <div>
-        <div class="history-title">${session.videoName || 'Swing guardado'}</div>
-        <div class="history-meta">${date} · ${capturesCount} capturas · ${Object.keys(session.phaseTimes || {}).length}/${phases.length} fases${session.trainingRecord ? ' · dataset' : ''}</div>
-      </div>`;
-    item.addEventListener('click', () => {
-      if (state.historySelectionMode) toggleSessionSelection(session.id);
-      else restoreSession(session);
-    });
-
-    row.appendChild(checkbox);
-    row.appendChild(item);
-    refs.historyList.appendChild(row);
-  });
-}
-
-function restoreSession(session) {
-  revokeVideoUrl();
-  resetSessionState();
-  state.videoBlob = session.videoBlob || null;
-  state.videoName = session.videoName || 'Swing guardado';
-  state.phaseTimes = session.phaseTimes || {};
-  state.phaseCaptures = session.phaseCaptures || {};
-  state.analysisMetrics = session.analysisMetrics || null;
-  state.autoDetection = session.autoDetection || { status: 'idle', confidence: 0, method: '', samples: 0, motionPeakTime: null };
-  state.lines = session.lines || [];
-  state.guideMode = session.guideMode || 'dtl';
-  state.mode = Object.keys(state.phaseCaptures).length ? 'analysis' : 'phases';
-  state.controlsVisible = true;
-  state.activeCaptureIndex = 0;
-  state.sheetExpanded = false;
-  state.historySelectionMode = false;
-  state.selectedSessionIds.clear();
-
-  if (Object.keys(state.phaseCaptures).length) {
-    state.viewingCapture = true;
-    state.controlsVisible = false;
-    refs.analysisStatus.textContent = `Sesión restaurada: ${Object.keys(state.phaseCaptures).length} capturas disponibles. Desliza para revisar fases.`;
-    renderRecommendations();
-  } else {
-    state.viewingCapture = false;
-    refs.analysisStatus.textContent = 'Marca las fases y genera las capturas.';
-    refs.recommendations.innerHTML = '';
-  }
-
-  if (session.videoBlob) {
-    state.captureOnly = false;
-    state.videoUrl = URL.createObjectURL(session.videoBlob);
-    refs.video.src = state.videoUrl;
-    refs.video.load();
-    setAppState('loaded');
-  } else {
-    state.captureOnly = true;
-    state.videoUrl = null;
-    state.videoBlob = null;
-    refs.video.removeAttribute('src');
-    refs.video.load();
-    setAppState('saved');
-  }
-  render();
-}
-
-async function clearHistory() {
-  if (!confirm('¿Borrar todas las sesiones guardadas en este dispositivo?')) return;
-  await dbClear();
-  state.selectedSessionIds.clear();
-  state.historySelectionMode = false;
-  await loadHistory();
-}
-
-
-function openHistoryFromStart() {
-  revokeVideoUrl();
-  resetSessionState();
-  state.captureOnly = true;
-  state.videoUrl = null;
-  state.videoBlob = null;
-  state.videoName = '';
-  state.mode = 'history';
-  state.viewingCapture = false;
-  state.controlsVisible = true;
-  refs.video.removeAttribute('src');
-  refs.video.load();
-  setAppState('saved');
-  render();
-  loadHistory();
-}
-
-function resizeDrawingCanvas() {
-  const canvas = refs.drawingCanvas;
-  const rect = canvas.getBoundingClientRect();
-  const dpr = window.devicePixelRatio || 1;
-  canvas.width = Math.max(1, Math.round(rect.width * dpr));
-  canvas.height = Math.max(1, Math.round(rect.height * dpr));
-  drawAllLines();
-}
-
-function getCanvasCssSize() {
-  const rect = refs.drawingCanvas.getBoundingClientRect();
-  return { width: rect.width || 1, height: rect.height || 1 };
-}
-
-function toNormalized(clientX, clientY) {
-  const rect = refs.drawingCanvas.getBoundingClientRect();
-  return {
-    x: Math.min(Math.max((clientX - rect.left) / rect.width, 0), 1),
-    y: Math.min(Math.max((clientY - rect.top) / rect.height, 0), 1),
-  };
-}
-
-
-function drawLine(ctx, line, cssWidth, cssHeight, dpr, dashed = false) {
-  ctx.save();
-  ctx.scale(dpr, dpr);
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
-  ctx.strokeStyle = '#ffffff';
-  ctx.lineWidth = 2.8;
-  ctx.shadowColor = 'rgba(0,0,0,.65)';
-  ctx.shadowBlur = 5;
-  if (dashed) ctx.setLineDash([8, 6]);
-  ctx.beginPath();
-  ctx.moveTo(line.x1 * cssWidth, line.y1 * cssHeight);
-  ctx.lineTo(line.x2 * cssWidth, line.y2 * cssHeight);
-  ctx.stroke();
-  ctx.restore();
-}
-
-function drawPoint(ctx, point, cssWidth, cssHeight, dpr) {
-  ctx.save();
-  ctx.scale(dpr, dpr);
-  ctx.fillStyle = '#ffffff';
-  ctx.strokeStyle = 'rgba(0,0,0,.72)';
-  ctx.lineWidth = 2;
-  ctx.shadowColor = 'rgba(0,0,0,.55)';
-  ctx.shadowBlur = 6;
-  ctx.beginPath();
-  ctx.arc(point.x * cssWidth, point.y * cssHeight, 6, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.stroke();
-  ctx.restore();
-}
-
-function drawAllLines() {
-  const canvas = refs.drawingCanvas;
-  if (!canvas.width || !canvas.height) return;
-  const ctx = canvas.getContext('2d');
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  const dpr = window.devicePixelRatio || 1;
-  const { width, height } = getCanvasCssSize();
-
-  if (state.showDrawings) {
-    state.lines.forEach((line, index) => drawLine(ctx, line, width, height, dpr, index === state.selectedLineIndex));
-  }
-  if (state.pendingLineStart) {
-    drawPoint(ctx, state.pendingLineStart, width, height, dpr);
-  }
-  if (state.previewLine) {
-    drawLine(ctx, state.previewLine, width, height, dpr, true);
-  }
-}
-
-function toggleDrawingMode() {
-  const hasCaptures = captureList().length > 0;
-  if (!state.videoUrl && !hasCaptures) return;
-  state.drawingMode = !state.drawingMode;
-  if (state.drawingMode) {
-    state.controlsVisible = true;
-    if (state.videoUrl && !state.viewingCapture) {
-      state.mode = 'phases';
-      refs.video.pause();
-      refs.playBtn.textContent = 'Play';
-    } else if (hasCaptures) {
-      state.viewingCapture = true;
-      state.mode = state.mode === 'history' ? 'history' : 'analysis';
+    const review=e.target.closest('[data-review-command]');
+    if(review&&editor.contains(review)){
+      e.preventDefault();e.stopPropagation();const action=review.dataset.reviewCommand;
+      if(['engine','trim','advanced','confirm-trim','mark','analyze','captures','edit-impact','save','report'].includes(action))fsVideo.pause();
+      if(['engine','trim','advanced','edit-impact'].includes(action)){setDrawEnabled(false);setCompact(false);S.fitSafe=false;editor.classList.remove('is-fit-safe');const g=document.getElementById('fsEngineGuide');g.style.left='';g.style.top='';g.style.bottom='';}
+      if(action==='mark-mode'&&window.SwingLabReview.snapshot().engineGuide)window.SwingLabReview.command('manual');
+      if(['engine','trim','advanced','edit-impact','manual','save','captures','report'].includes(action)){const more=document.getElementById('fsReviewOptions');if(more)more.hidden=true}
+      window.SwingLabReview?.command?.(action,fsVideo.currentTime).catch(()=>setStatus('The review action could not finish. Try again.'));
+      return;
     }
-  }
-  state.previewLine = null;
-  state.pendingLineStart = null;
-  state.pointerStart = null;
-  state.pointerMoved = false;
-  state.pointerDown = false;
-  state.dragLineIndex = -1;
-  state.dragStartPoint = null;
-  state.dragOriginalLine = null;
-  state.lockAxisMode = false;
-  if (state.longPressTimer) clearTimeout(state.longPressTimer);
-  state.longPressTimer = null;
-  render();
-}
 
-
-function distance(a, b) {
-  if (!a || !b) return Infinity;
-  const dx = (a.x || 0) - (b.x || 0);
-  const dy = (a.y || 0) - (b.y || 0);
-  return Math.sqrt(dx * dx + dy * dy);
-}
-
-function lineLength(line) {
-  if (!line) return 0;
-  return distance({ x: line.x1, y: line.y1 }, { x: line.x2, y: line.y2 });
-}
-
-function createLineFromPending(point) {
-  if (!state.pendingLineStart || !point) return false;
-  let line = {
-    x1: state.pendingLineStart.x,
-    y1: state.pendingLineStart.y,
-    x2: point.x,
-    y2: point.y,
-  };
-  line = snapLineIfNeeded(line);
-  if (lineLength(line) <= 0.012) {
-    state.previewLine = null;
-    return false;
-  }
-  state.lines.push(line);
-  state.selectedLineIndex = state.lines.length - 1;
-  state.pendingLineStart = null;
-  state.previewLine = null;
-  state.pointerDown = false;
-  state.pointerStart = null;
-  state.pointerMoved = false;
-  state.lockAxisMode = false;
-  if (state.longPressTimer) clearTimeout(state.longPressTimer);
-  state.longPressTimer = null;
-  refs.drawingHint.textContent = 'Línea creada';
-  window.setTimeout(() => {
-    if (state.drawingMode) refs.drawingHint.textContent = 'Dibujo: toca 2 puntos, arrastra, o mueve una línea existente';
-  }, 900);
-  drawAllLines();
-  renderRails();
-  return true;
-}
-
-function pointToSegmentDistance(point, line) {
-  const ax = line.x1;
-  const ay = line.y1;
-  const bx = line.x2;
-  const by = line.y2;
-  const dx = bx - ax;
-  const dy = by - ay;
-  const len2 = dx * dx + dy * dy;
-  if (!len2) return distance(point, { x: ax, y: ay });
-  const t = Math.max(0, Math.min(1, ((point.x - ax) * dx + (point.y - ay) * dy) / len2));
-  return distance(point, { x: ax + t * dx, y: ay + t * dy });
-}
-
-function findLineNearPoint(point) {
-  if (!state.lines.length || !state.showDrawings) return -1;
-  let bestIndex = -1;
-  let bestDistance = Infinity;
-  state.lines.forEach((line, index) => {
-    const d = pointToSegmentDistance(point, line);
-    if (d < bestDistance) {
-      bestDistance = d;
-      bestIndex = index;
+    const tool = e.target.closest('[data-tool]');
+    if(tool){
+      S.tool=tool.dataset.tool;
+      S.angleDraft=null;
+      S.temp=null;
+      document.querySelectorAll('[data-tool]').forEach(b=>b.classList.toggle('is-active', b.dataset.tool===S.tool));
+      setStatus(S.tool==='angle'?'Draw the first angle line':(tool.querySelector('small')?.textContent || S.tool));
+      draw();
+      return;
     }
-  });
-  return bestDistance <= 0.035 ? bestIndex : -1;
-}
-
-function snapLineIfNeeded(line) {
-  if (!state.lockAxisMode) return line;
-  const dx = line.x2 - line.x1;
-  const dy = line.y2 - line.y1;
-  if (Math.abs(dx) >= Math.abs(dy)) {
-    return { ...line, y2: line.y1, lock: 'horizontal' };
-  }
-  return { ...line, x2: line.x1, lock: 'vertical' };
-}
-
-function startLongPressAxisLock() {
-  if (state.longPressTimer) clearTimeout(state.longPressTimer);
-  state.longPressTimer = window.setTimeout(() => {
-    if (!state.pointerDown || state.dragLineIndex >= 0) return;
-    state.lockAxisMode = true;
-    if (state.previewLine) state.previewLine = snapLineIfNeeded(state.previewLine);
-    refs.drawingHint.textContent = 'Bloqueo ON: línea horizontal/vertical';
-    window.setTimeout(() => {
-      if (state.drawingMode) refs.drawingHint.textContent = 'Dibujo: toca 2 puntos, arrastra, o mueve una línea existente';
-    }, 1200);
-    drawAllLines();
-  }, 520);
-}
-
-function handleCanvasPointerDown(event) {
-  if (!state.drawingMode) return;
-  event.preventDefault();
-  event.stopPropagation();
-  const point = toNormalized(event.clientX, event.clientY);
-
-  // Mobile two-tap mode: if a first point already exists, the next tap must
-  // immediately confirm the line. Do not wait for pointerup, because some
-  // mobile browsers lose/cancel the pointer capture before pointerup fires.
-  if (state.pendingLineStart && !state.pointerDown) {
-    const created = createLineFromPending(point);
-    if (!created) {
-      state.pendingLineStart = point;
-      state.previewLine = null;
-      state.selectedLineIndex = -1;
-      drawAllLines();
-      renderRails();
+    const color = e.target.closest('[data-color]');
+    if(color){
+      S.color=color.dataset.color;
+      document.querySelectorAll('[data-color]').forEach(b=>b.classList.toggle('is-active', b.dataset.color===S.color));
+      return;
     }
-    return;
-  }
-
-  state.pointerDown = true;
-  state.pointerStart = point;
-  state.pointerMoved = false;
-  state.lockAxisMode = false;
-
-  const lineIndex = findLineNearPoint(point);
-  if (lineIndex >= 0) {
-    state.selectedLineIndex = lineIndex;
-    state.dragLineIndex = lineIndex;
-    state.dragStartPoint = point;
-    state.dragOriginalLine = { ...state.lines[lineIndex] };
-    state.previewLine = null;
-    state.pendingLineStart = null;
-  } else {
-    state.dragLineIndex = -1;
-    state.dragStartPoint = null;
-    state.dragOriginalLine = null;
-    state.previewLine = state.pendingLineStart
-      ? { x1: state.pendingLineStart.x, y1: state.pendingLineStart.y, x2: point.x, y2: point.y }
-      : { x1: point.x, y1: point.y, x2: point.x, y2: point.y };
-    startLongPressAxisLock();
-  }
-  refs.drawingCanvas.setPointerCapture?.(event.pointerId);
-  drawAllLines();
-}
-
-function handleCanvasPointerMove(event) {
-  if (!state.drawingMode || !state.pointerDown) return;
-  event.preventDefault();
-  event.stopPropagation();
-  const point = toNormalized(event.clientX, event.clientY);
-  if (distance(state.pointerStart, point) > 0.006) state.pointerMoved = true;
-
-  if (state.dragLineIndex >= 0 && state.dragOriginalLine && state.dragStartPoint) {
-    const dx = point.x - state.dragStartPoint.x;
-    const dy = point.y - state.dragStartPoint.y;
-    state.lines[state.dragLineIndex] = {
-      ...state.dragOriginalLine,
-      x1: Math.min(Math.max(state.dragOriginalLine.x1 + dx, 0), 1),
-      y1: Math.min(Math.max(state.dragOriginalLine.y1 + dy, 0), 1),
-      x2: Math.min(Math.max(state.dragOriginalLine.x2 + dx, 0), 1),
-      y2: Math.min(Math.max(state.dragOriginalLine.y2 + dy, 0), 1),
-    };
-  } else if (state.previewLine) {
-    state.previewLine.x2 = point.x;
-    state.previewLine.y2 = point.y;
-    state.previewLine = snapLineIfNeeded(state.previewLine);
-  }
-  drawAllLines();
-}
-
-function handleCanvasPointerUp(event) {
-  if (!state.drawingMode || !state.pointerDown) return;
-  event.preventDefault();
-  event.stopPropagation();
-  const point = toNormalized(event.clientX, event.clientY);
-  const wasMoved = state.pointerMoved;
-  let draggedLine = state.previewLine ? snapLineIfNeeded(state.previewLine) : null;
-  const wasMovingLine = state.dragLineIndex >= 0;
-
-  if (state.longPressTimer) clearTimeout(state.longPressTimer);
-  state.longPressTimer = null;
-  state.pointerDown = false;
-  state.pointerStart = null;
-  state.pointerMoved = false;
-
-  if (wasMovingLine) {
-    state.selectedLineIndex = state.dragLineIndex;
-    state.dragLineIndex = -1;
-    state.dragStartPoint = null;
-    state.dragOriginalLine = null;
-    state.previewLine = null;
-  } else if (wasMoved && draggedLine && lineLength(draggedLine) > 0.012) {
-    state.lines.push(draggedLine);
-    state.selectedLineIndex = state.lines.length - 1;
-    state.pendingLineStart = null;
-    state.previewLine = null;
-  } else if (!state.pendingLineStart) {
-    state.pendingLineStart = point;
-    state.previewLine = null;
-    state.selectedLineIndex = -1;
-  } else {
-    const before = state.lines.length;
-    createLineFromPending(point);
-    if (state.lines.length > before) state.selectedLineIndex = state.lines.length - 1;
-  }
-
-  state.lockAxisMode = false;
-  refs.drawingCanvas.releasePointerCapture?.(event.pointerId);
-  drawAllLines();
-  renderRails();
-}
-
-function cancelCanvasPointer(event) {
-  if (!state.drawingMode || !state.pointerDown) return;
-  state.pointerDown = false;
-  state.pointerStart = null;
-  state.pointerMoved = false;
-  state.previewLine = null;
-  state.dragLineIndex = -1;
-  state.dragStartPoint = null;
-  state.dragOriginalLine = null;
-  state.lockAxisMode = false;
-  if (state.longPressTimer) clearTimeout(state.longPressTimer);
-  state.longPressTimer = null;
-  try { refs.drawingCanvas.releasePointerCapture?.(event.pointerId); } catch (_) {}
-  drawAllLines();
-  renderRails();
-}
-
-function bindEvents() {
-  refs.pickVideoBtn.addEventListener('click', () => refs.videoInput.click());
-  refs.openCameraBtn.addEventListener('click', () => refs.cameraInput.click());
-  refs.openHistoryStartBtn.addEventListener('click', openHistoryFromStart);
-  refs.uploadBtn.addEventListener('click', () => refs.videoInput.click());
-  if (refs.engineStatusBtn) refs.engineStatusBtn.addEventListener('click', configureOnlineEngine);
-  if (refs.engineStatusBtnStart) refs.engineStatusBtnStart.addEventListener('click', configureOnlineEngine);
-  refs.videoInput.addEventListener('change', (event) => applyVideoFile(event.target.files?.[0]));
-  refs.cameraInput.addEventListener('change', (event) => applyVideoFile(event.target.files?.[0]));
-
-  refs.tapLayer.addEventListener('click', toggleControls);
-  refs.video.addEventListener('click', toggleControls);
-  refs.playBtn.addEventListener('click', togglePlay);
-  refs.video.addEventListener('timeupdate', () => { renderReadouts(); renderTimeline(); });
-  refs.video.addEventListener('seeked', () => { renderReadouts(); renderTimeline(); });
-  refs.video.addEventListener('play', () => { refs.playBtn.textContent = 'Pause'; });
-  refs.video.addEventListener('pause', () => { refs.playBtn.textContent = 'Play'; });
-  refs.video.addEventListener('loadedmetadata', () => {
-    refs.video.pause();
-    refs.playBtn.textContent = 'Play';
-    refs.video.playbackRate = state.speed;
-    resizeDrawingCanvas();
-    if (state.videoUrl && Number.isFinite(refs.video.duration) && refs.video.duration > 0) {
-      installImmediatePhaseDefaults('loadedmetadata');
+    const width = e.target.closest('[data-width]');
+    if(width){
+      S.width=Number(width.dataset.width)||5;
+      document.querySelectorAll('[data-width]').forEach(b=>b.classList.toggle('is-active', Number(b.dataset.width)===S.width));
+      return;
     }
-    if (state.initialVideoClean) {
-      refs.video.currentTime = 0;
-    } else if (state.phaseTimes[currentPhase().id] == null && Number.isFinite(refs.video.duration) && refs.video.duration > 0) {
-      refs.video.currentTime = refs.video.duration * currentPhase().pct;
+    const speed = e.target.closest('[data-speed]');
+    if(speed){
+      setSpeed(Number(speed.dataset.speed)||1);
+      if(speedMenu) speedMenu.hidden=true;
+      e.preventDefault(); e.stopPropagation();
+      return;
     }
-    render();
-    scheduleInitialAutoDetection();
-  });
-  refs.video.addEventListener('durationchange', () => { installImmediatePhaseDefaults('durationchange'); scheduleInitialAutoDetection(); });
-  refs.video.addEventListener('loadeddata', () => { installImmediatePhaseDefaults('loadeddata'); scheduleInitialAutoDetection(); });
-  refs.video.addEventListener('canplay', () => { installImmediatePhaseDefaults('canplay'); scheduleInitialAutoDetection(); });
-  if ('requestVideoFrameCallback' in HTMLVideoElement.prototype) {
-    refs.video.requestVideoFrameCallback(() => { installImmediatePhaseDefaults('video-frame-callback'); scheduleInitialAutoDetection(); });
-  }
-
-  refs.toggleGuidesBtn.addEventListener('click', () => { state.showGuides = !state.showGuides; render(); });
-  refs.switchModeBtn.addEventListener('click', () => { state.guideMode = state.guideMode === 'dtl' ? 'fo' : 'dtl'; render(); });
-  refs.drawModeBtn.addEventListener('click', toggleDrawingMode);
-  refs.toggleDrawingsBtn.addEventListener('click', () => { state.showDrawings = !state.showDrawings; drawAllLines(); renderRails(); });
-  refs.undoLineBtn.addEventListener('click', () => { if (state.selectedLineIndex >= 0) { state.lines.splice(state.selectedLineIndex, 1); state.selectedLineIndex = -1; } else { state.lines.pop(); } drawAllLines(); renderRails(); });
-  refs.clearLinesBtn.addEventListener('click', () => { state.lines = []; state.selectedLineIndex = -1; state.pendingLineStart = null; state.previewLine = null; drawAllLines(); renderRails(); });
-
-  refs.tabPhases.addEventListener('click', () => setMode('phases'));
-  refs.tabAnalysis.addEventListener('click', () => setMode('analysis'));
-  refs.tabHistory.addEventListener('click', () => setMode('history'));
-  refs.speedBtn.addEventListener('click', cycleSpeed);
-
-  refs.timeline.addEventListener('input', () => {
-    state.isSeekingWithSlider = true;
-    updateTimelineFromInput();
-  });
-  refs.timeline.addEventListener('change', () => {
-    state.isSeekingWithSlider = false;
-    renderTimeline();
-  });
-  refs.backFrameBtn.addEventListener('click', () => stepFrame(-1));
-  refs.forwardFrameBtn.addEventListener('click', () => stepFrame(1));
-  refs.markPhaseBtn.addEventListener('click', markCurrentPhase);
-  refs.analyzeBtn.addEventListener('click', analyze);
-  refs.saveSessionBtn.addEventListener('click', saveSession);
-  refs.saveSessionTopBtn.addEventListener('click', saveSession);
-  if (refs.downloadReportBtn) refs.downloadReportBtn.addEventListener('click', downloadReport);
-  if (refs.submitTrainingBtn) refs.submitTrainingBtn.addEventListener('click', submitTrainingDataset);
-  if (refs.exportDatasetBtn) refs.exportDatasetBtn.addEventListener('click', exportTrainingDataset);
-  if (refs.expandSheetBtn) refs.expandSheetBtn.addEventListener('click', () => { state.sheetExpanded = !state.sheetExpanded; render(); });
-  refs.historySelectBtn.addEventListener('click', toggleHistorySelectionMode);
-  refs.deleteSelectedHistoryBtn.addEventListener('click', deleteSelectedSessions);
-  refs.clearHistoryBtn.addEventListener('click', clearHistory);
-
-  function beginSheetDrag(event) {
-    if (state.mode !== 'analysis' && state.mode !== 'history') return;
-    state.sheetDragStartY = event.clientY;
-    state.sheetDragStartHeight = refs.bottomDock.getBoundingClientRect().height;
-    state.sheetDragging = true;
-    refs.bottomDock.classList.add('sheet-dragging');
-    refs.sheetHandle.setPointerCapture?.(event.pointerId);
-  }
-
-  function updateSheetDrag(event) {
-    if (!state.sheetDragging || !Number.isFinite(state.sheetDragStartY)) return;
-    const viewport = window.innerHeight || document.documentElement.clientHeight || 700;
-    const minHeight = Math.max(210, viewport * (state.mode === 'history' ? 0.42 : 0.44));
-    const maxHeight = Math.max(minHeight + 80, viewport - 10);
-    const dyUp = state.sheetDragStartY - event.clientY;
-    const startHeight = state.sheetDragStartHeight || refs.bottomDock.getBoundingClientRect().height;
-    const nextHeight = Math.min(maxHeight, Math.max(minHeight, startHeight + dyUp));
-    refs.bottomDock.style.height = `${nextHeight}px`;
-    refs.bottomDock.style.maxHeight = `${nextHeight}px`;
-    const panel = state.mode === 'analysis' ? refs.analysisPanel : refs.historyPanel;
-    if (panel) panel.style.maxHeight = `${Math.max(120, nextHeight - 88)}px`;
-  }
-
-  function finishSheetDrag(event) {
-    if (state.mode !== 'analysis' && state.mode !== 'history') return;
-    const startY = state.sheetDragStartY;
-    const startHeight = state.sheetDragStartHeight;
-    const currentHeight = refs.bottomDock.getBoundingClientRect().height;
-    const viewport = window.innerHeight || document.documentElement.clientHeight || 700;
-    const dy = Number.isFinite(startY) ? event.clientY - startY : 0;
-    state.sheetDragStartY = null;
-    state.sheetDragStartHeight = null;
-    state.sheetDragging = false;
-    refs.bottomDock.classList.remove('sheet-dragging');
-    refs.bottomDock.style.height = '';
-    refs.bottomDock.style.maxHeight = '';
-    refs.analysisPanel.style.maxHeight = '';
-    refs.historyPanel.style.maxHeight = '';
-    if (Math.abs(dy) < 10 && Number.isFinite(startHeight)) {
-      state.sheetExpanded = !state.sheetExpanded;
-    } else if (currentHeight > viewport * 0.62 || dy < -26) {
-      state.sheetExpanded = true;
-    } else if (dy > 26 || currentHeight < viewport * 0.58) {
-      state.sheetExpanded = false;
+    const action = e.target.closest('[data-fs-action]');
+    if(action){
+      const a=action.dataset.fsAction;
+      e.preventDefault(); e.stopPropagation();
+      handleFs(a);
     }
-    render();
+  }, true);
+
+  function handleFs(a){
+    if(a==='toggle-controls'){if(suppressToggle)suppressToggle=false;else setCompact(!editor.classList.contains('is-controls-compact'));}
+    if(a==='options'){const p=document.getElementById('fsReviewOptions');p.hidden=!p.hidden;if(!p.hidden){speedMenu.hidden=true;placePanel(p)}editor.querySelector('[data-fs-action="options"]').setAttribute('aria-expanded',String(!p.hidden));}
+    if(a==='open') openEditor();
+    if(a==='close') closeEditor();
+    if(a==='toggle-tools'){document.getElementById('fsReviewOptions').hidden=true;setDrawEnabled(!S.drawEnabled);}
+    if(a==='collapse-tools') collapseTools();
+    if(a==='expand-tools') expandTools();
+    if(a==='toggle-fit'){ S.fitSafe=!S.fitSafe; editor.classList.toggle('is-fit-safe',S.fitSafe); setTimeout(draw,60); updateLabels(); }
+    if(a==='toggle-style'){ if(toolStyle) toolStyle.hidden=!toolStyle.hidden; updateLabels(); }
+    if(a==='toggle-guides'){ S.guides=!S.guides; draw(); }
+    if(a==='toggle-view'){ S.view=S.view==='DTL'?'FO':'DTL'; updateLabels(); }
+    if(a==='delete'){ S.shapes=S.shapes.filter(s=>s.id!==S.selected); S.selected=null; draw(); }
+    if(a==='undo'){ S.shapes.pop(); S.selected=null; draw(); }
+    if(a==='clear'){ S.shapes=[]; S.selected=null; draw(); }
+    if(a==='duplicate') duplicateSelected();
+    if(a==='toggle-snap'){ S.snapLine=!S.snapLine; updateLabels(); }
+    if(a==='speed-menu'){if(speedMenu){speedMenu.hidden=!speedMenu.hidden;if(!speedMenu.hidden)placePanel(speedMenu)}updateLabels();}
+    if(a==='back-frame') step(-1);
+    if(a==='forward-frame') step(1);
+    if(a==='play'){if(fsVideo.paused)fsVideo.play().catch(()=>setStatus('This video cannot be played'));else fsVideo.pause()}
+    if(a==='snapshot') saveSnapshot();
   }
-
-  refs.sheetHandle.addEventListener('pointerdown', beginSheetDrag);
-  refs.sheetHandle.addEventListener('pointermove', updateSheetDrag);
-  refs.sheetHandle.addEventListener('pointerup', finishSheetDrag);
-  refs.sheetHandle.addEventListener('pointercancel', finishSheetDrag);
-
-  refs.drawingCanvas.addEventListener('pointerdown', handleCanvasPointerDown);
-  refs.drawingCanvas.addEventListener('pointermove', handleCanvasPointerMove);
-  refs.drawingCanvas.addEventListener('pointerup', handleCanvasPointerUp);
-  refs.drawingCanvas.addEventListener('pointercancel', cancelCanvasPointer);
-  refs.drawingCanvas.addEventListener('lostpointercapture', cancelCanvasPointer);
-  refs.captureViewer.addEventListener('pointerdown', (event) => {
-    state.captureSwipeStart = { x: event.clientX, y: event.clientY };
-  });
-  refs.captureViewer.addEventListener('pointerup', (event) => {
-    if (!state.captureSwipeStart || state.drawingMode) return;
-    const dx = event.clientX - state.captureSwipeStart.x;
-    const dy = event.clientY - state.captureSwipeStart.y;
-    state.captureSwipeStart = null;
-    if (Math.abs(dx) > 38 && Math.abs(dx) > Math.abs(dy)) {
-      moveCapture(dx < 0 ? 1 : -1);
-    } else if (Math.abs(dx) < 10 && Math.abs(dy) < 10) {
-      state.controlsVisible = !state.controlsVisible;
-      render();
-    }
-  });
-  refs.captureViewer.addEventListener('dblclick', closeCaptureViewerToVideo);
-  window.addEventListener('resize', resizeDrawingCanvas);
-
-  window.addEventListener('beforeinstallprompt', (event) => {
-    event.preventDefault();
-    state.installPrompt = event;
-    refs.installBtn.classList.remove('hidden');
-    refs.installBtnEmpty.classList.remove('hidden');
-  });
-
-  const install = async () => {
-    if (!state.installPrompt) return;
-    state.installPrompt.prompt();
-    await state.installPrompt.userChoice;
-    state.installPrompt = null;
-    refs.installBtn.classList.add('hidden');
-    refs.installBtnEmpty.classList.add('hidden');
-  };
-  refs.installBtn.addEventListener('click', install);
-  refs.installBtnEmpty.addEventListener('click', install);
-}
-
-async function registerServiceWorker() {
-  if (!('serviceWorker' in navigator)) return;
-  try {
-    await navigator.serviceWorker.register('./sw.js');
-  } catch (error) {
-    console.warn('Service worker no registrado:', error);
+  function saveSnapshot(){
+    if(!imagePhase&&fsVideo.readyState<2)return setStatus('Wait for the video to load');
+    try{const output=document.createElement('canvas');output.width=canvas.width;output.height=canvas.height;const ctx=output.getContext('2d'),vw=imagePhase?still.naturalWidth:fsVideo.videoWidth,vh=imagePhase?still.naturalHeight:fsVideo.videoHeight,scale=Math.min(output.width/vw,output.height/vh),w=vw*scale,h=vh*scale;ctx.fillStyle='#071009';ctx.fillRect(0,0,output.width,output.height);ctx.drawImage(imagePhase?still:fsVideo,(output.width-w)/2,(output.height-h)/2,w,h);ctx.drawImage(canvas,0,0);const link=document.createElement('a');link.download='swing-lab-frame.png';link.href=output.toDataURL('image/png');link.click();setStatus('Image saved to your downloads')}catch{setStatus('Image could not be saved. Try phase captures instead')}
   }
-}
+  function setSpeed(sp){
+    const idx=S.speeds.indexOf(sp);
+    S.speedIndex=idx>=0?idx:S.speeds.findIndex(x=>x===1);
+    fsVideo.playbackRate=sp;
+    mainVideo.playbackRate=sp;
+    updateLabels();
+  }
+  function duplicateSelected(){
+    const s=S.shapes.find(x=>x.id===S.selected);
+    if(!s) return setStatus('Select a mark first');
+    const copy=JSON.parse(JSON.stringify(s));
+    copy.id=Date.now()+Math.random();
+    moveShape(copy,.035,.035);
+    S.shapes.push(copy);
+    S.selected=copy.id;
+    draw();
+  }
+  function step(dir){
+    fsVideo.pause();
+    fsVideo.currentTime=SwingLabVideo.step(window.SwingLabSourceTiming?.(),fsVideo.currentTime||0,dir,fsVideo.duration||0);
+  }
+  function updateTime(){
+    const t=fsVideo.currentTime||0, frame=SwingLabVideo.frameIndex(window.SwingLabSourceTiming?.(),t);
+    fsTime.textContent=`${Math.floor(t/60)}:${(t%60).toFixed(2).padStart(5,'0')}${frame==null?'':' · source frame '+frame}`;
+    for(const [action,label]of [['back-frame',frame==null?'−20ms':'−1f'],['forward-frame',frame==null?'+20ms':'+1f']]){const button=editor.querySelector(`[data-fs-action="${action}"]`);if(button)button.textContent=label}
+    if(fsTimeline && fsVideo.duration) fsTimeline.value=Math.round((t/fsVideo.duration)*1000);
+    updateLabels();refreshReview();
+  }
+  function updateLabels(){
+    document.getElementById('fsGuidesState').textContent=S.guides?'ON':'OFF';
+    document.getElementById('fsViewState').textContent=S.view;
+    document.getElementById('fsUndoCount').textContent=S.shapes.length;
+    const drawState=document.getElementById('fsDrawState');
+    const styleState=document.getElementById('fsStyleState');
+    const snapState=document.getElementById('fsSnapState');
+    if(drawState) drawState.textContent=S.drawEnabled?'ON':'OFF';
+    if(styleState) styleState.textContent=toolStyle && !toolStyle.hidden?'Close':'Open';
+    if(snapState) snapState.textContent=S.snapLine?'Snap':'Free';
+    if(fsFitState) fsFitState.textContent=S.fitSafe?'SAFE':'FULL';
+    fsSpeed.textContent=S.speeds[S.speedIndex]+'x';
+    if(speedMenu) speedMenu.querySelectorAll('[data-speed]').forEach(b=>b.classList.toggle('is-active', Number(b.dataset.speed)===S.speeds[S.speedIndex]));
+    if(fsPlayButton){ fsPlayButton.textContent=fsVideo.paused?'Play':'Pause'; fsPlayButton.classList.toggle('is-playing', !fsVideo.paused); }
+    fsToolName.textContent=S.tool.charAt(0).toUpperCase()+S.tool.slice(1);
+    editor.classList.toggle('is-draw-off', !S.drawEnabled);
+    document.querySelectorAll('[data-fs-action="toggle-guides"]').forEach(b=>b.classList.toggle('is-on', S.guides));
+    document.querySelectorAll('[data-fs-action="toggle-tools"]').forEach(b=>b.classList.toggle('is-on', S.drawEnabled));
+    document.querySelectorAll('[data-fs-action="toggle-fit"]').forEach(b=>b.classList.toggle('is-on', S.fitSafe));
+  }
+  document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!editor.hidden){e.preventDefault();closeEditor()}});
+  function setStatus(txt){ fsStatusText.textContent=txt; updateLabels(); }
+  fsVideo.addEventListener('timeupdate', updateTime);
+  fsVideo.addEventListener('play', updateLabels);
+  fsVideo.addEventListener('pause', updateLabels);
+  fsVideo.addEventListener('loadedmetadata', () => {
+    const rate = fsVideo.getVideoPlaybackQuality ? fsVideo.getVideoPlaybackQuality().totalVideoFrames / Math.max(.001, fsVideo.duration || 1) : 30;
+    S.fps = Number.isFinite(rate) && rate > 10 && rate < 240 ? Math.round(rate) : 30;
+    updateTime();
+  });
+  const player=editor.querySelector('.fs-player');let sheetOffset=0,sheetStart=null,suppressToggle=false;
+  function setSheetOffset(value){sheetOffset=Math.max(0,Math.min(Math.max(0,player.offsetHeight-22),value));player.style.setProperty('--sheet-offset',sheetOffset+'px');editor.classList.toggle('is-controls-compact',sheetOffset>10);const b=document.getElementById('fsControlsHandle');b.setAttribute('aria-expanded',String(sheetOffset<10));b.title=sheetOffset>10?'Raise playback controls':'Lower playback controls';editor.style.setProperty('--fs-controls-height',Math.max(22,player.offsetHeight-sheetOffset)+'px');}
+  function setCompact(on){setSheetOffset(on?player.offsetHeight-22:0)}
+  editor.querySelector('.fs-stage').addEventListener('click',e=>{if(!editor.classList.contains('is-analysis-prep')&&!S.drawEnabled&&[fsVideo,canvas,still,e.currentTarget].includes(e.target))setCompact(!editor.classList.contains('is-controls-compact'))});
+  const handle=document.getElementById('fsControlsHandle');
+  handle.addEventListener('pointerdown',e=>{sheetStart={y:e.clientY,offset:sheetOffset,moved:false};handle.setPointerCapture(e.pointerId);e.preventDefault()});
+  handle.addEventListener('pointermove',e=>{if(!sheetStart)return;if(Math.abs(e.clientY-sheetStart.y)>3)sheetStart.moved=true;setSheetOffset(sheetStart.offset+e.clientY-sheetStart.y);e.preventDefault()});
+  const finishSheet=()=>{if(sheetStart?.moved)suppressToggle=true;sheetStart=null;};handle.addEventListener('pointerup',finishSheet);handle.addEventListener('pointercancel',()=>{sheetStart=null});
+  handle.addEventListener('keydown',e=>{if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();setSheetOffset(sheetOffset+(e.key==='ArrowDown'?20:-20))}});
+  function placePanel(panel){panel.style.left='12px';panel.style.top='78px';panel.style.bottom='auto';panel.style.transform='none';clampPanel(panel)}
+  function clampPanel(panel){if(panel.hidden||editor.hidden)return;const r=panel.getBoundingClientRect();if(!r.width||!r.height)return;const bounds=editor.getBoundingClientRect(),x=Math.max(6,Math.min(bounds.width-r.width-6,r.left-bounds.left)),y=Math.max(6,Math.min(bounds.height-r.height-6,r.top-bounds.top));if(Math.abs(x-(r.left-bounds.left))>.5||Math.abs(y-(r.top-bounds.top))>.5){panel.style.transform='none';panel.style.left=x+'px';panel.style.top=y+'px';panel.style.bottom='auto';}}
+  function keepPanelsVisible(){for(const id of ['toolPanel','fsReviewOptions','speedMenu']){const p=document.getElementById(id);if(p)clampPanel(p)}}
+  let scrub=null;
+  fsTimeline.addEventListener('pointerdown',e=>{if(!fsVideo.duration)return;e.preventDefault();fsVideo.pause();scrub={x:e.clientX,y:e.clientY,time:fsVideo.currentTime};fsTimeline.setPointerCapture(e.pointerId)});
+  fsTimeline.addEventListener('pointermove',e=>{if(!scrub)return;e.preventDefault();const fine=Math.abs(e.clientY-scrub.y)>40?.15:1;fsVideo.currentTime=Math.max(0,Math.min(fsVideo.duration,fsVideo.currentTime+(e.clientX-scrub.x)/fsTimeline.getBoundingClientRect().width*fsVideo.duration*fine));scrub.x=e.clientX});
+  const endScrub=()=>{scrub=null};fsTimeline.addEventListener('pointerup',endScrub);fsTimeline.addEventListener('pointercancel',endScrub);
+  fsTimeline.addEventListener('input',()=>{if(!scrub&&fsVideo.duration){fsVideo.pause();fsVideo.currentTime=(+fsTimeline.value/1000)*fsVideo.duration}});
 
-function init() {
-  bindEvents();
-  updateOnlineStatus({ mode: onlineEngineUrl() ? 'configured' : 'local-only', available: false });
-  render();
-  loadHistory();
-  checkOnlineEngine({ quiet: true });
-  registerServiceWorker();
-}
+  window.addEventListener('resize', ()=>setTimeout(()=>{setSheetOffset(sheetOffset);keepPanelsVisible();draw()},120));
 
+  document.addEventListener('pointerdown', e=>{
+    if(e.target.closest('.panel-mini')) return;
+    const h=e.target.closest('[data-drag-panel]');
+    const broad=e.target.closest('.floating-panel');
+    if(!h && (!broad || e.target.closest('button,input,select,textarea'))) return;
+    const panel=h?document.getElementById(h.dataset.dragPanel):broad;
+    const r=panel.getBoundingClientRect();
+    S.panelDrag={panel,dx:e.clientX-r.left,dy:e.clientY-r.top};
+    try{ (h||panel).setPointerCapture(e.pointerId); }catch(err){}
+    e.preventDefault();
+  }, true);
+  document.addEventListener('pointermove', e=>{
+    if(!S.panelDrag) return;
+    const p=S.panelDrag.panel;
+    const w=p.offsetWidth||120, h=p.offsetHeight||60;
+    p.style.left=Math.max(6,Math.min(window.innerWidth-w-6,e.clientX-S.panelDrag.dx))+'px';
+    p.style.top=Math.max(6,Math.min(window.innerHeight-h-6,e.clientY-S.panelDrag.dy))+'px';
+    p.style.bottom='auto';
+    e.preventDefault();
+  }, true);
+  document.addEventListener('pointerup', ()=>{ S.panelDrag=null; }, true);
+  document.addEventListener('pointercancel',()=>{S.panelDrag=null},true);
 
-window.SwingLabAudit = {
-  version: 'v0.9.6 Stable Player Audit',
-  checks: () => ({
-    hasVideo: Boolean(state.videoUrl),
-    autoDetection: Object.assign({}, state.autoDetection),
-    phaseTimes: Object.assign({}, state.phaseTimes),
-    userMarkedPhases: Array.from(state.userMarkedPhaseIds || []),
-    visibleVideoTime: refs.video?.currentTime || 0,
-    analysisVideoReady: Boolean(refs.analysisVideo && Number.isFinite(refs.analysisVideo.duration)),
-  })
-};
-
-init();
+  updateLabels();
+})();

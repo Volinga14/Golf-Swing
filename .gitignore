@@ -1,59 +1,21 @@
-# Python virtual environments
-.venv/
-venv/
-env/
+node_modules/
+test-results/
+.test-artifacts/
 
-# Python cache
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
+# Native Android build products and local credentials
+android/.gradle/
+android/local.properties
+android/app/build/
+android/app/src/main/assets/
+*.jks
+*.keystore
 
-# Local backend generated data
-online-engine/data/videos/*
-online-engine/data/captures/*
-online-engine/data/reports/*
-online-engine/data/features/*
-online-engine/data/training/*
-online-engine/data/db/*
-online-engine/data/tmp/*
-online-engine/data/uploads/*
-online-engine/data/models/*.json
-online-engine/external/
-online-engine/data/dataset/
-online-engine/data/models/*.json
-*.pth
-*.pth.tar
-*.pt
-
-# Keep folder placeholders
-!online-engine/data/**/.gitkeep
-
-# Local databases
-*.sqlite
-*.sqlite3
-*.db
-
-# Environment variables / secrets
+# Local configuration and credentials
 .env
-.env.local
-
-# Logs
-*.log
-logs/
-
-# Large video files
-*.mp4
-*.mov
-*.avi
-*.mkv
-*.webm
-
-# OS / editor
-.DS_Store
-Thumbs.db
-.vscode/
+.env.*
+!.env.example
 .idea/
+.DS_Store
+*.pem
+*.p12
+*.key
