@@ -1,58 +1,11 @@
-# OS / editor
-.DS_Store
-Thumbs.db
-.vscode/
-.idea/
-
-# Environment
-.env
-.env.local
-.env.*
-!.env.example
-
-# Node / frontend
 node_modules/
-dist/
-build/
-.cache/
-.parcel-cache/
+test-results/
+.test-artifacts/
 
-# Python / backend local
-.venv/
-venv/
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-
-# Local backend / engines / training data
-online-engine/
-data/
-data_external/
-models/
-training/
-reports/
-captures/
-videos/
-external/
-engine/
-
-# ML / dataset / media artifacts
-*.mp4
-*.mov
-*.avi
-*.mkv
-*.webm
-*.pt
-*.pth
-*.onnx
-*.pkl
-*.npy
-*.npz
-*.mat
-*.zip
-
-# Logs / temp
-*.log
-tmp/
-temp/
+# Native Android build products and local credentials
+android/.gradle/
+android/local.properties
+android/app/build/
+android/app/src/main/assets/
+*.jks
+*.keystore

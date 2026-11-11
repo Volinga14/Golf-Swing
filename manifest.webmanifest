@@ -1,22 +1,33 @@
 {
-  "name": "Swing Lab GLAB",
+  "name": "Swing Lab",
   "short_name": "Swing Lab",
-  "start_url": "./index.html?v=121",
+  "description": "SwingLab: revisión local del swing, comparación y práctica. Versión de pruebas.",
+  "id": "./",
+  "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
+  "display_override": [
+    "standalone",
+    "fullscreen",
+    "minimal-ui"
+  ],
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff",
   "orientation": "portrait",
-  "background_color": "#000000",
-  "theme_color": "#000000",
-  "description": "PWA móvil para análisis de swing conectada al backend neural GLAB.",
+  "categories": [
+    "sports",
+    "health",
+    "productivity"
+  ],
   "icons": [
     {
-      "src": "icons/icon-192.png",
+      "src": "assets/icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any maskable"
     },
     {
-      "src": "icons/icon-512.png",
+      "src": "assets/icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"

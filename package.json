@@ -1,0 +1,23 @@
+{
+  "name": "swing-lab",
+  "version": "0.47.0",
+  "private": true,
+  "scripts": {
+    "test": "node --test --test-isolation=none tests/*.test.cjs",
+    "test:browser": "node tests/browser.cjs",
+    "test:frontend": "node tests/frontend.cjs",
+    "test:marking": "node tests/marking-browser.cjs",
+    "lab": "node tools/serve-marking-lab.cjs",
+    "test:learning": "node tests/learning-browser.cjs",
+    "test:references": "node tests/references-browser.cjs",
+    "test:segment": "node tests/segment-browser.cjs",
+    "test:impact": "node tests/impact-browser.cjs",
+    "test:guided": "node tests/guided-review-browser.cjs"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "devDependencies": {
+    "playwright": "1.62.1"
+  }
+}
