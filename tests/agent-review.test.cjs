@@ -18,3 +18,14 @@ test('source-frame refinement respects its budget at high frame rates',()=>{cons
 test('a stored package from another video is not restored into this session',()=>assert.equal(A.normalizeState({videoSha256:sha2,agentContext:context(),agentReview:review()}).agentContext,null));
 
 test('unmarked short swing can use honest overview frames without invented phase labels',()=>{const timing={verified:true,times:Array.from({length:137},(_,i)=>i/30)},f=S.overview(137/30,timing);assert.equal(f.length,30);assert.equal(f[0].source_frame,0);assert.equal(f.at(-1).source_frame,136);assert.equal(new Set(f.map(v=>v.source_frame)).size,30);assert(f.every(v=>v.labels.every(l=>!A.IDS.includes(l))));assert.throws(()=>S.overview(20,timing));});
+
+test('a changed trim invalidates an existing agent image package',()=>{
+ const s={videoSha256:sha,view:'DTL',phases:{Impact:2}};
+ assert.notEqual(A.fingerprint(s),A.fingerprint({...s,analysisRange:{start:1,end:3}}));
+ assert.notEqual(A.fingerprint({...s,analysisRange:{start:1,end:3}}),A.fingerprint({...s,analysisRange:{start:1,end:4}}));
+});
+test('overview samples only the chosen swing inside a longer original recording',()=>{
+ const points=S.overview(60,{verified:true,times:Array.from({length:601},(_,i)=>i/10)},{start:10.03,end:14.97});
+ assert.equal(points.length,30);assert(points.every(p=>p.time>=10.03&&p.time<=14.97));assert.equal(points[0].source_frame,101);
+ assert.throws(()=>S.overview(60,null,{start:10,end:30}));
+});

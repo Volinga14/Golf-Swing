@@ -41,7 +41,7 @@ function go(s){if(!screens[s])return;if(s!=='review'&&!document.getElementById('
 function modalMsg(t,txt=''){modalTitle.textContent=t;modalText.textContent=txt;if(t==='Session saved.'){showToast('Session saved on this device');updateSessionStatus();return}dialogReturn=document.activeElement;modal.hidden=false;app.inert=true;if(landing)landing.inert=true;modal.querySelector('.modal-back')?.focus()}
 function closeModal(){modal.hidden=true;app.inert=false;if(landing)landing.inert=!landing.classList.contains('is-active');dialogReturn?.focus?.()}
 document.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;if(b.dataset.action)handle(b.dataset.action);if(b.dataset.nav)go(b.dataset.nav);if(b.dataset.openSession)openSession(b.dataset.openSession);if(b.dataset.deleteId)deleteSession(b.dataset.deleteId);if(b.dataset.compareId)toggleCompare(b.dataset.compareId);if(b.dataset.comparePhase)renderCompareViewer(b.dataset.comparePhase);if(b.dataset.modalTitle)modalMsg(b.dataset.modalTitle);if(b.hasAttribute('data-close'))closeModal()});
-function handle(a){if(a==='open-segment'){window.SwingLabEditor?.close?.();const picker=document.getElementById('swingSegmentPicker');picker.open=true;picker.scrollIntoView({block:'start'});document.getElementById('segmentStartSlider').focus()}if(a==='help')modalMsg('Tu primera revisión','1. Elige un clip corto con un único swing y el cuerpo y palo completos.\n\n2. Pulsa Analizar. Puedes usar el marcado local o la revisión con ChatGPT en Android.\n\n3. Guarda tu informe y trabaja una prioridad en Entrenar.\n\nEn Mi progreso podrás consultar tus revisiones y registrar la práctica.');if(a==='account-info')modalMsg('Tu cuenta y tus datos','Tus vídeos, informes y prácticas se guardan en este dispositivo. El marcado local funciona sin cuenta. En Android, ChatGPT es opcional: puedes conectar tu cuenta desde el análisis y revisar las imágenes que se enviarán. No hay sincronización entre dispositivos.');if(a==='cancel-profile'){nameInput.value=profile.name;document.getElementById('profileEditForm').hidden=true}if(a==='copy-feedback')copyFeedback();if(a==='edit-profile'){const form=document.getElementById('profileEditForm');form.hidden=!form.hidden;if(!form.hidden)nameInput.value=profile.name;if(!form.hidden)document.getElementById('profileNameInput').focus()}if(a==='focus-settings'){const settings=document.getElementById('profileSettings');settings.open=true;settings.scrollIntoView({block:'nearest',behavior:'smooth'});settings.querySelector('summary').focus()}if(a==='go-home')showApp();if(a==='install-app')installApp();if(a==='pick-video')videoInput.click();if(a==='record-video')cameraInput.click();if(a==='play-toggle')togglePlay();if(a==='back-frame')stepFrame(-1);if(a==='forward-frame')stepFrame(1);if(a==='capture-phases')capturePhases();if(a==='toggle-mark-mode'){state.markMode=!state.markMode;renderPhases()}if(a==='clear-phases'&&state.current&&(!phaseCount(state.current)||confirm('Clear all phase marks and their captures? Your video, notes and drawings will stay.'))){if(state.storageBusy)return;for(const phase of phases)if(state.current.phases[phase]!=null)SwingLabLearning.record(state.current,phase,state.current.phases[phase],null,profile.name);phaseRevision++;state.current.phases={};state.current.impactReference=null;state.current.captures={};state.markMode=false;renderPhases();renderCaptures();updateSessionStatus()}if(a==='save-session')saveSession();if(a==='open-latest')openLatest();if(a==='clear-history')clearHistory();if(a==='open-compare-viewer')openCompareViewer();if(a==='close-compare-viewer')closeCompareViewer();if(a==='load-engine')loadEngine();if(a==='analyze-local')analyzeWithEngine(state.videoFile);if(a==='cancel-analysis')cancelAnalysis();if(a==='mark-impact-reference')markImpactReference();if(a==='jump-impact-reference')jumpImpactReference();if(a==='clear-impact-reference')clearImpactReference();if(a==='confirm-phase-review')confirmPhaseReview();if(a==='confirm-no-swing')confirmNoSwing();if(a==='export-learning')exportLearning(false);if(a==='export-current-learning')exportLearning(true)}
+function handle(a){if(a==='help')modalMsg('Tu primera revisión','1. Elige un clip corto con un único swing y el cuerpo y palo completos.\n\n2. Pulsa Analizar. Puedes usar el marcado local o la revisión con ChatGPT en Android.\n\n3. Guarda tu informe y trabaja una prioridad en Entrenar.\n\nEn Mi progreso podrás consultar tus revisiones y registrar la práctica.');if(a==='account-info')modalMsg('Tu cuenta y tus datos','Tus vídeos, informes y prácticas se guardan en este dispositivo. El marcado local funciona sin cuenta. En Android, ChatGPT es opcional: puedes conectar tu cuenta desde el análisis y revisar las imágenes que se enviarán. No hay sincronización entre dispositivos.');if(a==='cancel-profile'){nameInput.value=profile.name;document.getElementById('profileEditForm').hidden=true}if(a==='copy-feedback')copyFeedback();if(a==='edit-profile'){const form=document.getElementById('profileEditForm');form.hidden=!form.hidden;if(!form.hidden)nameInput.value=profile.name;if(!form.hidden)document.getElementById('profileNameInput').focus()}if(a==='focus-settings'){const settings=document.getElementById('profileSettings');settings.open=true;settings.scrollIntoView({block:'nearest',behavior:'smooth'});settings.querySelector('summary').focus()}if(a==='go-home')showApp();if(a==='install-app')installApp();if(a==='pick-video')videoInput.click();if(a==='record-video')cameraInput.click();if(a==='play-toggle')togglePlay();if(a==='back-frame')stepFrame(-1);if(a==='forward-frame')stepFrame(1);if(a==='capture-phases')capturePhases();if(a==='toggle-mark-mode'){state.markMode=!state.markMode;renderPhases()}if(a==='clear-phases'&&state.current&&(!phaseCount(state.current)||confirm('Clear all phase marks and their captures? Your video, notes and drawings will stay.'))){if(state.storageBusy)return;for(const phase of phases)if(state.current.phases[phase]!=null)SwingLabLearning.record(state.current,phase,state.current.phases[phase],null,profile.name);phaseRevision++;state.current.phases={};state.current.impactReference=null;state.current.captures={};state.markMode=false;renderPhases();renderCaptures();updateSessionStatus()}if(a==='save-session')saveSession();if(a==='open-latest')openLatest();if(a==='clear-history')clearHistory();if(a==='open-compare-viewer')openCompareViewer();if(a==='close-compare-viewer')closeCompareViewer();if(a==='load-engine')loadEngine();if(a==='analyze-local')beginAnalysis('local');if(a==='cancel-analysis')cancelAnalysis();if(a==='mark-impact-reference')markImpactReference();if(a==='jump-impact-reference')jumpImpactReference();if(a==='clear-impact-reference')clearImpactReference();if(a==='confirm-phase-review')confirmPhaseReview();if(a==='confirm-no-swing')confirmNoSwing();if(a==='export-learning')exportLearning(false);if(a==='export-current-learning')exportLearning(true)}
 videoInput.addEventListener('change',e=>loadVideoFile(e.target.files?.[0]));cameraInput.addEventListener('change',e=>loadVideoFile(e.target.files?.[0]));
 if(reviewTitleInput){reviewTitleInput.addEventListener('input',()=>{if(!state.current)return;state.current.title=reviewTitleInput.value.trim()||'Swing session';renderHome();updateSessionStatus()});reviewTitleInput.addEventListener('blur',()=>{if(state.current)reviewTitleInput.value=state.current.title||'Swing session'})}
 async function loadVideoFile(file){
@@ -411,6 +411,16 @@ document.addEventListener('swinglab:editor-opened',hideToast);
 document.addEventListener('keydown',e=>{const overlay=document.querySelector('.fullscreen-editor:not([hidden]),.compare-viewer:not([hidden])');if(!overlay||!modal.hidden)return;if(e.key==='Escape'&&overlay.id==='compareViewer'){e.preventDefault();closeCompareViewer()}if(e.key==='Tab'){const controls=Array.from(overlay.querySelectorAll('button,input,select,textarea')).filter(el=>!el.disabled&&el.getClientRects().length);const first=controls[0],last=controls[controls.length-1];if(e.shiftKey&&document.activeElement===first){e.preventDefault();last?.focus()}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first?.focus()}}});
 
 
+function setAnalysisRange(value){
+ if(!state.current||state.engineBusy||state.storageBusy)return;const range=SwingLabSegment.normalize(value,video.duration);if(!range)throw Error('Incluye al menos medio segundo dentro del vídeo.');
+ state.current.analysisRange=range;document.getElementById('useAnalysisRange').checked=true;document.getElementById('analysisRangeStart').value=String(range.start);document.getElementById('analysisRangeEnd').value=String(range.end);updateSessionStatus();
+}
+function beginAnalysis(target='local'){
+ if(!state.current||!state.videoFile||video.readyState<2||state.engineBusy||state.storageBusy)return;
+ setAnalysisRange(SwingLabSegment.normalize(state.current.analysisRange,video.duration)||{start:0,end:video.duration});
+ state.analysisTarget=target;state.current.analysisMode=target==='agent'?'agent':'local';state.engineGuide=true;state.reviewStep='trim';go('review');window.SwingLabEditor?.open?.();updateSessionStatus();
+}
+
 /* Agent review uses the same session, storage, and fullscreen editor. */
 window.SwingLabProductBridge={ready:()=>ready,current:()=>state.current?clone(state.current):null,profile:()=>({...profile}),
  history:()=>state.history.map(s=>({id:s.id,title:s.title,date:s.date,view:s.agentContext?.context?.view||s.view||'DTL',club:s.club||'',videoSha256:s.videoSha256,agentReview:s.agentReview?{request_id:s.agentReview.request_id,scorecard:s.agentReview.scorecard,priorities:clone(s.agentReview.priorities),capture_quality:s.agentReview.capture_quality}:null,corrections:(s.corrections||[]).map(c=>({phase:c.phase,originalTime:c.originalTime,correctedTime:c.correctedTime,at:c.at}))})),
@@ -420,7 +430,7 @@ window.SwingLabAgentBridge={
  async prepareForAgent(){if(!state.current||!state.videoFile)throw Error('Carga un vídeo primero.');if(!phases.every(p=>Number.isFinite(state.current.phases?.[p])))await analyzeWithEngine(state.videoFile);await SwingLabAgent.prepare({allowOverview:true});},
  playable:()=>!!state.videoFile&&video.readyState>=2,
  mode(mode){if(state.current)state.current.analysisMode=mode;updateSessionStatus()},
- startLocal(){if(state.videoFile&&video.readyState>=2){go('review');window.SwingLabEditor?.open?.()}state.engineGuide=true;state.reviewStep=Number.isFinite(state.current?.impactReference?.time)?'analyze':'impact';updateSessionStatus();window.SwingLabEditor?.refresh?.()},
+ startLocal(){beginAnalysis('local')},
  setContext(context,metadata){if(!state.current)return;Object.assign(state.current,{duration:metadata.duration,videoSha256:metadata.sha256,timing:metadata.timing,agentContext:context,agentReview:null,analysisMode:'agent'});updateSessionStatus()},
  setReview(review){if(state.current){state.current.agentReview=review;updateSessionStatus()}},
  async save(){if(!(await saveSession()))throw Error('The review could not be saved. Keep this page open and try Save again.');},
@@ -430,6 +440,7 @@ window.SwingLabAgentBridge={
 
 /* A small UI bridge keeps the fullscreen workspace on the same session/actions. */
 window.SwingLabReview={
+ setRange:setAnalysisRange,range:()=>state.current?.analysisRange,file:()=>state.videoFile,
  capture(phase){return {src:state.current?.captures?.[phase],drawings:clone(state.current?.captureDrawings?.[phase]||[]) };},
  saveCapture(phase,drawings){if(state.current?.captures?.[phase]){state.current.captureDrawings=state.current.captureDrawings||{};state.current.captureDrawings[phase]=clone(drawings);}},
  snapshot(){
@@ -446,12 +457,14 @@ window.SwingLabReview={
   if(action==='manual'){if(state.engineBusy)cancelAnalysis();state.engineGuide=false;state.reviewStep='manual';updateSessionStatus();return}
   if(action==='cancel'){cancelAnalysis();window.SwingLabEditor?.refresh?.();return}
   if(state.engineBusy||state.storageBusy)return;
-  if(action==='engine'){window.SwingLabAgent.openModes();return}
+  if(action==='engine'||action==='trim'){beginAnalysis('local');return}
+  if(action==='advanced'){beginAnalysis('agent');return}
+  if(action==='confirm-trim'){setAnalysisRange(state.current.analysisRange);state.reviewStep='analyze';if(state.analysisTarget==='agent'){state.engineGuide=false;window.SwingLabEditor?.refresh?.();window.SwingLabAgent.openAgent();}}
   if(action==='local'){window.SwingLabAgentBridge.mode('local');window.SwingLabAgentBridge.startLocal();return}
   if(action==='mark')markImpactReference(time);
   if(action==='skip'){clearImpactReference();state.reviewStep='analyze'}
   if(action==='edit-impact'){state.reviewStep='impact';state.engineGuide=true;}
-  if(action==='analyze')await analyzeWithEngine(state.videoFile);
+  if(action==='analyze'&&state.reviewStep!=='trim')await analyzeWithEngine(state.videoFile);
   if(action==='save')await saveSession();
   if(action==='phase'&&phases.includes(phase))setPhase(phase,time);
   if(action==='mark-mode'){state.markMode=!state.markMode;renderPhases()}
@@ -526,6 +539,7 @@ document.addEventListener('visibilitychange',()=>{if(document.hidden){video.paus
  release(){closeEditor();fsVideo.removeAttribute('src');fsVideo.load()}};
   let imagePhase=null,videoShapes=[],phaseSignature='';
   const still=document.getElementById('fsCaptureImage');
+  const trimUI=SwingLabSegment.mountFullscreen({video:fsVideo,getFile:()=>window.SwingLabReview.file(),getRange:()=>window.SwingLabReview.range(),commit:value=>window.SwingLabReview.setRange(value),isBusy:()=>window.SwingLabReview.snapshot().busy});
   function flushCapture(){if(imagePhase)window.SwingLabReview.saveCapture(imagePhase,S.shapes)}
   function leaveCapture(){flushCapture();if(imagePhase)S.shapes=videoShapes;imagePhase=null;still.hidden=true;editor.classList.remove('is-image-review');phaseSignature='';}
   function openCapture(phase){
@@ -540,11 +554,14 @@ document.addEventListener('visibilitychange',()=>{if(document.hidden){video.paus
     const title=document.getElementById('fsReviewTitle'),status=document.getElementById('fsSessionStatus');
     if(title)title.textContent=r.title;
     if(status)status.textContent=imagePhase?imagePhase+' capture':r.busy?(r.step==='analyzing'?'Analyzing on device':'Saving on device'):r.saved?'Saved on device':'Unsaved changes';
+    const trimming=!imagePhase&&r.engineGuide&&r.step==='trim';
+    editor.classList.toggle('is-trimming',trimming);editor.classList.toggle('is-analysis-prep',!imagePhase&&r.engineGuide);trimUI.show(trimming);
     const labels={
-     impact:['1 / 3 · IMPACT','Where is impact?','Pause at contact, or the first frame of ball departure. You can skip this step.','Mark this frame','mark','Skip for now','skip'],
-     analyze:['2 / 3 · ANALYZE',Number.isFinite(r.impact)?'Start from your impact':'Ready to analyze',Number.isFinite(r.impact)?'Impact at '+r.impact.toFixed(3)+' s. The other phases will be proposed on this device.':'No impact reference selected. Let the local marker find the swing.','Analyze swing','analyze','Back to impact','edit-impact'],
-     analyzing:['2 / 3 · ANALYZE','Analyzing your swing',r.progress,'Analyzing…','analyze','Cancel','cancel'],
-     review:['3 / 3 · REVIEW','Check your key phases','Tap a phase to inspect it. Open tools below to draw, correct or capture.','Save review','save','Analyze again','analyze']
+     trim:['1 / 2 · PREPARAR','Deja solo el swing','Ajusta los extremos viendo el vídeo.','Continuar','confirm-trim','Cancelar','manual'],
+     impact:['OPCIONAL · IMPACTO','Añade una referencia','Pausa en el contacto o en el primer fotograma de salida de la bola.','Marcar este fotograma','mark','Seguir sin añadir','skip'],
+     analyze:['2 / 2 · ANALIZAR','Listo para analizar',Number.isFinite(r.impact)?'Impacto manual: '+r.impact.toFixed(3)+' s. Puedes modificarlo si lo necesitas.':'El motor buscará las fases. Marcar el impacto no es necesario para empezar.','Analizar swing','analyze',Number.isFinite(r.impact)?'Cambiar impacto (opcional)':'Añadir impacto (opcional)','edit-impact'],
+     analyzing:['ANALIZANDO','Analizando tu swing',r.progress,'Analizando…','analyze','Cancelar','cancel'],
+     review:['REVISAR','Comprueba las fases','Toca una fase para verla y corregirla si hace falta.','Guardar revisión','save','Analizar de nuevo','engine']
     };
     const text=[...(labels[r.step]||labels.impact)];if(r.step==='analyze'&&r.progress&&(r.runStatus&&r.runStatus!=='needs-review'||/unavailable|cancelled|timed out/i.test(r.progress)))text[2]=r.progress;
     for(const [id,value]of [['fsFlowStep',text[0]],['fsFlowTitle',text[1]],['fsFlowHint',text[2]]]){const el=document.getElementById(id);if(el)el.textContent=value}
@@ -553,8 +570,8 @@ document.addEventListener('visibilitychange',()=>{if(document.hidden){video.paus
       b.disabled=command==='cancel'?false:r.busy||!r.playable||(command==='analyze'&&!r.online)||(command==='mark'&&(!fsVideo.currentTime||fsVideo.currentTime>=fsVideo.duration));
     }
     editor.querySelectorAll('[data-review-command="save"]').forEach(b=>{b.disabled=r.busy||!r.id});
-    const guide=document.getElementById('fsEngineGuide');if(guide)guide.hidden=!!imagePhase||!r.engineGuide||r.step==='review';
-    const trigger=document.getElementById('fsEngineTrigger');if(trigger){trigger.disabled=r.busy||!r.playable||!r.online;trigger.textContent=r.runStatus==='needs-review'?'Analyze again':'Analyze'}
+    const guide=document.getElementById('fsEngineGuide');if(guide)guide.hidden=!!imagePhase||!r.engineGuide||r.step==='review'||trimming;
+    const trigger=document.getElementById('fsEngineTrigger');if(trigger){trigger.disabled=r.busy||!r.playable||!r.online;trigger.textContent=r.runStatus==='needs-review'?'Reanalizar':'Analizar'}
     keepPanelsVisible();const optionsToggle=editor.querySelector('[data-fs-action="options"]');if(optionsToggle)optionsToggle.setAttribute('aria-expanded',String(!document.getElementById('fsReviewOptions').hidden));
     const player=editor.querySelector('.fs-player');if(player)editor.style.setProperty('--fs-controls-height',Math.max(22,player.offsetHeight-sheetOffset)+'px');
     const mode=document.getElementById('fsMarkMode');if(mode)mode.textContent=r.markMode?'Done marking':'Mark phases';
@@ -889,10 +906,10 @@ document.addEventListener('visibilitychange',()=>{if(document.hidden){video.paus
     const review=e.target.closest('[data-review-command]');
     if(review&&editor.contains(review)){
       e.preventDefault();e.stopPropagation();const action=review.dataset.reviewCommand;
-      if(['mark','analyze','captures','edit-impact','save','report'].includes(action))fsVideo.pause();
-      if(['engine','edit-impact'].includes(action)){setDrawEnabled(false);setCompact(false);S.fitSafe=false;editor.classList.remove('is-fit-safe');const g=document.getElementById('fsEngineGuide');g.style.left='';g.style.top='';g.style.bottom='';}
+      if(['engine','trim','advanced','confirm-trim','mark','analyze','captures','edit-impact','save','report'].includes(action))fsVideo.pause();
+      if(['engine','trim','advanced','edit-impact'].includes(action)){setDrawEnabled(false);setCompact(false);S.fitSafe=false;editor.classList.remove('is-fit-safe');const g=document.getElementById('fsEngineGuide');g.style.left='';g.style.top='';g.style.bottom='';}
       if(action==='mark-mode'&&window.SwingLabReview.snapshot().engineGuide)window.SwingLabReview.command('manual');
-      if(['engine','edit-impact','manual','save','captures','report'].includes(action)){const more=document.getElementById('fsReviewOptions');if(more)more.hidden=true}
+      if(['engine','trim','advanced','edit-impact','manual','save','captures','report'].includes(action)){const more=document.getElementById('fsReviewOptions');if(more)more.hidden=true}
       window.SwingLabReview?.command?.(action,fsVideo.currentTime).catch(()=>setStatus('The review action could not finish. Try again.'));
       return;
     }
@@ -939,7 +956,7 @@ document.addEventListener('visibilitychange',()=>{if(document.hidden){video.paus
     if(a==='options'){const p=document.getElementById('fsReviewOptions');p.hidden=!p.hidden;if(!p.hidden){speedMenu.hidden=true;placePanel(p)}editor.querySelector('[data-fs-action="options"]').setAttribute('aria-expanded',String(!p.hidden));}
     if(a==='open') openEditor();
     if(a==='close') closeEditor();
-    if(a==='toggle-tools') setDrawEnabled(!S.drawEnabled);
+    if(a==='toggle-tools'){document.getElementById('fsReviewOptions').hidden=true;setDrawEnabled(!S.drawEnabled);}
     if(a==='collapse-tools') collapseTools();
     if(a==='expand-tools') expandTools();
     if(a==='toggle-fit'){ S.fitSafe=!S.fitSafe; editor.classList.toggle('is-fit-safe',S.fitSafe); setTimeout(draw,60); updateLabels(); }
@@ -1022,7 +1039,7 @@ document.addEventListener('visibilitychange',()=>{if(document.hidden){video.paus
   const player=editor.querySelector('.fs-player');let sheetOffset=0,sheetStart=null,suppressToggle=false;
   function setSheetOffset(value){sheetOffset=Math.max(0,Math.min(Math.max(0,player.offsetHeight-22),value));player.style.setProperty('--sheet-offset',sheetOffset+'px');editor.classList.toggle('is-controls-compact',sheetOffset>10);const b=document.getElementById('fsControlsHandle');b.setAttribute('aria-expanded',String(sheetOffset<10));b.title=sheetOffset>10?'Raise playback controls':'Lower playback controls';editor.style.setProperty('--fs-controls-height',Math.max(22,player.offsetHeight-sheetOffset)+'px');}
   function setCompact(on){setSheetOffset(on?player.offsetHeight-22:0)}
-  editor.querySelector('.fs-stage').addEventListener('click',e=>{if(!S.drawEnabled&&[fsVideo,canvas,still,e.currentTarget].includes(e.target))setCompact(!editor.classList.contains('is-controls-compact'))});
+  editor.querySelector('.fs-stage').addEventListener('click',e=>{if(!editor.classList.contains('is-analysis-prep')&&!S.drawEnabled&&[fsVideo,canvas,still,e.currentTarget].includes(e.target))setCompact(!editor.classList.contains('is-controls-compact'))});
   const handle=document.getElementById('fsControlsHandle');
   handle.addEventListener('pointerdown',e=>{sheetStart={y:e.clientY,offset:sheetOffset,moved:false};handle.setPointerCapture(e.pointerId);e.preventDefault()});
   handle.addEventListener('pointermove',e=>{if(!sheetStart)return;if(Math.abs(e.clientY-sheetStart.y)>3)sheetStart.moved=true;setSheetOffset(sheetStart.offset+e.clientY-sheetStart.y);e.preventDefault()});
@@ -1030,7 +1047,7 @@ document.addEventListener('visibilitychange',()=>{if(document.hidden){video.paus
   handle.addEventListener('keydown',e=>{if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();setSheetOffset(sheetOffset+(e.key==='ArrowDown'?20:-20))}});
   function placePanel(panel){panel.style.left='12px';panel.style.top='78px';panel.style.bottom='auto';panel.style.transform='none';clampPanel(panel)}
   function clampPanel(panel){if(panel.hidden||editor.hidden)return;const r=panel.getBoundingClientRect();if(!r.width||!r.height)return;const bounds=editor.getBoundingClientRect(),x=Math.max(6,Math.min(bounds.width-r.width-6,r.left-bounds.left)),y=Math.max(6,Math.min(bounds.height-r.height-6,r.top-bounds.top));if(Math.abs(x-(r.left-bounds.left))>.5||Math.abs(y-(r.top-bounds.top))>.5){panel.style.transform='none';panel.style.left=x+'px';panel.style.top=y+'px';panel.style.bottom='auto';}}
-  function keepPanelsVisible(){for(const id of ['toolPanel','fsEngineGuide','fsReviewOptions','speedMenu']){const p=document.getElementById(id);if(p)clampPanel(p)}}
+  function keepPanelsVisible(){for(const id of ['toolPanel','fsReviewOptions','speedMenu']){const p=document.getElementById(id);if(p)clampPanel(p)}}
   let scrub=null;
   fsTimeline.addEventListener('pointerdown',e=>{if(!fsVideo.duration)return;e.preventDefault();fsVideo.pause();scrub={x:e.clientX,y:e.clientY,time:fsVideo.currentTime};fsTimeline.setPointerCapture(e.pointerId)});
   fsTimeline.addEventListener('pointermove',e=>{if(!scrub)return;e.preventDefault();const fine=Math.abs(e.clientY-scrub.y)>40?.15:1;fsVideo.currentTime=Math.max(0,Math.min(fsVideo.duration,fsVideo.currentTime+(e.clientX-scrub.x)/fsTimeline.getBoundingClientRect().width*fsVideo.duration*fine));scrub.x=e.clientX});

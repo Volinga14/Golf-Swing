@@ -1,10 +1,10 @@
-# SwingLab · 0.7 Preview
+# SwingLab · 0.8 Preview
 
 Aplicación de revisión de swing, con editor a pantalla completa, marcado local de fases, corrección manual del impacto, recorte temporal sin alterar el original, sesiones locales, comparación y exportación de informes.
 
 ## Probar en el móvil
 
-Abre https://volinga14.github.io/Golf-Swing/ y elige **New analysis**. Al cargar un vídeo se abre el editor. Pulsa **Recortar** para ajustar inicio y final y **Ver tramo** para comprobarlos. Guarda la sesión para conservar el tramo, las fases y el original.
+Abre https://volinga14.github.io/Golf-Swing/ y elige **New analysis**. Al cargar un vídeo se abre el editor. Pulsa **Analizar**: primero ajusta el tramo con dos tiradores sobre la tira de fotogramas, sin salir del vídeo. Pulsa **Continuar** y después **Analizar swing**. Marcar el impacto es una ayuda opcional en el segundo paso. Guarda la sesión para conservar el tramo, las fases y el original. Las herramientas de dibujo, vista, capturas y revisión IA están agrupadas en **Más**.
 
 El motor local actual propone fases en vista desde atrás (DTL). La vista frontal se puede revisar manualmente. El seguimiento corporal y de palo completo no está implementado todavía. Las herramientas de dibujo no representan mediciones automáticas.
 

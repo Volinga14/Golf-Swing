@@ -37,6 +37,7 @@ async function environment(history=[]){
   context.window=context;vm.createContext(context);
   vm.runInContext(fs.readFileSync(path.join(root,'video-tools.js'),'utf8'),context);
   vm.runInContext(fs.readFileSync(path.join(root,'lab/core.js'),'utf8'),context);
+  vm.runInContext(fs.readFileSync(path.join(root,'lab/motion.js'),'utf8'),context);
   vm.runInContext(fs.readFileSync(path.join(root,'references.js'),'utf8'),context);
   vm.runInContext(fs.readFileSync(path.join(root,'segment-picker.js'),'utf8'),context);
   vm.runInContext(fs.readFileSync(path.join(root,'learning.js'),'utf8'),context);
@@ -195,14 +196,14 @@ test('clearing all phases also removes the analysis impact reference',async()=>{
  assert.equal(a.state.current.phases.Impact,undefined);
 });
 
-test('guided review asks for impact, allows skipping and proceeds to phase review',async()=>{
+test('analysis starts with an on-video trim, then offers optional impact without running early',async()=>{
  const {a,c}=await environment();await a.loadVideoFile(file('guided'));
- assert.equal(a.state.current.view,'DTL');assert.equal(c.SwingLabReview.snapshot().step,'manual');assert.equal(c.SwingLabReview.snapshot().engineGuide,false);let opened=0;c.SwingLabAgent.openModes=()=>{opened++};await c.SwingLabReview.command('engine');assert.equal(opened,1);assert.equal(c.SwingLabReview.snapshot().engineGuide,false);c.SwingLabAgentBridge.startLocal();assert.equal(c.SwingLabReview.snapshot().step,'impact');
- await c.SwingLabReview.command('skip');assert.equal(c.SwingLabReview.snapshot().step,'analyze');
- assert.equal(a.state.current.impactReference,null);
- let received;c.SwingLabLocal.analyze=async(f,o)=>{received=o;return localResult({address:.5,takeaway:1,top:2,impact:2.5,finish:4})};
- await c.SwingLabReview.command('analyze');
- assert.equal(received.impactAnchor,undefined);assert.equal(c.SwingLabReview.snapshot().step,'review');
+ assert.equal(c.SwingLabReview.snapshot().step,'manual');let opened=0,calls=0,received;c.SwingLabAgent.openModes=()=>{opened++};
+ c.SwingLabLocal.analyze=async(f,o)=>{calls++;received=o;return localResult({address:.5,takeaway:1,top:2,impact:2.5,finish:4})};
+ await c.SwingLabReview.command('engine');assert.equal(opened,0);assert.equal(c.SwingLabReview.snapshot().step,'trim');assert.equal(c.SwingLabReview.snapshot().engineGuide,true);
+ await c.SwingLabReview.command('analyze');assert.equal(calls,0);
+ c.SwingLabReview.setRange({start:.25,end:5});await c.SwingLabReview.command('confirm-trim');assert.equal(c.SwingLabReview.snapshot().step,'analyze');assert.equal(calls,0);assert.equal(a.state.current.impactReference,undefined);
+ await c.SwingLabReview.command('analyze');assert.equal(calls,1);assert.deepEqual(copy(received.range),{start:.25,end:5});assert.equal(received.impactAnchor,undefined);assert.equal(c.SwingLabReview.snapshot().step,'review');
  assert.equal(c.SwingLabReview.snapshot().phases.Impact,2.5);
 });
 test('fullscreen impact and correction commands use their visible frame rather than the stale inline player',async()=>{
@@ -222,7 +223,7 @@ test('manual fullscreen review works without invoking the motor and keeps marks 
  await c.SwingLabReview.command('phase',1.7,'Top');
  assert.equal(a.state.current.phases.Top,1.7);assert.equal(calls,0);
  assert.equal(c.SwingLabReview.snapshot().step,'manual');assert.equal(c.SwingLabReview.snapshot().engineGuide,false);
- c.SwingLabAgent.openModes=()=>{};await c.SwingLabReview.command('engine');assert.equal(c.SwingLabReview.snapshot().engineGuide,false);c.SwingLabAgentBridge.startLocal();assert.equal(c.SwingLabReview.snapshot().engineGuide,true);
+ c.SwingLabAgent.openModes=()=>{};await c.SwingLabReview.command('engine');assert.equal(c.SwingLabReview.snapshot().engineGuide,true);assert.equal(c.SwingLabReview.snapshot().step,'trim');
  await c.SwingLabReview.command('manual');assert.equal(c.SwingLabReview.snapshot().engineGuide,false);
  assert.equal(a.state.current.phases.Top,1.7);assert.equal(calls,0);
 });

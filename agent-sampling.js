@@ -1,6 +1,6 @@
 (function(root,factory){const api=factory();if(typeof module==='object'&&module.exports)module.exports=api;else root.SwingLabSampling=api})(globalThis,()=>{
 'use strict';
-function select(phases,duration,timing,density){
+function select(phases,duration,timing,density,bounds){
  const entries=['address','takeaway','top','impact','finish'].map(id=>({id,time:phases[id]?.time}));
  if(entries.some((e,i)=>!Number.isFinite(e.time)||e.time<0||e.time>=duration||(i&&e.time<=entries[i-1].time)))throw Error('Marca las cinco fases en orden dentro del vídeo antes de preparar el paquete.');
  const candidates=[],offsets=density==='extended'?[-.12,-.06,0,.06,.12]:[-.06,0,.06];
@@ -23,10 +23,11 @@ function select(phases,duration,timing,density){
  const unique=new Map();
  for(const c of candidates){let source=null,time=c.time;if(timing?.verified&&timing.times?.length){let lo=0,hi=timing.times.length-1;while(lo<hi){const mid=Math.ceil((lo+hi)/2);if(timing.times[mid]<=time+1e-6)lo=mid;else hi=mid-1}source=lo;time=timing.times[lo]}
  const key=source==null?time.toFixed(6):String(source);if(!unique.has(key))unique.set(key,{time,source_frame:source,labels:[]});unique.get(key).labels.push(c.label)}
- return [...unique.values()].sort((a,b)=>a.time-b.time).map((f,i)=>({...f,frame_id:'F'+String(i+1).padStart(3,'0')}));
+ return [...unique.values()].filter(f=>!bounds||(f.time>=bounds.start&&f.time<=bounds.end)).sort((a,b)=>a.time-b.time).map((f,i)=>({...f,frame_id:'F'+String(i+1).padStart(3,'0')}));
 }
-function overview(duration,timing){
- if(!Number.isFinite(duration)||duration<=0||duration>12)throw Error('Usa un clip corto de un único swing (hasta 12 segundos) o marca sus fases para enfocar el análisis.');
- const points=new Map();for(let i=0;i<30;i++){let time=Math.max(0,(duration-.001)*i/29),source=null;if(timing?.verified&&timing.times?.length){let lo=0,hi=timing.times.length-1;while(lo<hi){const m=Math.ceil((lo+hi)/2);if(timing.times[m]<=time)lo=m;else hi=m-1}source=lo;time=timing.times[lo]}const key=source==null?time.toFixed(6):String(source);points.set(key,{time,source_frame:source,labels:['vista general; fases sin confirmar']});}return [...points.values()].sort((a,b)=>a.time-b.time).map((f,i)=>({...f,frame_id:'F'+String(i+1).padStart(3,'0')}));
+function overview(duration,timing,bounds){
+ const start=bounds?.start??0,end=bounds?.end??duration;
+ if(!Number.isFinite(duration)||!Number.isFinite(start)||!Number.isFinite(end)||start<0||end>duration||end<=start||end-start>12)throw Error('Usa un clip corto de un único swing (hasta 12 segundos) o marca sus fases para enfocar el análisis.');
+ const points=new Map();for(let i=0;i<30;i++){let time=Math.max(start,start+(end-start-.001)*i/29),source=null;if(timing?.verified&&timing.times?.length){let lo=0,hi=timing.times.length-1;while(lo<hi){const m=Math.ceil((lo+hi)/2);if(timing.times[m]<=time)lo=m;else hi=m-1}if(timing.times[lo]<start&&lo+1<timing.times.length)lo++;source=lo;time=timing.times[lo];if(time<start||time>end)continue;}const key=source==null?time.toFixed(6):String(source);points.set(key,{time,source_frame:source,labels:['vista general; fases sin confirmar']});}return [...points.values()].sort((a,b)=>a.time-b.time).map((f,i)=>({...f,frame_id:'F'+String(i+1).padStart(3,'0')}));
 }
 return {select,overview};});

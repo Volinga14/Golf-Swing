@@ -37,5 +37,33 @@
     document.addEventListener('swinglab:session-changed',restore);
     return {sync,restore,persist,stop};
   }
-  return {normalize,move,mount};
+  function mountFullscreen({video,getFile,getRange,commit,isBusy}){
+    const el=id=>document.getElementById(id),panel=el('fsTrimPanel'),strip=el('fsTrimFrames'),selection=el('fsTrimSelected'),label=el('fsTrimSelection'),position=el('fsTrimCurrent'),play=el('fsTrimPreview'),next=el('fsTrimContinue');
+    const handles={start:el('fsTrimStart'),end:el('fsTrimEnd')};let active=false,previewing=false,controller=null,renderedFile=null;
+    const range=()=>normalize(getRange(),video.duration)||normalize({start:0,end:video.duration},video.duration);
+    function stop(){if(previewing)video.pause();previewing=false;play.textContent='Ver selección';}
+    function sync(){
+      if(!active)return;const value=range(),ready=!!value&&video.readyState>=1&&!isBusy();
+      next.disabled=!ready;play.disabled=!ready;
+      if(!value)return;
+      for(const edge of ['start','end']){handles[edge].max=String(video.duration);handles[edge].value=String(value[edge]);handles[edge].disabled=!ready;handles[edge].setAttribute('aria-valuetext',value[edge].toFixed(2)+' segundos');}
+      selection.style.left=(value.start/video.duration*100)+'%';selection.style.right=(100-value.end/video.duration*100)+'%';
+      label.textContent=value.start.toFixed(2)+' s — '+value.end.toFixed(2)+' s · '+(value.end-value.start).toFixed(2)+' s';
+      position.textContent=(video.currentTime||0).toFixed(2)+' s';
+    }
+    async function frames(){
+      const file=getFile();if(!file||file===renderedFile)return;controller?.abort();const own=new AbortController();controller=own;let resource;const timer=setTimeout(()=>own.abort(),15000);strip.replaceChildren();
+      try{resource=await SwingLabVideo.open(file,own.signal);const canvas=document.createElement('canvas');canvas.width=64;canvas.height=80;const ctx=canvas.getContext('2d'),scale=Math.min(64/resource.video.videoWidth,80/resource.video.videoHeight),w=resource.video.videoWidth*scale,h=resource.video.videoHeight*scale;
+        for(let i=0;i<8;i++){await SwingLabVideo.seek(resource.video,Math.min(resource.video.duration-.001,resource.video.duration*(i+.5)/8),own.signal);if(own.signal.aborted||getFile()!==file)return;ctx.fillStyle='#10251b';ctx.fillRect(0,0,64,80);ctx.drawImage(resource.video,(64-w)/2,(80-h)/2,w,h);const img=document.createElement('img');img.alt='';img.src=canvas.toDataURL('image/jpeg',.55);strip.append(img);}renderedFile=file;
+      }catch{/* The live video and handles remain usable if thumbnail decoding fails. */}finally{clearTimeout(timer);resource?.close();if(controller===own)controller=null;}
+    }
+    for(const edge of ['start','end'])handles[edge].addEventListener('input',()=>{if(!active||isBusy())return;const value=move(range(),edge,Number(handles[edge].value),video.duration);if(!value)return;stop();commit(value);video.pause();video.currentTime=Math.min(video.duration-.001,value[edge]);sync();});
+    play.addEventListener('click',()=>{if(previewing){stop();return}const value=range();if(!value||isBusy())return;video.currentTime=value.start;previewing=true;play.textContent='Pausar';video.play().catch(stop);});
+    video.addEventListener('timeupdate',()=>{const value=range();if(active&&previewing&&value&&video.currentTime>=value.end){stop();video.currentTime=Math.min(video.duration-.001,value.end);}sync();});
+    for(const event of ['loadeddata','seeked','canplay'])video.addEventListener(event,sync);
+    video.addEventListener('pause',()=>{if(previewing&&video.paused){previewing=false;play.textContent='Ver selección'}});
+    document.addEventListener('swinglab:editor-closed',()=>{active=false;stop();controller?.abort();});
+    return {sync,show(on){const entering=on&&!active;active=on;panel.hidden=!on;if(!on){stop();controller?.abort();}else{sync();if(entering)frames();}}};
+  }
+  return {normalize,move,mount,mountFullscreen};
 });

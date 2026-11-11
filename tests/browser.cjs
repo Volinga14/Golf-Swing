@@ -76,12 +76,12 @@ async function closeModal(page){if(await page.locator('#mockupModal').isVisible(
   await check('drawings are saved with the session and restored after reload',async()=>{
     await page.evaluate(()=>testing.openSession(testing.state.current.id));
     await page.screenshot({path:path.join(artifacts,'review-screen.png')});
-    await page.locator('#fullscreenEditor').waitFor({state:'visible'});await page.click('[data-fs-action="toggle-tools"]');await page.click('[data-tool="line"]');await page.click('[data-fs-action="collapse-tools"]');
+    await page.locator('#fullscreenEditor').waitFor({state:'visible'});await page.click('.fs-side [data-fs-action="options"]');await page.click('[data-fs-action="toggle-tools"]');await page.click('[data-tool="line"]');await page.click('[data-fs-action="collapse-tools"]');
     const bounds=await page.locator('#fullscreenCanvas').boundingBox();
     await page.mouse.move(bounds.x+80,bounds.y+260);await page.mouse.down();await page.mouse.move(bounds.x+250,bounds.y+420);await page.mouse.up();
     assert.equal(await page.evaluate(()=>SwingLabEditor.getDrawings().length),1);
     await page.screenshot({path:path.join(artifacts,'drawing-editor.png')});
-    await page.click('.fs-side [data-fs-action="options"]');const downloadPromise=page.waitForEvent('download');await page.click('[data-fs-action="snapshot"]');const download=await downloadPromise;
+    await page.click('.fs-side [data-fs-action="options"]');await page.locator('.fs-menu-group').filter({hasText:'Capturas y exportación'}).locator('summary').click();const downloadPromise=page.waitForEvent('download');await page.click('[data-fs-action="snapshot"]');const download=await downloadPromise;
     await download.saveAs(path.join(artifacts,'annotated-frame.png'));
     assert.ok(fs.statSync(path.join(artifacts,'annotated-frame.png')).size>1000);
     await page.click('[data-fs-action="close"]');await page.click('#screenReview [data-action="save-session"]');
