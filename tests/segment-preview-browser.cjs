@@ -14,6 +14,13 @@ let browser,pageForDiagnostics;
  });
  assert.equal(await page.locator('[data-action="open-segment"]').count(),0);assert.equal(await page.locator('.fs-side button').count(),2);
  await page.click('#fsEngineTrigger');await page.locator('#fsTrimPanel').waitFor({state:'visible'});assert.equal(await page.locator('#fsEngineGuide').isVisible(),false);assert.equal(await page.evaluate(()=>flowCalls.length),0);
+ for(const [width,height] of [[320,568],[360,780],[390,844],[412,915],[844,390]]){
+  await page.setViewportSize({width,height});
+  await page.waitForFunction(()=>{const player=document.querySelector('.fs-player'),r=player.getBoundingClientRect(),ids=['fsTrimPanel','fsTrimStart','fsTrimEnd','fsTrimPreview','fsTrimContinue'];return r.left>=0&&r.right<=innerWidth+1&&r.bottom<=innerHeight+1&&ids.every(id=>{const b=document.getElementById(id).getBoundingClientRect();return b.width>0&&b.left>=0&&b.right<=innerWidth+1&&b.bottom<=innerHeight+1})&&player.scrollWidth<=player.clientWidth+1;},{},{timeout:5000});
+ }
+ await page.setViewportSize({width:390,height:844});
+ await page.waitForFunction(()=>document.getElementById('fullscreenVideo').getBoundingClientRect().height>220);
+ console.log('PASS trim sheet, both handles and Continue fit narrow portrait and landscape screens');
  const drag=async(id,ratio)=>{const box=await page.locator(id).boundingBox(),x=box.x+12+(box.width-24)*(id.includes('Start')?0:1),y=box.y+box.height/2;await page.mouse.move(x,y);await page.mouse.down();await page.mouse.move(box.x+12+(box.width-24)*ratio,y,{steps:10});await page.mouse.up();};
  await drag('#fsTrimStart',.25);await drag('#fsTrimEnd',.75);
  const selected=await page.evaluate(()=>segmentTesting.state.current.analysisRange);assert.ok(Math.abs(selected.start-1)<.06);assert.ok(Math.abs(selected.end-3)<.06);assert.ok(Math.abs(await page.evaluate(()=>document.getElementById('fullscreenVideo').currentTime)-selected.end)<.1);

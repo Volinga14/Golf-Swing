@@ -312,7 +312,7 @@ h1,h2,h3,h4,p{margin:0}h1,h2,h3,h4{color:var(--text);line-height:1.2;letter-spac
 .fullscreen-editor.is-analysis-prep .fs-stage video,.fullscreen-editor.is-analysis-prep #fullscreenCanvas{inset:62px 0 auto;width:100%;height:calc(100% - var(--fs-controls-height,280px) - 88px);object-fit:contain}
 .fullscreen-editor.is-analysis-prep .fs-stage video{background:#030a06}
 .fullscreen-editor.is-trimming .fs-timeline-row,.fullscreen-editor.is-trimming .fs-buttons{display:none}
-.fullscreen-editor.is-trimming .fs-player{transform:none;bottom:calc(10px + env(safe-area-inset-bottom,0px));padding:14px}
+.fullscreen-editor.is-trimming .fs-player{left:50%;right:auto;transform:translateX(-50%);bottom:calc(10px + env(safe-area-inset-bottom,0px));padding:14px}
 .fs-trim-heading span{font-size:10px;letter-spacing:.08em;color:#b7e99b;font-weight:700}
 .fs-trim-heading h3{font-size:20px;color:#f2faee;margin:4px 0 6px}
 .fs-trim-heading p{color:#c6dbbf;font-size:12px;line-height:1.4;margin:0 0 16px}
@@ -339,3 +339,7 @@ h1,h2,h3,h4,p{margin:0}h1,h2,h3,h4{color:var(--text);line-height:1.2;letter-spac
 .fullscreen-editor.is-analysis-prep #fsControlsHandle{display:none}
 .review-analyze-entry{width:100%;margin:14px 0}
 .review-extras{border:1px solid var(--line);border-radius:12px;padding:12px;margin:12px 0}.review-extras>summary{font-weight:650;min-height:32px;cursor:pointer}
+
+/* Allow narrow screens to wrap labels without widening the trim sheet. */
+.fs-trim-actions{grid-template-columns:minmax(0,1fr) minmax(0,1.1fr)}
+.fs-trim-actions button,.fs-trim-heading,.fs-trim-readout{min-width:0;overflow-wrap:anywhere}
