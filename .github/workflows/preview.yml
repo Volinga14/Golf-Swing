@@ -26,6 +26,8 @@ jobs:
         run: npm run test:browser
       - if: ${{ !cancelled() }}
         run: node tests/segment-preview-browser.cjs
+      - if: ${{ !cancelled() }}
+        run: node tests/background-browser.cjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -49,6 +51,6 @@ jobs:
       - run: bash android/gradlew -p android testDebugUnitTest assembleDebug --no-daemon
       - uses: actions/upload-artifact@v4
         with:
-          name: SwingLab-0.8.1-Preview-APK
+          name: SwingLab-0.9.0-Preview-APK
           path: android/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 14

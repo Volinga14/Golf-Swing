@@ -44,3 +44,14 @@ GitHub Actions ejecuta las comprobaciones web y compila un APK Preview descargab
 ## Estado del análisis avanzado
 
 La conexión personal opcional en Android requiere autorización y disponibilidad del proveedor; no se activa automáticamente ni incluye una API key. El servicio comercial, pagos y sincronización no están conectados en esta Preview. Los vídeos permanecen locales salvo envío explícito de imágenes para revisión. Los ejemplos 3D actuales son auxiliares de pruebas; las demostraciones reales de ejercicios todavía deben producirse o licenciarse.
+
+### 0.9 Preview · revisión sin bloquear la app
+
+- El recorte y la reproducción agrupan los movimientos del deslizador: una búsqueda de vídeo activa y la última posición pendiente. Al soltar se pide el fotograma preciso. La previsualización rápida depende del decodificador del móvil.
+- El análisis local sigue en su worker y ChatGPT usa la conexión nativa asíncrona. Un aviso identifica el swing; se puede navegar, reproducir y dibujar durante la revisión. Antes del envío y al salir del swing activo se guarda una copia local. Cada resultado se guarda por ID de sesión, hash de vídeo e ID de paquete. No se abre el informe automáticamente ni se cambia de pantalla.
+- Esta continuidad funciona mientras la app permanece abierta. No se garantiza completar un trabajo si Android mata el proceso o se cierra la web; no se reenvían peticiones automáticamente. Un aviso al cerrar evita interrumpirlas sin darse cuenta.
+- La conexión directa con la cuenta está en Android. La web mantiene la vía explícita de compartir fotogramas y traer el JSON. Una pestaña de ChatGPT abierta no autentica la PWA.
+- La ayuda distingue reautorización, permiso de uso, catálogo y red. Los errores terminales del stream conservan el código de uso del plan. La alternativa manual permanece disponible también en Android.
+- El informe muestra una secuencia de evidencia, una prioridad principal, seis áreas, observaciones técnicas ilustradas, hipótesis separadas, dosis de ejercicios y errores habituales. La nota es secundaria y las áreas no evaluables se indican. Los informes antiguos usan sus datos existentes; solo una revisión nueva produce contenido técnico adicional.
+
+Validación: pruebas unitarias de búsqueda de vídeo, resultados tardíos, notas y dibujos durante revisión, importación ligada al paquete y errores de streaming; pruebas de navegador con vídeo sintético y respuesta simulada (sin solicitudes a OpenAI). La elegibilidad y la autorización real del usuario deben comprobarse en su dispositivo.

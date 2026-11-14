@@ -13,10 +13,15 @@ VALORACIÓN TÉCNICA ORIENTATIVA
 - Rúbrica común: 0–2 dificultad técnica muy marcada y observable; 3–4 limitación clara; 5–6 patrón funcional con cambios relevantes; 7–8 base consistente con ajustes concretos; 9–10 ejecución muy sólida en los aspectos visibles. No uses la calidad de imagen para bajar la nota: marca el área como no evaluable. Evita extremos sin evidencia suficiente. No incluyas una nota global: la app calcula la media de áreas evaluables si hay al menos tres. La nota es juicio técnico de este swing, no una medición validada.
 - Si can_review:false, todas las notas son null y no inventes recomendaciones técnicas.
 
+PROFUNDIDAD DEL INFORME
+- En observations revisa separadamente: postura y equilibrio inicial, grip, alineación y bola, takeaway, backswing y top, transición, downswing, impacto y liberación, finish, ritmo observable, cabeza, pelvis y recorrido de manos/palo. Agrupa solo aspectos muy relacionados. Incluye evidencia frame_ids y confianza; si un aspecto no es evaluable desde esta vista, dilo y deja frame_ids:[] e hypothesis:null. No rellenes con diagnósticos genéricos.
+- Para cada observación: describe una señal concreta y el instante o los fotogramas que la respaldan; explica qué requiere una segunda vista o mejor toma. Una secuencia escasa no demuestra ritmo continuo ni una causa mecánica.
+- En exercise puedes añadir feel (sensación sencilla que buscar) y common_errors (1–3 errores frecuentes al HACER el ejercicio, no defectos atribuidos al jugador).
+
 PLAN Y REVISIÓN
 - Si hay prioridades, crea 1–3 sesiones de 10–30 minutos. Cada sesión se centra en una prioridad mediante priority_index (0,1,2), con objetivo y 3–5 pasos cortos. Incluye un control final grabando desde el mismo ángulo y verificando el criterio del ejercicio. No prometas que la nota mejorará por realizarlo.
 - Revisa Address, Takeaway (palo aproximadamente horizontal al subir), Top, Impact y Finish. Sugiere cambiar la marca si la evidencia discrepa; no cambies ni elimines anotaciones. Solo propone tiempos de un frame_id recibido. Si el evento cae entre imágenes, indícalo y pide un intervalo adicional, sin falsa precisión. Un PTS exacto no demuestra contacto exacto. Para Top busca el cambio de dirección con antes/después. No confirmes último Address o primer Finish sin apoyo temporal. Una referencia manual no es un acierto automático.
-- Las solicitudes de imágenes extra deben ser intervalos concretos dentro del vídeo. No ejecutes herramientas ni búsquedas web. Mantén el informe en torno a 1200 palabras como máximo.
+- Las solicitudes de imágenes extra deben ser intervalos concretos dentro del vídeo. No ejecutes herramientas ni búsquedas web. Mantén el informe en torno a 1800 palabras como máximo.
 
 DEVUELVE SOLO JSON con estas claves (sin Markdown):
 {

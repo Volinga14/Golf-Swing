@@ -19,4 +19,11 @@ public class ConnectionProtocolTest {
  @Test public void callbackMustMatchPendingState(){assertTrue(ConnectionProtocol.matchesState("secret-state","secret-state"));assertFalse(ConnectionProtocol.matchesState("secret-state",null));assertFalse(ConnectionProtocol.matchesState("secret-state","other-state"));}
  @Test public void catalogPreservesOrderAndFiltersHiddenModels()throws Exception{JSONArray models=new JSONArray().put(new JSONObject().put("slug","first").put("display_name","First").put("visibility","list")).put(new JSONObject().put("slug","hidden").put("visibility","hide")).put(new JSONObject().put("slug","second").put("visibility","list"));JSONArray result=ConnectionProtocol.catalog(new JSONObject().put("models",models));assertEquals(2,result.length());assertEquals("first",result.getJSONObject(0).getString("slug"));assertEquals("second",result.getJSONObject(1).getString("slug"));}
  @Test public void emptyOrUnexpectedCatalogNeverPretendsToConnect()throws Exception{for(JSONObject response:new JSONObject[]{new JSONObject(),new JSONObject().put("models",new JSONArray())})try{ConnectionProtocol.catalog(response);fail();}catch(Exception expected){}}
+ @Test public void streamedUsageErrorExplainsRecoveryWithoutRetry()throws Exception{
+ JSONObject error=new JSONObject().put("type","response.failed").put("response",new JSONObject().put("error",new JSONObject().put("code","subscription_sharing_usage_limit_exceeded")));
+ String message=ConnectionProtocol.responseError(error);assertTrue(message.contains("Ajustes > Uso"));assertTrue(message.contains("No se repitió"));
+ }
+ @Test public void streamedErrorNeverReflectsArbitraryRemoteText()throws Exception{
+ JSONObject event=new JSONObject().put("error",new JSONObject().put("code","<script>secret</script>").put("message","token-secret"));String message=ConnectionProtocol.responseError(event);assertTrue(message.contains("unknown_error"));assertFalse(message.contains("secret"));
+ }
 }

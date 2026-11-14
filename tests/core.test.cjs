@@ -31,7 +31,7 @@ async function environment(history=[]){
   const context={document,location:{search:'',protocol:'file:'},navigator:{userAgent:'test'},console,
     localStorage:{getItem:k=>saved.get(k)||null,setItem:(k,v)=>saved.set(k,v),removeItem:k=>saved.delete(k)},
     URLSearchParams,URL,crypto:{randomUUID:()=>String(Math.random()).replace('.','-')},
-    setTimeout,clearTimeout,queueMicrotask,addEventListener(){},matchMedia:()=>({matches:false}),AbortController,DOMException,
+    setTimeout,clearTimeout,requestAnimationFrame:fn=>setTimeout(fn,0),cancelAnimationFrame:clearTimeout,queueMicrotask,addEventListener(){},matchMedia:()=>({matches:false}),AbortController,DOMException,
     FormData:class{append(){}},confirm:()=>true,prompt:()=>null,CustomEvent:class{constructor(type,opts){this.type=type;this.detail=opts?.detail}},innerHeight:800};
   context.URL=class extends URL{static createObjectURL(f){return 'blob:'+f.name}static revokeObjectURL(){}};
   context.window=context;vm.createContext(context);
@@ -39,6 +39,7 @@ async function environment(history=[]){
   vm.runInContext(fs.readFileSync(path.join(root,'lab/core.js'),'utf8'),context);
   vm.runInContext(fs.readFileSync(path.join(root,'lab/motion.js'),'utf8'),context);
   vm.runInContext(fs.readFileSync(path.join(root,'references.js'),'utf8'),context);
+  vm.runInContext(fs.readFileSync(path.join(root,'video-scrubber.js'),'utf8'),context);
   vm.runInContext(fs.readFileSync(path.join(root,'segment-picker.js'),'utf8'),context);
   vm.runInContext(fs.readFileSync(path.join(root,'learning.js'),'utf8'),context);
   context.SwingLabLearning.collect=async()=>[];
@@ -88,14 +89,14 @@ function localResult(phases){return {id:'local-test',protocol:'swing-phases/1.0'
 test('late local responses cannot modify another session',async()=>{
   const {a,c}=await environment();await a.loadVideoFile(file('A'));a.state.engineOnline=true;a.state.engineUrl='https://engine.invalid';
   let finish,options;c.SwingLabLocal.analyze=(u,o)=>{options=o;return new Promise(r=>finish=r)};
-  const work=a.analyzeWithEngine(a.state.videoFile);await a.loadVideoFile(file('B'));
-  assert.equal(options.signal.aborted,true);finish(localResult({impact:3}));await work;
-  assert.equal(a.state.current.title,'B');assert.equal(a.state.current.phases.Impact,undefined);assert.equal(a.state.engineBusy,false);
+  const work=a.analyzeWithEngine(a.state.videoFile);await new Promise(r=>setImmediate(r));await a.loadVideoFile(file('B'));
+  assert.equal(options.signal.aborted,false);finish(localResult({impact:3}));await work;
+  assert.equal(a.state.current.title,'B');assert.equal(a.state.current.phases.Impact,undefined);assert.equal(a.state.engineBusy,false);const original=a.state.history.find(s=>s.title==='A');assert.equal(original.phases.Impact,3);assert.equal(original.analyses.length,1);
 });
 test('manual phase changes take precedence over an in-flight analysis',async()=>{
   const {a,c}=await environment();await a.loadVideoFile(file('A'));a.state.engineOnline=true;
   let finish;c.SwingLabLocal.analyze=()=>new Promise(r=>finish=r);const work=a.analyzeWithEngine(a.state.videoFile);
-  a.setPhase('Impact',4);finish(localResult({impact:2,top:1}));await work;
+  await new Promise(r=>setImmediate(r));a.setPhase('Impact',4);finish(localResult({impact:2,top:1}));await work;
   assert.equal(a.state.current.phases.Impact,4);assert.equal(a.state.current.phases.Top,undefined);
   assert.equal(a.state.current.analyses[0].phases.Impact,2);
 });
@@ -110,7 +111,7 @@ test('the engine deadline aborts the request and leaves manual review usable',as
   const {a,c,nodes}=await environment();await a.loadVideoFile(file('A'));a.state.engineOnline=true;
   c.setTimeout=(fn,ms)=>setTimeout(fn,ms===240000?1:ms);
   c.SwingLabLocal.analyze=(u,{signal})=>new Promise((resolve,reject)=>signal.addEventListener('abort',()=>reject(new DOMException('Timeout','AbortError'))));
-  await a.analyzeWithEngine(a.state.videoFile);assert.equal(a.state.engineBusy,false);assert.match(nodes.get('analysisProgressText').textContent,/timed out/);a.setPhase('Impact',3);assert.equal(a.state.current.phases.Impact,3);
+  await a.analyzeWithEngine(a.state.videoFile);assert.equal(a.state.engineBusy,false);assert.match(nodes.get('analysisProgressText').textContent,/tiempo agotado/);a.setPhase('Impact',3);assert.equal(a.state.current.phases.Impact,3);
 });
 test('discarding an unsaved session requires confirmation',async()=>{
   const {a,c}=await environment([session('saved')]);await a.loadVideoFile(file('draft'));c.confirm=()=>false;
@@ -174,7 +175,7 @@ test('both HTML pages request exactly the scripts and styles that are precached'
   const sw=serviceWorker();const shell=vm.runInContext('Array.from(SHELL_URLS)',sw.context);
   for(const name of ['index.html','dashboard.html']){
     const html=fs.readFileSync(path.join(root,name),'utf8');const urls=[...html.matchAll(/<script src="([^\"]+)"|<link rel="stylesheet" href="([^\"]+)"/g)].map(m=>m[1]||m[2]);
-    assert.equal(urls.length,22);for(const url of urls){assert.ok(shell.includes('https://test.invalid/GLAB/'+url));assert.ok(fs.existsSync(path.join(root,url.split('?')[0])))}
+    assert.equal(urls.length,24);for(const url of urls){assert.ok(shell.includes('https://test.invalid/GLAB/'+url));assert.ok(fs.existsSync(path.join(root,url.split('?')[0])))}
   }
 });
 
@@ -237,4 +238,24 @@ test('report saves phase captures and capture annotations survive reopening with
  videos.delete(id);await a.loadVideoFile(file('other'));await a.openSession(id);
  assert.equal(a.state.videoFile,null);assert.equal(c.SwingLabReview.capture('Impact').drawings.length,1);
  assert.equal(a.state.current.drawings.length,0);
+});
+
+test('agent result persists against its source while a different video remains open',async()=>{
+ const {a,c,nodes,records}=await environment();await a.loadVideoFile(file('agent-A'));await new Promise(r=>setImmediate(r));
+ const context={request_id:'packet-a',video_sha256:'a'.repeat(64),fingerprint:'original',context:{duration_s:10},frames:[{frame_id:'F001',time_s:1,image:'data:image/jpeg;base64,AAAA'}]};
+ a.state.current.agentContext=context;nodes.get('sessionNotes').value='Notas originales';const original=copy(a.state.current),originalFile=a.state.videoFile;
+ await c.SwingLabAgentBridge.checkpoint(original,originalFile);await a.loadVideoFile(file('agent-B'));
+ const review=c.SwingLabAgent.parseReview({schema:'swinglab-agent-result/1',request_id:context.request_id,video_sha256:context.video_sha256,review:{summary:'Resultado de A',capture_quality:{can_review:false},phase_review:c.SwingLabAgent.IDS.map(phase=>({phase,status:'uncertain',frame_id:null,time_s:null,evidence:'No evaluable'}))}},context);
+ await c.SwingLabAgentBridge.completeReview(original,originalFile,review);
+ assert.equal(a.state.current.title,'agent-B');assert.equal(a.state.current.agentReview,undefined);assert.equal(records.get(original.id).agentReview.summary,'Resultado de A');assert.equal(records.get(original.id).notes,'Notas originales');
+ await assert.rejects(()=>c.SwingLabAgentBridge.completeReview(original,originalFile,{...review,request_id:'another-packet'}),/no corresponde/);
+});
+test('annotations and notes created while ChatGPT responds survive report attachment',async()=>{
+ const {a,c,nodes,records}=await environment();await a.loadVideoFile(file('annotated'));await new Promise(r=>setImmediate(r));
+ const context={request_id:'packet',video_sha256:'a'.repeat(64),fingerprint:'original',context:{duration_s:10},frames:[{frame_id:'F001',time_s:1,image:'data:image/jpeg;base64,AAAA'}]};a.state.current.agentContext=context;
+ const original=copy(a.state.current),originalFile=a.state.videoFile;await c.SwingLabAgentBridge.checkpoint(original,originalFile);
+ nodes.get('sessionNotes').value='Referencia añadida mientras esperaba';const line={type:'line',color:'#99ff00',width:4,x1:.2,y1:.3,x2:.8,y2:.4};c.SwingLabEditor={getDrawings:()=>[line]};
+ const review=c.SwingLabAgent.parseReview({schema:'swinglab-agent-result/1',request_id:context.request_id,video_sha256:context.video_sha256,review:{summary:'Hecho',capture_quality:{can_review:false},phase_review:c.SwingLabAgent.IDS.map(phase=>({phase,status:'uncertain',frame_id:null,time_s:null,evidence:'No evaluable'}))}},context);
+ await c.SwingLabAgentBridge.completeReview(original,originalFile,review);
+ assert.equal(records.get(original.id).notes,'Referencia añadida mientras esperaba');assert.deepEqual(copy(records.get(original.id).drawings),[line]);assert.equal(a.state.current.agentReview.summary,'Hecho');
 });

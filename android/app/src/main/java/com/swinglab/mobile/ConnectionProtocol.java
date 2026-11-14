@@ -29,6 +29,14 @@ final class ConnectionProtocol {
   next.put("expires_at",now+renewal.getLong("expires_in")*1000);
   return next;
  }
+ static String responseError(JSONObject event){
+  JSONObject response=event.optJSONObject("response"),error=response==null?event.optJSONObject("error"):response.optJSONObject("error");
+  String code=error==null?event.optString("code","unknown_error"):error.optString("code","unknown_error");
+  if(!code.matches("[A-Za-z0-9_.-]{1,100}"))code="unknown_error";
+  if(code.equals("subscription_sharing_usage_limit_exceeded")||code.equals("subscription_sharing_usage_unavailable"))return "El uso del plan de ChatGPT está agotado o no está disponible ("+code+"). Consulta Ajustes > Uso en ChatGPT. No se repitió el análisis.";
+  if(code.equals("subscription_sharing_user_not_eligible"))return "Esta cuenta no tiene acceso al uso del plan. Usa la alternativa de envío manual de fotogramas ("+code+").";
+  return "El análisis no terminó ("+code+"). Puede haber consumido uso; no se ha repetido. El vídeo sigue guardado.";
+ }
  static JSONArray catalog(JSONObject response)throws Exception{
   JSONArray source=response.optJSONArray("models");
   if(source==null)throw new ProtocolException("OpenAI devolvió un catálogo con un formato no reconocido.");
