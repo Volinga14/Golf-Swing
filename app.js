@@ -20,6 +20,7 @@ function updateSessionStatus(){
  const help=document.getElementById('phaseHelp');if(help)help.textContent=state.markMode?'Marking mode is on. Tap a phase to set it at this frame.':'Pause at a key moment, then tap an unmarked phase. Tap a marked phase to jump back to it.';
  const title=document.getElementById('reportTitle'),summary=document.getElementById('reportSummary'),meta=document.getElementById('reportMeta');
  if(title)title.textContent=state.current?.title||'Tu informe de swing';
+ const localSummary=document.querySelector('#screenResults .report-score');if(localSummary)localSummary.hidden=!!state.current?.agentReview;
  if(summary)summary.textContent=state.current?.agentReview?'Tus puntos clave, ejercicios y próximos pasos.':state.current?'Tus momentos clave y notas, guardados en este dispositivo.':'Empieza un análisis para crear tu primer informe.';
  updateLearningUI();segmentPicker.sync();
  window.SwingLabAgent?.renderReport?.();

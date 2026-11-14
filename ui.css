@@ -349,3 +349,5 @@ h1,h2,h3,h4,p{margin:0}h1,h2,h3,h4{color:var(--text);line-height:1.2;letter-spac
 @media(max-height:480px){.analysis-tasks{top:60px;left:10px;right:auto;width:min(46vw,380px);max-height:30dvh}.analysis-task img{display:none}.analysis-task{padding:8px;gap:6px}}
 
 .analysis-tasks{top:auto;bottom:calc(var(--nav-height,76px) + env(safe-area-inset-bottom,0px) + 10px)}.analysis-tasks.is-editor-open{top:calc(78px + env(safe-area-inset-top,0px));bottom:auto;right:76px;max-width:none}.analysis-tasks.is-editor-open .analysis-task button{padding:8px 6px}.analysis-tasks.is-editor-open .analysis-task{gap:7px}@media(min-width:700px){.analysis-tasks.is-editor-open{left:12px;right:auto;width:360px}}
+
+#screenResults .report-score[hidden]{display:none!important}
