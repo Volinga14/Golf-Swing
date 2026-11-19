@@ -1,0 +1,38 @@
+{
+  "encoding": "gzip",
+  "uncompressedBytes": 11905541,
+  "sha256": "45eaee27761ad883742a8d4b8fce1538d60ce43b51adf1726fafccc59b8c1a15",
+  "downloadBytes": 3072815,
+  "parts": [
+    {
+      "name": "ort-runtime.gz.0",
+      "bytes": 524288,
+      "sha256": "a04d46a5696cb74e166001cee4340d2dfe1a76d95e568efcf23e60d7d86c8e79"
+    },
+    {
+      "name": "ort-runtime.gz.1",
+      "bytes": 524288,
+      "sha256": "f18cfc8338c97c526d841078d2aaec2000246103e3be62e3a0ae20019ab8df49"
+    },
+    {
+      "name": "ort-runtime.gz.2",
+      "bytes": 524288,
+      "sha256": "a549ac5a2107ff1f4e24c93ea4e72cace4980af0acee09c26ae73cdf659ad48b"
+    },
+    {
+      "name": "ort-runtime.gz.3",
+      "bytes": 524288,
+      "sha256": "9664fe2b0e9bf7dee54f8ec89c6513d6a94c152fc07610506d8a27569abf48aa"
+    },
+    {
+      "name": "ort-runtime.gz.4",
+      "bytes": 524288,
+      "sha256": "81ffa0deeb2aca0863d7cad491f623e48900165b1cc0d563d9029df8acb672a9"
+    },
+    {
+      "name": "ort-runtime.gz.5",
+      "bytes": 451375,
+      "sha256": "b204725c3561f761d78eadd57a9a71b869c3e686d23b9c42b643177dcb151dd7"
+    }
+  ]
+}

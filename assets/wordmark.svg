@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 108" role="img" aria-labelledby="title">
+  <title id="title">Swing Lab. Analyze. Understand. Improve.</title>
+  <path d="M102 29 Q174 -12 242 23" fill="none" stroke="#59c92c" stroke-width="4" stroke-linecap="round"/>
+  <circle cx="244" cy="24" r="5" fill="#59c92c"/>
+  <text x="10" y="72" font-family="Arial, Helvetica, sans-serif" font-size="43" font-weight="800" letter-spacing="-1.5" fill="#103e32">SWING <tspan fill="#49b927">LAB</tspan></text>
+  <text x="11" y="94" font-family="Arial, Helvetica, sans-serif" font-size="9.3" font-weight="600" letter-spacing="2.1" fill="#53665d">ANALYZE. UNDERSTAND. IMPROVE.</text>
+</svg>

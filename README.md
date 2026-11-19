@@ -1,61 +1,57 @@
-# Swing Lab Hybrid v1.1.0
+# SwingLab · 0.8 Preview
 
-PWA móvil + backend Python local para análisis de swing.
+Aplicación de revisión de swing, con editor a pantalla completa, marcado local de fases, corrección manual del impacto, recorte temporal sin alterar el original, sesiones locales, comparación y exportación de informes.
 
-## Qué incluye
+## Probar en el móvil
 
-- PWA estática lista para GitHub Pages.
-- Backend FastAPI/Python en `online-engine/`.
-- Motor backend con OpenCV + MediaPipe.
-- Guardado local de vídeos, capturas, informes, features y correcciones.
-- Botón **Motor** en la app para configurar la URL del backend.
-- Botón **Enviar** en análisis para guardar correcciones como dataset de entrenamiento.
+Abre https://volinga14.github.io/Golf-Swing/ y elige **New analysis**. Al cargar un vídeo se abre el editor. Pulsa **Analizar**: primero ajusta el tramo con dos tiradores sobre la tira de fotogramas, sin salir del vídeo. Pulsa **Continuar** y después **Analizar swing**. Marcar el impacto es una ayuda opcional en el segundo paso. Guarda la sesión para conservar el tramo, las fases y el original. Las herramientas de dibujo, vista, capturas y revisión IA están agrupadas en **Más**.
 
-## Uso rápido backend local
+El motor local actual propone fases en vista desde atrás (DTL). La vista frontal se puede revisar manualmente. El seguimiento corporal y de palo completo no está implementado todavía. Las herramientas de dibujo no representan mediciones automáticas.
 
-```powershell
-cd online-engine
-.venv\Scripts\activate
-python -m uvicorn main:app --host 0.0.0.0 --port 8000
+Las sesiones de la aplicación anterior siguen en su base de datos independiente; el enlace **Abrir editor anterior y sus sesiones** está en Perfil → Help & testing. No se trasladan automáticamente a la nueva base. Abre el editor anterior con conexión para recuperar su contenido; no borres los datos del navegador.
+
+## Android Studio
+
+1. Clona este repositorio y abre la carpeta `android` en Android Studio.
+2. Usa JDK 17 y permite descargar Android SDK 35 y Gradle 8.9. El wrapper está incluido.
+3. Selecciona `app`, conecta el teléfono por USB con depuración habilitada y pulsa **Run**.
+4. Los archivos web de la raíz se copian al APK al compilar. Tras editarlos, vuelve a ejecutar **Run**.
+
+También puedes ejecutar:
+
+```sh
+cd android
+./gradlew testDebugUnitTest assembleDebug
 ```
 
-Comprueba:
+El paquete de esta entrega es `com.swinglab.mobile.preview` y se instala separado de la Beta anterior. No importa sus sesiones ni su conexión. Usa siempre la misma clave de firma local para actualizar Preview sin borrar sus datos. Los APK de CI tienen firma de depuración de su runner y no garantizan actualizaciones entre compilaciones; para pruebas repetidas es preferible Android Studio con la misma clave local. No se incluye ninguna clave privada en el repositorio.
 
-```text
-http://localhost:8000/api/health
+La PWA permite revisar cambios web cuando se publican; el APK contiene una copia del código y requiere una compilación nueva para incorporar cambios. Una actualización web no modifica el APK instalado.
+
+## Comprobaciones
+
+```sh
+npm install --ignore-scripts
+npm test
+npx playwright install chromium
+npm run test:frontend
+npm run test:browser
+node tests/segment-preview-browser.cjs
 ```
 
-## Conectar la app
+GitHub Actions ejecuta las comprobaciones web y compila un APK Preview descargable desde el artefacto de la ejecución. La publicación de Pages conserva la configuración existente del repositorio.
 
-En la PWA, botón **Motor**:
+## Estado del análisis avanzado
 
-- mismo PC: `http://localhost:8000`
-- móvil/GitHub Pages: usa Cloudflare Tunnel/ngrok y pega la URL HTTPS.
+La conexión personal opcional en Android requiere autorización y disponibilidad del proveedor; no se activa automáticamente ni incluye una API key. El servicio comercial, pagos y sincronización no están conectados en esta Preview. Los vídeos permanecen locales salvo envío explícito de imágenes para revisión. Los ejemplos 3D actuales son auxiliares de pruebas; las demostraciones reales de ejercicios todavía deben producirse o licenciarse.
 
-Ver `CONNECT_PWA_LOCAL_BACKEND.md`.
+### 0.9 Preview · revisión sin bloquear la app
 
-## Flujo de entrenamiento
+- El recorte y la reproducción agrupan los movimientos del deslizador: una búsqueda de vídeo activa y la última posición pendiente. Al soltar se pide el fotograma preciso. La previsualización rápida depende del decodificador del móvil.
+- El análisis local sigue en su worker y ChatGPT usa la conexión nativa asíncrona. Un aviso identifica el swing; se puede navegar, reproducir y dibujar durante la revisión. Antes del envío y al salir del swing activo se guarda una copia local. Cada resultado se guarda por ID de sesión, hash de vídeo e ID de paquete. No se abre el informe automáticamente ni se cambia de pantalla.
+- Esta continuidad funciona mientras la app permanece abierta. No se garantiza completar un trabajo si Android mata el proceso o se cierra la web; no se reenvían peticiones automáticamente. Un aviso al cerrar evita interrumpirlas sin darse cuenta.
+- La conexión directa con la cuenta está en Android. La web mantiene la vía explícita de compartir fotogramas y traer el JSON. Una pestaña de ChatGPT abierta no autentica la PWA.
+- La ayuda distingue reautorización, permiso de uso, catálogo y red. Los errores terminales del stream conservan el código de uso del plan. La alternativa manual permanece disponible también en Android.
+- El informe muestra una secuencia de evidencia, una prioridad principal, seis áreas, observaciones técnicas ilustradas, hipótesis separadas, dosis de ejercicios y errores habituales. La nota es secundaria y las áreas no evaluables se indican. Los informes antiguos usan sus datos existentes; solo una revisión nueva produce contenido técnico adicional.
 
-1. Subes vídeo en la PWA.
-2. La PWA manda vídeo al backend.
-3. Backend detecta fases y genera capturas/informe.
-4. Corriges fases en la PWA.
-5. Botón **Enviar**.
-6. Backend guarda detección automática vs corrección manual en `online-engine/data/training/`.
-
-## Carpetas importantes
-
-```text
-online-engine/data/videos      vídeos analizados
-online-engine/data/captures    capturas por fase
-online-engine/data/reports     informes HTML
-online-engine/data/features    features y pose samples
-online-engine/data/training    dataset de correcciones
-online-engine/data/db          SQLite local
-```
-
-## Notas
-
-- Mantener Python 3.12 para máxima compatibilidad con OpenCV/MediaPipe.
-- El backend debe estar encendido para usar motor online.
-- Si no hay backend, la app mantiene fallback local.
+Validación: pruebas unitarias de búsqueda de vídeo, resultados tardíos, notas y dibujos durante revisión, importación ligada al paquete y errores de streaming; pruebas de navegador con vídeo sintético y respuesta simulada (sin solicitudes a OpenAI). La elegibilidad y la autorización real del usuario deben comprobarse en su dispositivo.
