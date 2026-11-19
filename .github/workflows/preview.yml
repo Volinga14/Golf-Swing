@@ -48,9 +48,14 @@ jobs:
         with:
           packages: platform-tools platforms;android-35 build-tools;35.0.0
       - uses: gradle/actions/setup-gradle@v4
-      - run: bash android/gradlew -p android testDebugUnitTest assembleDebug --no-daemon
+      - run: bash android/gradlew -p android testDebugUnitTest assembleDebug -PswingLabParallelPreview=true --no-daemon
+      - name: Verify parallel installation identity
+        run: |
+          apk=android/app/build/outputs/apk/debug/app-debug.apk
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$apk" | grep -F "package: name='com.swinglab.mobile.preview.test10'"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump xmltree "$apk" AndroidManifest.xml | grep -F 'swinglab-preview-10'
       - uses: actions/upload-artifact@v4
         with:
-          name: SwingLab-0.10.0-Preview-APK
+          name: SwingLab-0.10.0-Instalacion-Paralela
           path: android/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 14

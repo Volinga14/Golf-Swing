@@ -1,10 +1,23 @@
 plugins { id 'com.android.application' }
+
+def parallelPreview = providers.gradleProperty('swingLabParallelPreview').orNull == 'true'
+def returnScheme = parallelPreview ? 'swinglab-preview-10' : 'swinglab-preview'
+def previewLabel = parallelPreview ? 'SwingLab Pruebas 0.10' : 'SwingLab Preview'
 android {
  namespace 'com.swinglab.mobile'
  compileSdk 35
- defaultConfig { applicationId 'com.swinglab.mobile'; minSdk 28; targetSdk 35; versionCode 11; versionName '0.10.0-preview'; testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner' }
+ defaultConfig {
+  applicationId 'com.swinglab.mobile'
+  minSdk 28
+  targetSdk 35
+  versionCode 11
+  versionName '0.10.0-preview'
+  testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
+  manifestPlaceholders = [swingLabLabel: previewLabel, swingLabReturnScheme: returnScheme]
+  resValue 'string', 'swinglab_return_scheme', returnScheme
+ }
  compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
- buildTypes { debug { applicationIdSuffix '.preview'; debuggable true } }
+ buildTypes { debug { applicationIdSuffix = parallelPreview ? '.preview.test10' : '.preview'; debuggable true } }
 }
 dependencies { implementation 'androidx.webkit:webkit:1.12.1'; implementation 'androidx.browser:browser:1.8.0'; testImplementation 'junit:junit:4.13.2'; testImplementation 'org.json:json:20240303'; androidTestImplementation 'androidx.test:runner:1.6.2'; androidTestImplementation 'androidx.test.ext:junit:1.2.1'; androidTestImplementation 'androidx.test:core:1.6.1' }
 def webFiles = tasks.register('syncSwingLabAssets', Sync) {
