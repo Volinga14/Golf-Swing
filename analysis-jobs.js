@@ -3,7 +3,9 @@
  const jobs=new Map();let serial=0,panel;
  function render(){
   if(!panel){panel=document.createElement('aside');panel.id='analysisTasks';panel.className='analysis-tasks';panel.setAttribute('aria-label','Análisis en curso');document.body.append(panel)}
-  panel.classList.toggle('is-editor-open',!document.getElementById('fullscreenEditor')?.hidden);panel.replaceChildren();panel.hidden=!jobs.size;
+  const editing=!document.getElementById('fullscreenEditor')?.hidden;
+  panel.replaceChildren();panel.hidden=editing||!jobs.size;
+  if(editing){window.SwingLabEditor?.updateAnalysisStatus?.();return;}
   for(const job of jobs.values()){
    const row=document.createElement('article');row.className='analysis-task';row.dataset.status=job.status;
    if(job.image){const img=document.createElement('img');img.src=job.image;img.alt='Swing en análisis';row.append(img)}
@@ -17,6 +19,11 @@
   start({session,kind,image,open}){const key=kind+'-'+(++serial);jobs.set(key,{key,sessionId:session.id,title:session.title||'Tu swing',kind,image:image||session.thumb,status:'running',message:kind==='local'?'Buscando las fases en tu dispositivo…':'ChatGPT está revisando los fotogramas…',open});render();return key},
   update(key,message){const j=jobs.get(key);if(j){j.message=message;render()}},
   finish(key,error){const j=jobs.get(key);if(j){j.status=error?'error':'done';j.message=error||'Informe guardado · listo para revisar';render()}},
+  editorStatus(id){
+   const current=[...jobs.values()].reverse(),job=current.find(j=>j.sessionId===id&&j.status==='running')||current.find(j=>j.status==='running')||current.find(j=>j.sessionId===id);
+   if(!job)return '';
+   return job.sessionId===id?job.message:job.title+' · '+job.message;
+  },
   active(id){return [...jobs.values()].some(j=>j.sessionId===id&&j.status==='running')},
   get running(){return [...jobs.values()].some(j=>j.status==='running')}
  };

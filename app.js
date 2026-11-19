@@ -536,6 +536,7 @@ document.addEventListener('visibilitychange',()=>{if(document.hidden){video.paus
   const suggestionsButton = document.getElementById('fsSuggestedButton');
   const suggestionOptions = document.getElementById('fsSuggestedOptions');
   const guideToggle = document.getElementById('fsGuideToggle');
+  let lastWorkspaceStatus;
   let visualReview, visualKey='', layerEnabled=false, renderedOverlay='', visibleKinds=new Set();
   const fsTimeline = document.getElementById('fsTimeline');
   const fsTime = document.getElementById('fsTime');
@@ -578,7 +579,7 @@ document.addEventListener('visibilitychange',()=>{if(document.hidden){video.paus
     S.shapes=JSON.parse(JSON.stringify(event.detail.drawings||[]));
     resetDrawState();
   });
-  window.SwingLabEditor={getDrawings:()=>{flushCapture();return JSON.parse(JSON.stringify(imagePhase?videoShapes:S.shapes))},openCapture,open:openEditor,close:closeEditor,refresh:refreshReview,showGuides(){layerEnabled=true;showSuggestedGuides()},
+  window.SwingLabEditor={getDrawings:()=>{flushCapture();return JSON.parse(JSON.stringify(imagePhase?videoShapes:S.shapes))},openCapture,open:openEditor,close:closeEditor,refresh:refreshReview,updateAnalysisStatus,showGuides(){layerEnabled=true;showSuggestedGuides()},
  release(){closeEditor();fsVideo.removeAttribute('src');fsVideo.load()}};
   let imagePhase=null,videoShapes=[],phaseSignature='';
   const still=document.getElementById('fsCaptureImage');
@@ -593,7 +594,7 @@ document.addEventListener('visibilitychange',()=>{if(document.hidden){video.paus
   }
 
   function nearestGuideFrame() {
-    if(!visualReview||fsVideo.seeking)return null;
+    if(!visualReview||fsVideo.seeking||!fsVideo.paused)return null;
     const time=fsVideo.currentTime;
     const times=window.SwingLabSourceTiming?.();
     const index=SwingLabVideo.frameIndex(times,time);
@@ -648,11 +649,20 @@ document.addEventListener('visibilitychange',()=>{if(document.hidden){video.paus
     showSuggestedGuides();
   }
 
+  function updateAnalysisStatus(review=lastWorkspaceStatus){
+    if(!review)return;
+    lastWorkspaceStatus=review;
+    const status=document.getElementById('fsSessionStatus');
+    if(!status)return;
+    const progress=window.SwingLabJobs?.editorStatus(review.id);
+    status.textContent=imagePhase?imagePhase+' · captura':progress||(review.busy?'Procesando…':review.saved?'Guardado':'Cambios sin guardar');
+    status.title=status.textContent;
+  }
   function refreshReview(){
     const r=window.SwingLabReview?.snapshot?.();if(!r)return;
-    const title=document.getElementById('fsReviewTitle'),status=document.getElementById('fsSessionStatus');
+    const title=document.getElementById('fsReviewTitle');
     if(title)title.textContent=r.title;
-    if(status)status.textContent=imagePhase?imagePhase+' capture':r.busy?(r.step==='analyzing'?'Analyzing on device':'Saving on device'):r.saved?'Saved on device':'Unsaved changes';
+    updateAnalysisStatus(r);
     updateSuggestedControls(r);
     const trimming=!imagePhase&&r.engineGuide&&r.step==='trim';
     editor.classList.toggle('is-trimming',trimming);editor.classList.toggle('is-analysis-prep',!imagePhase&&r.engineGuide);trimUI.show(trimming);
@@ -1142,8 +1152,8 @@ document.addEventListener('visibilitychange',()=>{if(document.hidden){video.paus
   document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!editor.hidden){e.preventDefault();closeEditor()}});
   function setStatus(txt){ fsStatusText.textContent=txt; updateLabels(); }
   fsVideo.addEventListener('timeupdate', updateTime);
-  fsVideo.addEventListener('play', updateLabels);
-  fsVideo.addEventListener('pause', updateLabels);
+  for(const event of ['play','pause'])fsVideo.addEventListener(event,()=>{updateLabels();showSuggestedGuides()});
+  fsVideo.addEventListener('seeking',showSuggestedGuides);
   fsVideo.addEventListener('loadedmetadata', () => {
     const rate = fsVideo.getVideoPlaybackQuality ? fsVideo.getVideoPlaybackQuality().totalVideoFrames / Math.max(.001, fsVideo.duration || 1) : 30;
     S.fps = Number.isFinite(rate) && rate > 10 && rate < 240 ? Math.round(rate) : 30;
