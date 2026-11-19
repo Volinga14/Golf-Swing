@@ -38,7 +38,7 @@ const notesInput=document.getElementById('sessionNotes');
 notesInput.addEventListener('input',()=>{if(state.current)state.current.notes=notesInput.value;updateSessionStatus()});
 function setVh(){root.style.setProperty('--vh',`${window.innerHeight*.01}px`)}setVh();addEventListener('resize',setVh);
 function showApp(){if(landing)landing.classList.remove('is-active');if(app)app.classList.add('is-active');if(landing)landing.inert=true;try{localStorage.setItem('swinglab_started_v1','1')}catch{}go('home')}
-function go(s,editorTime){if(!screens[s])return;if(s!=='review'&&!document.getElementById('fullscreenEditor')?.hidden)window.SwingLabEditor?.close?.();window.SwingLabPracticeUI?.stop?.();hideToast();if(s!=='review')video.pause();Object.entries(screens).forEach(([k,el])=>{el.classList.toggle('is-current',k===s);el.inert=k!==s;el.setAttribute('aria-hidden',String(k!==s))});document.querySelectorAll('.nav-item').forEach(b=>{const active=b.dataset.nav===s||(s==='train'&&b.dataset.nav==='profile')||(['review','results'].includes(s)&&b.dataset.nav==='upload');b.classList.toggle('is-active',active);if(active)b.setAttribute('aria-current','page');else b.removeAttribute('aria-current')});document.dispatchEvent(new CustomEvent('swinglab:screen-changed',{detail:{screen:s,id:state.current?.id}}));screens[s].scrollTop=0;const sc=screens[s].querySelector('.screen-scroll');if(sc)sc.scrollTop=0;renderAll();if(s==='review'&&state.videoFile&&video.readyState>=2)window.SwingLabEditor?.open?.(editorTime)}
+function go(s,editorTime){if(!screens[s])return;if(s!=='review'&&!document.getElementById('fullscreenEditor')?.hidden)window.SwingLabEditor?.close?.();window.SwingLabPracticeUI?.stop?.();hideToast();if(s!=='review')video.pause();Object.entries(screens).forEach(([k,el])=>{el.classList.toggle('is-current',k===s);el.inert=k!==s;el.setAttribute('aria-hidden',String(k!==s))});document.querySelectorAll('.nav-item').forEach(b=>{const active=b.dataset.nav===s||(s==='train'&&b.dataset.nav==='profile')||(['review','results'].includes(s)&&b.dataset.nav==='upload');b.classList.toggle('is-active',active);if(active)b.setAttribute('aria-current','page');else b.removeAttribute('aria-current')});document.dispatchEvent(new CustomEvent('swinglab:screen-changed',{detail:{screen:s,id:state.current?.id}}));screens[s].scrollTop=0;const sc=screens[s].querySelector('.screen-scroll');if(sc)sc.scrollTop=0;renderAll();if(s==='review'&&state.videoFile){guidedPending=false;window.SwingLabEditor?.open?.(editorTime)}}
 function modalMsg(t,txt=''){modalTitle.textContent=t;modalText.textContent=txt;if(t==='Session saved.'){showToast('Session saved on this device');updateSessionStatus();return}dialogReturn=document.activeElement;modal.hidden=false;app.inert=true;if(landing)landing.inert=true;modal.querySelector('.modal-back')?.focus()}
 function closeModal(){modal.hidden=true;app.inert=false;if(landing)landing.inert=!landing.classList.contains('is-active');dialogReturn?.focus?.()}
 document.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;if(b.dataset.action)handle(b.dataset.action);if(b.dataset.nav)go(b.dataset.nav);if(b.dataset.openSession)openSession(b.dataset.openSession);if(b.dataset.deleteId)deleteSession(b.dataset.deleteId);if(b.dataset.compareId)toggleCompare(b.dataset.compareId);if(b.dataset.comparePhase)renderCompareViewer(b.dataset.comparePhase);if(b.dataset.modalTitle)modalMsg(b.dataset.modalTitle);if(b.hasAttribute('data-close'))closeModal()});
@@ -464,7 +464,7 @@ window.SwingLabAgentBridge={
  current:()=>state.current?clone(state.current):null,file:()=>state.videoFile,busy:()=>state.engineBusy||state.storageBusy,
  checkpoint:checkpointSession,completeReview:finishAgentReview,open:openAnalysisSession,
  async prepareForAgent(onProgress){const id=state.current?.id,file=state.videoFile;if(!id||!file)throw Error('Carga un vídeo primero.');if(!phases.every(p=>Number.isFinite(state.current.phases?.[p])))await analyzeWithEngine(file,{onProgress,silentTask:true});if(state.current?.id!==id||state.videoFile!==file)throw Error('Cambiaste de vídeo antes del envío.');await SwingLabAgent.prepare({allowOverview:true,onProgress});},
- playable:()=>!!state.videoFile&&video.readyState>=2,
+ playable:()=>!!state.videoFile&&!video.error,
  mode(mode){if(state.current)state.current.analysisMode=mode;updateSessionStatus()},
  startLocal(){beginAnalysis('local')},
  setContext(context,metadata){if(!state.current)return;Object.assign(state.current,{duration:metadata.duration,videoSha256:metadata.sha256,timing:metadata.timing,agentContext:context,agentReview:null,analysisMode:'agent'});updateSessionStatus()},
@@ -710,9 +710,11 @@ document.addEventListener('visibilitychange',()=>{if(document.hidden){video.paus
     document.getElementById('appView').inert=true;
     document.dispatchEvent(new CustomEvent('swinglab:editor-opened'));
     editor.querySelector('[data-fs-action="close"]')?.focus();
-    const source=mainVideo.src,newSource=fsVideo.src!==source,target=Math.max(0,Math.min(mainVideo.duration-.001,Number.isFinite(requestedTime)?requestedTime:mainVideo.currentTime));
+    const source=mainVideo.src,newSource=fsVideo.src!==source;
+    const position=Number.isFinite(requestedTime)?requestedTime:mainVideo.currentTime;
     const ready=()=>{
       if(editor.hidden||mainVideo.src!==source||fsVideo.src!==source)return;
+      const target=Math.max(0,Math.min(fsVideo.duration-.001,position));
       SwingLabVideo.seek(fsVideo,target).then(()=>{resizeCanvas();draw();updateTime()}).catch(()=>setStatus('Use the timeline to choose a frame'));
     };
     if(newSource){fsVideo.addEventListener('loadeddata',ready,{once:true});fsVideo.src=source;resetDrawState()}
