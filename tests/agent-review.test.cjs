@@ -29,3 +29,10 @@ test('overview samples only the chosen swing inside a longer original recording'
  assert.equal(points.length,30);assert(points.every(p=>p.time>=10.03&&p.time<=14.97));assert.equal(points[0].source_frame,101);
  assert.throws(()=>S.overview(60,null,{start:10,end:30}));
 });
+
+test('only bounded visual guides with real image evidence survive a review and reload',()=>{
+ const G=require('../swing-guides.js');
+ const real={frame_id:'F001',kind:'posture',shape:'line',from:[.2,.5],to:[.4,.1]};
+ const guides=G.normalize([real,{...real,frame_id:'F999'},{...real,to:[1.1,.1]},{...real,kind:'toString'},{...real,from:[.4,.1]}],new Set(['F001']));
+ assert.deepEqual(guides,[real]);assert.match(G.svg(guides,192,320),/viewBox="0 0 192 320"/);assert.match(G.svg(guides,192,320),/<line /);
+});

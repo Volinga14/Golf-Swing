@@ -45,6 +45,7 @@ async function environment(history=[]){
   context.SwingLabLearning.collect=async()=>[];
   const metadata={sha256:'a'.repeat(64),duration:10,timing:{source:'seconds',verified:false,times:[]}};
   context.SwingLabLocal={prepare:async()=>metadata,analyze:async()=>localResult({impact:2})};
+  vm.runInContext(fs.readFileSync(path.join(root,'swing-guides.js'),'utf8'),context);
   vm.runInContext(fs.readFileSync(path.join(root,'agent-review.js'),'utf8'),context);
   vm.runInContext(storage,context);
   const fakeStore={init:async()=>({history:copy(history)}),save:async(s,f)=>{records.set(s.id,copy(s));if(f)videos.set(s.id,f)},
@@ -175,7 +176,7 @@ test('both HTML pages request exactly the scripts and styles that are precached'
   const sw=serviceWorker();const shell=vm.runInContext('Array.from(SHELL_URLS)',sw.context);
   for(const name of ['index.html','dashboard.html']){
     const html=fs.readFileSync(path.join(root,name),'utf8');const urls=[...html.matchAll(/<script src="([^\"]+)"|<link rel="stylesheet" href="([^\"]+)"/g)].map(m=>m[1]||m[2]);
-    assert.equal(urls.length,24);for(const url of urls){assert.ok(shell.includes('https://test.invalid/GLAB/'+url));assert.ok(fs.existsSync(path.join(root,url.split('?')[0])))}
+    assert.equal(urls.length,25);for(const url of urls){assert.ok(shell.includes('https://test.invalid/GLAB/'+url));assert.ok(fs.existsSync(path.join(root,url.split('?')[0])))}
   }
 });
 
