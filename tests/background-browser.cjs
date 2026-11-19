@@ -12,7 +12,7 @@ let browser,page;
  await page.waitForFunction(()=>window.completeLocal);await page.waitForFunction(()=>document.getElementById('fsSessionStatus').textContent.includes('Buscando las fases'));await page.screenshot({path:path.join(out,'background-analysis-mobile.png')});
  await page.click('.fs-side [data-fs-action="options"]');await page.click('#fsReviewOptions [data-fs-action="toggle-tools"]');
  await page.locator('#toolPanel:not([hidden])').waitFor();await page.click('#toolPanel [data-tool="line"]');
- const canvas=await page.locator('#fullscreenCanvas').boundingBox();await page.mouse.move(canvas.x+canvas.width*.35,canvas.y+canvas.height*.33);await page.mouse.down();await page.mouse.move(canvas.x+canvas.width*.62,canvas.y+canvas.height*.46,{steps:8});await page.mouse.up();
+ const canvas=await page.locator('#fullscreenCanvas').boundingBox();await page.mouse.move(canvas.x+canvas.width*.35,canvas.y+canvas.height*.52);await page.mouse.down();await page.mouse.move(canvas.x+canvas.width*.62,canvas.y+canvas.height*.66,{steps:8});await page.mouse.up();
  assert.equal(await page.evaluate(()=>SwingLabEditor.getDrawings().length),1);assert.equal(await page.evaluate(()=>analysisSignal.aborted),false);
  const slider=await page.locator('#fsTimeline').boundingBox();await page.mouse.move(slider.x+14,slider.y+slider.height/2);await page.mouse.down();await page.mouse.move(slider.x+slider.width*.62,slider.y+slider.height/2,{steps:12});await page.mouse.up();await page.waitForFunction(()=>Math.abs(document.getElementById('fullscreenVideo').currentTime-2.5)<.12);
  assert.equal(await page.evaluate(()=>analysisSignal.aborted),false);
